@@ -1,0 +1,473 @@
+// 📊 Analytics Dashboard Component
+// View comprehensive user analytics, device tracking, and usage statistics
+
+import React, { useState, useEffect } from 'react';
+import { db } from '../firebase';
+import { collection, query, orderBy, limit, getDocs, where } from 'firebase/firestore';
+
+function AnalyticsDashboard({ user }) {
+  const [analytics, setAnalytics] = useState({
+    devices: [],
+    sessions: [],
+    scanEvents: [],
+    events: [],
+    loading: true
+  });
+  const [timeRange, setTimeRange] = useState('24h'); // 24h, 7d, 30d, all
+  const [activeTab, setActiveTab] = useState('overview');
+  useEffect(() => {
+    if (user?.uid) {
+      loadAnalytics();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, timeRange]);
+
+  const loadAnalytics = async () => {
+    try {
+      setAnalytics(prev => ({ ...prev, loading: true }));
+      
+      const now = new Date();
+      let startDate = new Date();
+      
+      switch (timeRange) {
+        case '24h':
+          startDate.setHours(now.getHours() - 24);
+          break;
+        case '7d':
+          startDate.setDate(now.getDate() - 7);
+          break;
+        case '30d':
+          startDate.setDate(now.getDate() - 30);
+          break;
+        default:
+          startDate = new Date(0); // All time
+      }
+
+      // Load devices data
+      const devicesQuery = query(
+        collection(db, 'devices'),
+        orderBy('lastSeen', 'desc'),
+        limit(100)
+      );
+      const devicesSnap = await getDocs(devicesQuery);
+      const devices = devicesSnap.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate(),
+        lastSeen: doc.data().lastSeen?.toDate()
+      }));
+
+      // Load sessions data
+      const sessionsQuery = query(
+        collection(db, 'sessions'),
+        where('startTime', '>=', startDate),
+        orderBy('startTime', 'desc'),
+        limit(200)
+      );
+      const sessionsSnap = await getDocs(sessionsQuery);
+      const sessions = sessionsSnap.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        startTime: doc.data().startTime?.toDate()
+      }));
+
+      // Load scan events
+      const scanEventsQuery = query(
+        collection(db, 'scan_events'),
+        where('timestamp', '>=', startDate),
+        orderBy('timestamp', 'desc'),
+        limit(500)
+      );
+      const scanEventsSnap = await getDocs(scanEventsQuery);
+      const scanEvents = scanEventsSnap.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        timestamp: doc.data().timestamp?.toDate()
+      }));
+
+      // Load general events
+      const eventsQuery = query(
+        collection(db, 'events'),
+        where('timestamp', '>=', startDate),
+        orderBy('timestamp', 'desc'),
+        limit(500)
+      );
+      const eventsSnap = await getDocs(eventsQuery);
+      const events = eventsSnap.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        timestamp: doc.data().timestamp?.toDate()
+      }));
+
+      setAnalytics({
+        devices,
+        sessions,
+        scanEvents,
+        events,
+        loading: false
+      });
+    } catch (error) {
+      console.error('Error loading analytics:', error);
+      setAnalytics(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const calculateStats = () => {
+    const { devices, sessions, scanEvents, events } = analytics;
+    
+    const totalDevices = devices.length;
+    const totalSessions = sessions.length;
+    const totalScans = scanEvents.length;
+    const totalEvents = events.length;
+    
+    const uniqueDevicesRecent = new Set(sessions.map(s => s.deviceId)).size;
+    const successfulScans = scanEvents.filter(s => s.success).length;
+    const premiumUsers = devices.filter(d => d.isPremium).length;
+    
+    const avgSessionsPerDevice = totalDevices > 0 ? (totalSessions / totalDevices).toFixed(2) : 0;
+    const avgScansPerSession = totalSessions > 0 ? (totalScans / totalSessions).toFixed(2) : 0;
+    const scanSuccessRate = totalScans > 0 ? ((successfulScans / totalScans) * 100).toFixed(1) : 0;
+    
+    return {
+      totalDevices,
+      totalSessions,
+      totalScans,
+      totalEvents,
+      uniqueDevicesRecent,
+      successfulScans,
+      premiumUsers,
+      avgSessionsPerDevice,
+      avgScansPerSession,
+      scanSuccessRate
+    };
+  };
+
+  const getTopMedications = () => {
+    const medicationCounts = {};
+    analytics.scanEvents.forEach(scan => {
+      if (scan.medicationName) {
+        medicationCounts[scan.medicationName] = (medicationCounts[scan.medicationName] || 0) + 1;
+      }
+    });
+    
+    return Object.entries(medicationCounts)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 10)
+      .map(([name, count]) => ({ name, count }));
+  };
+
+  const getTopEvents = () => {
+    const eventCounts = {};
+    analytics.events.forEach(event => {
+      if (event.eventName) {
+        eventCounts[event.eventName] = (eventCounts[event.eventName] || 0) + 1;
+      }
+    });
+    
+    return Object.entries(eventCounts)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, 10)
+      .map(([name, count]) => ({ name, count }));
+  };
+
+  const getDeviceInfo = () => {
+    const platforms = {};
+    const browsers = {};
+    const locations = {};
+    
+    analytics.devices.forEach(device => {
+      // Platform stats
+      if (device.platform) {
+        platforms[device.platform] = (platforms[device.platform] || 0) + 1;
+      }
+      
+      // Browser stats (simplified)
+      if (device.userAgent) {
+        let browser = 'Other';
+        if (device.userAgent.includes('Chrome')) browser = 'Chrome';
+        else if (device.userAgent.includes('Firefox')) browser = 'Firefox';
+        else if (device.userAgent.includes('Safari')) browser = 'Safari';
+        else if (device.userAgent.includes('Edge')) browser = 'Edge';
+        
+        browsers[browser] = (browsers[browser] || 0) + 1;
+      }
+      
+      // Location stats
+      if (device.ipLocation?.country) {
+        locations[device.ipLocation.country] = (locations[device.ipLocation.country] || 0) + 1;
+      }
+    });
+    
+    return { platforms, browsers, locations };
+  };
+
+  if (analytics.loading) {
+    return (
+      <div style={{ padding: '20px', textAlign: 'center' }}>
+        <div style={{ fontSize: '48px', marginBottom: '20px' }}>📊</div>
+        <div>Loading Analytics...</div>
+      </div>
+    );
+  }
+
+  const stats = calculateStats();
+  const topMedications = getTopMedications();
+  const topEvents = getTopEvents();
+  const deviceInfo = getDeviceInfo();
+
+  return (
+    <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
+      <div style={{ marginBottom: '30px' }}>
+        <h1 style={{ color: '#2c5530', marginBottom: '10px' }}>📊 MediScan Analytics</h1>
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+          {['24h', '7d', '30d', 'all'].map(range => (
+            <button
+              key={range}
+              onClick={() => setTimeRange(range)}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: timeRange === range ? '#2c5530' : '#f8f9fa',
+                color: timeRange === range ? 'white' : '#333',
+                border: '1px solid #ddd',
+                borderRadius: '6px',
+                cursor: 'pointer'
+              }}
+            >
+              {range === 'all' ? 'All Time' : range.toUpperCase()}
+            </button>
+          ))}
+        </div>
+        
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+          {['overview', 'devices', 'scans', 'events'].map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              style={{
+                padding: '10px 20px',
+                backgroundColor: activeTab === tab ? '#007bff' : '#f8f9fa',
+                color: activeTab === tab ? 'white' : '#333',
+                border: '1px solid #ddd',
+                borderRadius: '6px',
+                cursor: 'pointer',
+                textTransform: 'capitalize'
+              }}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {activeTab === 'overview' && (
+        <div>
+          {/* Stats Cards */}
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', 
+            gap: '20px', 
+            marginBottom: '30px' 
+          }}>
+            {[
+              { title: 'Total Devices', value: stats.totalDevices, icon: '📱' },
+              { title: 'Active Sessions', value: stats.totalSessions, icon: '🔄' },
+              { title: 'Total Scans', value: stats.totalScans, icon: '🔍' },
+              { title: 'Success Rate', value: `${stats.scanSuccessRate}%`, icon: '✅' },
+              { title: 'Premium Users', value: stats.premiumUsers, icon: '💎' },
+              { title: 'Avg Scans/Session', value: stats.avgScansPerSession, icon: '📈' }
+            ].map((stat, index) => (
+              <div key={index} style={{
+                backgroundColor: 'white',
+                padding: '20px',
+                borderRadius: '10px',
+                boxShadow: '0 2px 10px rgba(0,0,0,0.1)',
+                textAlign: 'center'
+              }}>
+                <div style={{ fontSize: '30px', marginBottom: '10px' }}>{stat.icon}</div>
+                <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#2c5530' }}>{stat.value}</div>
+                <div style={{ color: '#666', fontSize: '14px' }}>{stat.title}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Top Medications */}
+          <div style={{ marginBottom: '30px' }}>
+            <h3>🏆 Top Medications Scanned</h3>
+            <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
+              {topMedications.map((med, index) => (
+                <div key={index} style={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  padding: '10px 0',
+                  borderBottom: index < topMedications.length - 1 ? '1px solid #eee' : 'none'
+                }}>
+                  <span>{med.name}</span>
+                  <span style={{ fontWeight: 'bold', color: '#2c5530' }}>{med.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'devices' && (
+        <div>
+          {/* Device Info */}
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
+            gap: '20px', 
+            marginBottom: '30px' 
+          }}>
+            <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
+              <h4>🖥️ Platforms</h4>
+              {Object.entries(deviceInfo.platforms).map(([platform, count]) => (
+                <div key={platform} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0' }}>
+                  <span>{platform}</span>
+                  <span style={{ fontWeight: 'bold' }}>{count}</span>
+                </div>
+              ))}
+            </div>
+            
+            <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
+              <h4>🌐 Browsers</h4>
+              {Object.entries(deviceInfo.browsers).map(([browser, count]) => (
+                <div key={browser} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0' }}>
+                  <span>{browser}</span>
+                  <span style={{ fontWeight: 'bold' }}>{count}</span>
+                </div>
+              ))}
+            </div>
+            
+            <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
+              <h4>🌍 Countries</h4>
+              {Object.entries(deviceInfo.locations).slice(0, 10).map(([country, count]) => (
+                <div key={country} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0' }}>
+                  <span>{country}</span>
+                  <span style={{ fontWeight: 'bold' }}>{count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Recent Devices */}
+          <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
+            <h4>📱 Recent Devices</h4>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid #eee' }}>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Device ID</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Platform</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Location</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Scans</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Last Seen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {analytics.devices.slice(0, 20).map((device, index) => (
+                    <tr key={device.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                      <td style={{ padding: '10px', fontSize: '12px' }}>{device.deviceId?.substring(0, 12)}...</td>
+                      <td style={{ padding: '10px' }}>{device.platform}</td>
+                      <td style={{ padding: '10px' }}>{device.ipLocation?.city}, {device.ipLocation?.country}</td>
+                      <td style={{ padding: '10px' }}>{device.totalScanCount || 0}</td>
+                      <td style={{ padding: '10px' }}>{device.lastSeen?.toLocaleDateString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'scans' && (
+        <div>
+          {/* Recent Scans */}
+          <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
+            <h4>🔍 Recent Scans</h4>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid #eee' }}>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Timestamp</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Medication</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>User Type</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Success</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Method</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {analytics.scanEvents.slice(0, 50).map((scan, index) => (
+                    <tr key={scan.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                      <td style={{ padding: '10px' }}>{scan.timestamp?.toLocaleString()}</td>
+                      <td style={{ padding: '10px' }}>{scan.medicationName}</td>
+                      <td style={{ padding: '10px' }}>
+                        {scan.isPremium ? '💎 Premium' : scan.isLoggedIn ? '👤 Registered' : '🆓 Free'}
+                      </td>
+                      <td style={{ padding: '10px' }}>{scan.success ? '✅' : '❌'}</td>
+                      <td style={{ padding: '10px' }}>{scan.scanMethod}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'events' && (
+        <div>
+          {/* Top Events */}
+          <div style={{ marginBottom: '30px' }}>
+            <h4>🎯 Top Events</h4>
+            <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
+              {topEvents.map((event, index) => (
+                <div key={index} style={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  padding: '10px 0',
+                  borderBottom: index < topEvents.length - 1 ? '1px solid #eee' : 'none'
+                }}>
+                  <span>{event.name}</span>
+                  <span style={{ fontWeight: 'bold', color: '#2c5530' }}>{event.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Recent Events */}
+          <div style={{ backgroundColor: 'white', borderRadius: '10px', padding: '20px', boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}>
+            <h4>📝 Recent Events</h4>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid #eee' }}>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Timestamp</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Event</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Device</th>
+                    <th style={{ padding: '10px', textAlign: 'left' }}>Details</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {analytics.events.slice(0, 100).map((event, index) => (
+                    <tr key={event.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                      <td style={{ padding: '10px' }}>{event.timestamp?.toLocaleString()}</td>
+                      <td style={{ padding: '10px' }}>{event.eventName}</td>
+                      <td style={{ padding: '10px', fontSize: '12px' }}>{event.deviceId?.substring(0, 8)}...</td>
+                      <td style={{ padding: '10px', fontSize: '12px' }}>
+                        {Object.keys(event).filter(k => !['id', 'timestamp', 'eventName', 'deviceId', 'sessionId'].includes(k)).slice(0, 2).join(', ')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default AnalyticsDashboard;

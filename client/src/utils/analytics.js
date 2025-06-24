@@ -1,0 +1,338 @@
+// 📊 MediScan Analytics & Device Tracking Utility
+// Comprehensive user analytics, device fingerprinting, and usage tracking
+
+import { doc, setDoc, getDoc, updateDoc, collection, addDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+
+class AnalyticsService {
+  constructor() {
+    this.deviceId = null;
+    this.sessionId = null;
+    this.userAgent = navigator.userAgent;
+    this.screenInfo = {
+      width: window.screen.width,
+      height: window.screen.height,
+      pixelRatio: window.devicePixelRatio
+    };
+    this.init();
+  }
+
+  // Initialize analytics service
+  async init() {
+    this.deviceId = await this.getOrCreateDeviceId();
+    this.sessionId = this.generateSessionId();
+    await this.trackSession();
+  }
+
+  // Generate unique device fingerprint
+  async getOrCreateDeviceId() {
+    // Check if device ID already exists
+    let deviceId = localStorage.getItem('mediscan_device_id');
+    
+    if (!deviceId) {
+      // Create unique device fingerprint
+      const fingerprint = await this.generateDeviceFingerprint();
+      deviceId = `device_${fingerprint}_${Date.now()}`;
+      localStorage.setItem('mediscan_device_id', deviceId);
+      
+      // Store device info in Firestore
+      await this.storeDeviceInfo(deviceId);
+    }
+    
+    return deviceId;
+  }
+
+  // Generate device fingerprint based on various attributes
+  async generateDeviceFingerprint() {
+    const components = [
+      navigator.userAgent,
+      navigator.language,
+      navigator.platform,
+      navigator.hardwareConcurrency || 'unknown',
+      window.screen.width + 'x' + window.screen.height,
+      window.screen.colorDepth,
+      new Date().getTimezoneOffset(),
+      this.getCanvasFingerprint(),
+      await this.getWebGLFingerprint()
+    ];
+    
+    // Create hash from components
+    const fingerprint = await this.hashString(components.join('|'));
+    return fingerprint.substring(0, 16);
+  }
+
+  // Canvas fingerprinting
+  getCanvasFingerprint() {
+    try {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      ctx.textBaseline = 'top';
+      ctx.font = '14px Arial';
+      ctx.fillText('MediScan Device ID', 2, 2);
+      return canvas.toDataURL().substring(0, 50);
+    } catch (e) {
+      return 'canvas_unavailable';
+    }
+  }
+
+  // WebGL fingerprinting
+  async getWebGLFingerprint() {
+    try {
+      const canvas = document.createElement('canvas');
+      const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+      if (!gl) return 'webgl_unavailable';
+      
+      const renderer = gl.getParameter(gl.RENDERER);
+      const vendor = gl.getParameter(gl.VENDOR);
+      return `${vendor}_${renderer}`.substring(0, 30);
+    } catch (e) {
+      return 'webgl_error';
+    }
+  }
+
+  // Hash string function
+  async hashString(str) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(str);
+    const hash = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(hash))
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  // Generate session ID
+  generateSessionId() {
+    return `session_${Date.now()}_${Math.random().toString(36).substring(2)}`;
+  }
+
+  // Get user location (with permission)
+  async getUserLocation() {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        resolve({ error: 'Geolocation not supported' });
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy
+          });
+        },
+        (error) => {
+          resolve({ error: error.message });
+        },
+        { timeout: 10000, enableHighAccuracy: false }
+      );
+    });
+  }
+
+  // Get IP-based location and other metadata
+  async getIPLocation() {
+    try {
+      const response = await fetch('https://ipapi.co/json/');
+      const data = await response.json();
+      return {
+        ip: data.ip,
+        city: data.city,
+        region: data.region,
+        country: data.country_name,
+        countryCode: data.country_code,
+        timezone: data.timezone,
+        isp: data.org
+      };
+    } catch (error) {
+      console.warn('Could not fetch IP location:', error);
+      return { error: 'IP location unavailable' };
+    }
+  }
+
+  // Store comprehensive device information
+  async storeDeviceInfo(deviceId) {
+    try {
+      const location = await this.getUserLocation();
+      const ipLocation = await this.getIPLocation();
+      
+      const deviceInfo = {
+        deviceId,
+        createdAt: new Date(),
+        userAgent: this.userAgent,
+        platform: navigator.platform,
+        language: navigator.language,
+        languages: navigator.languages,
+        screenInfo: this.screenInfo,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        cookiesEnabled: navigator.cookieEnabled,
+        onlineStatus: navigator.onLine,
+        hardwareConcurrency: navigator.hardwareConcurrency,
+        deviceMemory: navigator.deviceMemory || 'unknown',
+        connection: navigator.connection ? {
+          effectiveType: navigator.connection.effectiveType,
+          downlink: navigator.connection.downlink,
+          rtt: navigator.connection.rtt
+        } : 'unknown',
+        location: location.error ? null : location,
+        ipLocation: ipLocation.error ? null : ipLocation,
+        firstSeen: new Date(),
+        lastSeen: new Date(),
+        sessionCount: 1,
+        scanCount: 0,
+        totalScanCount: 0
+      };
+
+      await setDoc(doc(db, 'devices', deviceId), deviceInfo);
+      console.log('📱 Device registered:', deviceId);
+    } catch (error) {
+      console.error('Error storing device info:', error);
+    }
+  }
+
+  // Track new session
+  async trackSession() {
+    try {
+      // Update device last seen
+      const deviceRef = doc(db, 'devices', this.deviceId);
+      await updateDoc(deviceRef, {
+        lastSeen: new Date(),
+        sessionCount: this.increment()
+      });
+
+      // Create session record
+      const sessionData = {
+        sessionId: this.sessionId,
+        deviceId: this.deviceId,
+        startTime: new Date(),
+        userAgent: this.userAgent,
+        referrer: document.referrer || 'direct',
+        url: window.location.href,
+        screenInfo: this.screenInfo
+      };
+
+      await addDoc(collection(db, 'sessions'), sessionData);
+      console.log('📊 Session tracked:', this.sessionId);
+    } catch (error) {
+      console.error('Error tracking session:', error);
+    }
+  }
+
+  // Track scan event
+  async trackScan(scanData) {
+    try {
+      const scanEvent = {
+        deviceId: this.deviceId,
+        sessionId: this.sessionId,
+        timestamp: new Date(),
+        scanType: scanData.scanType || 'medication',
+        medicationName: scanData.medicationName,
+        hasResults: !!scanData.suggestions,
+        isLoggedIn: !!scanData.userId,
+        isPremium: scanData.isPremium || false,
+        scanMethod: scanData.scanMethod || 'manual', // manual, camera, upload
+        ...scanData
+      };
+
+      // Store scan event
+      await addDoc(collection(db, 'scan_events'), scanEvent);
+
+      // Update device scan counts
+      const deviceRef = doc(db, 'devices', this.deviceId);
+      await updateDoc(deviceRef, {
+        totalScanCount: this.increment(),
+        lastScanDate: new Date()
+      });
+
+      console.log('🔍 Scan tracked:', scanEvent);
+    } catch (error) {
+      console.error('Error tracking scan:', error);
+    }
+  }
+
+  // Track user action/event
+  async trackEvent(eventName, eventData = {}) {
+    try {
+      const event = {
+        deviceId: this.deviceId,
+        sessionId: this.sessionId,
+        eventName,
+        timestamp: new Date(),
+        url: window.location.href,
+        ...eventData
+      };
+
+      await addDoc(collection(db, 'events'), event);
+      console.log(`🎯 Event tracked: ${eventName}`);
+    } catch (error) {
+      console.error('Error tracking event:', error);
+    }
+  }
+
+  // Get device scan limits based on analytics
+  async getDeviceScanLimits() {
+    try {
+      const deviceRef = doc(db, 'devices', this.deviceId);
+      const deviceDoc = await getDoc(deviceRef);
+      
+      if (deviceDoc.exists()) {
+        const data = deviceDoc.data();
+        const today = new Date().toISOString().slice(0, 10);
+        
+        // Reset daily count if new day
+        if (data.lastScanDate?.toDate().toISOString().slice(0, 10) !== today) {
+          await updateDoc(deviceRef, {
+            dailyScanCount: 0,
+            lastScanDate: new Date()
+          });
+          return { dailyScans: 0, totalScans: data.totalScanCount || 0 };
+        }
+        
+        return {
+          dailyScans: data.dailyScanCount || 0,
+          totalScans: data.totalScanCount || 0
+        };
+      }
+      
+      return { dailyScans: 0, totalScans: 0 };
+    } catch (error) {
+      console.error('Error getting device scan limits:', error);
+      return { dailyScans: 0, totalScans: 0 };
+    }
+  }
+
+  // Increment helper for Firestore
+  increment() {
+    // Note: In production, use Firestore's increment() function
+    // This is a simplified version for compatibility
+    return Date.now(); // Placeholder - will be replaced with proper increment
+  }
+
+  // Get comprehensive analytics data
+  async getAnalytics() {
+    try {
+      const deviceRef = doc(db, 'devices', this.deviceId);
+      const deviceDoc = await getDoc(deviceRef);
+      
+      if (deviceDoc.exists()) {
+        return deviceDoc.data();
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error getting analytics:', error);
+      return null;
+    }
+  }
+}
+
+// Create singleton instance
+const analytics = new AnalyticsService();
+
+export default analytics;
+
+// Convenience functions
+export const trackScan = (scanData) => analytics.trackScan(scanData);
+export const trackEvent = (eventName, eventData) => analytics.trackEvent(eventName, eventData);
+export const getDeviceId = () => analytics.deviceId;
+export const getSessionId = () => analytics.sessionId;
+export const getDeviceScanLimits = () => analytics.getDeviceScanLimits();

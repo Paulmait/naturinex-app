@@ -1,0 +1,210 @@
+import React from 'react';
+
+function TermsOfUse({ onBack }) {
+  return (
+    <div style={{
+      backgroundColor: 'white',
+      padding: '20px',
+      borderRadius: '8px',
+      border: '1px solid #e0e0e0',
+      maxHeight: '80vh',
+      overflowY: 'auto'
+    }}>
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'center', 
+        marginBottom: '20px',
+        borderBottom: '1px solid #e0e0e0',
+        paddingBottom: '15px'
+      }}>
+        <h2 style={{ color: '#2c5530', margin: 0 }}>📋 Terms of Use</h2>
+        <button 
+          onClick={onBack}
+          style={{
+            backgroundColor: 'transparent',
+            border: '1px solid #ddd',
+            padding: '8px 12px',
+            borderRadius: '6px',
+            cursor: 'pointer',
+            fontSize: '14px'
+          }}
+        >
+          ← Back
+        </button>
+      </div>
+
+      <div style={{ lineHeight: '1.6', color: '#333' }}>
+        <p style={{ fontSize: '14px', color: '#666', marginBottom: '20px' }}>
+          <strong>Last Updated: June 22, 2025</strong>
+        </p>
+
+        <section style={{ marginBottom: '25px' }}>
+          <h3 style={{ color: '#2c5530', marginBottom: '15px' }}>Agreement to Terms</h3>
+          <p>
+            By accessing or using the MediScan application ("Service"), you agree to be bound by these Terms of Use ("Terms"). If you disagree with any part of these terms, you may not access the Service.
+          </p>
+        </section>
+
+        <section style={{ marginBottom: '25px' }}>
+          <div style={{ 
+            backgroundColor: '#f8d7da', 
+            padding: '20px', 
+            borderRadius: '8px', 
+            border: '1px solid #f5c6cb',
+            marginBottom: '20px'
+          }}>
+            <h3 style={{ color: '#721c24', marginTop: 0, marginBottom: '15px' }}>⚠️ IMPORTANT MEDICAL DISCLAIMER</h3>
+            <p style={{ color: '#721c24', fontWeight: 'bold', marginBottom: '15px' }}>
+              MediScan is for educational and informational purposes only and is not intended to provide medical advice, diagnosis, or treatment recommendations.
+            </p>
+            <ul style={{ paddingLeft: '20px', color: '#721c24', margin: 0 }}>
+              <li><strong>Not Medical Advice:</strong> Information provided is not a substitute for professional medical consultation</li>
+              <li><strong>No Doctor-Patient Relationship:</strong> Use of this Service does not create a doctor-patient relationship</li>
+              <li><strong>Consult Healthcare Providers:</strong> Always seek advice from qualified healthcare professionals</li>
+              <li><strong>Emergency Situations:</strong> Do not use this app for medical emergencies - call emergency services</li>
+            </ul>
+          </div>
+
+          <h4 style={{ color: '#333', marginBottom: '10px' }}>Your Acknowledgment</h4>
+          <p style={{ color: '#666' }}>By using MediScan, you acknowledge and agree that:</p>
+          <ul style={{ paddingLeft: '20px', color: '#666' }}>
+            <li>You understand the limitations of AI-generated health information</li>
+            <li>You will not rely solely on our suggestions for medical decisions</li>
+            <li>You will consult healthcare professionals before making medication changes</li>
+            <li>You use the Service at your own risk</li>
+          </ul>
+        </section>
+
+        <section style={{ marginBottom: '25px' }}>
+          <h3 style={{ color: '#2c5530', marginBottom: '15px' }}>Service Description</h3>
+          <p style={{ color: '#666', marginBottom: '15px' }}>MediScan provides:</p>
+          <ul style={{ paddingLeft: '20px', color: '#666' }}>
+            <li><strong>Medication Scanning:</strong> Photo and barcode recognition of medications</li>
+            <li><strong>AI Suggestions:</strong> Educational information about natural alternatives</li>
+            <li><strong>Health Information:</strong> General wellness and medication information</li>
+            <li><strong>Premium Features:</strong> Enhanced functionality for paying subscribers</li>
+          </ul>
+        </section>
+
+        <section style={{ marginBottom: '25px' }}>
+          <h3 style={{ color: '#2c5530', marginBottom: '15px' }}>User Responsibilities</h3>
+          
+          <h4 style={{ color: '#333', marginTop: '15px', marginBottom: '10px' }}>Account Requirements</h4>
+          <ul style={{ paddingLeft: '20px', color: '#666' }}>
+            <li>You must provide accurate and complete information</li>
+            <li>You are responsible for maintaining account security</li>
+            <li>You must be at least 13 years old to use the Service</li>
+            <li>One account per person</li>
+          </ul>
+
+          <h4 style={{ color: '#333', marginTop: '15px', marginBottom: '10px' }}>Prohibited Uses</h4>
+          <p style={{ color: '#666' }}>You agree NOT to:</p>
+          <ul style={{ paddingLeft: '20px', color: '#666' }}>
+            <li><strong>Medical Practice:</strong> Use the Service to practice medicine without proper licensing</li>
+            <li><strong>Harmful Content:</strong> Upload inappropriate, illegal, or harmful content</li>
+            <li><strong>System Abuse:</strong> Attempt to hack, disrupt, or overload our systems</li>
+            <li><strong>Commercial Misuse:</strong> Resell or redistribute our content without permission</li>
+            <li><strong>False Information:</strong> Provide false or misleading health information</li>
+          </ul>
+        </section>
+
+        <section style={{ marginBottom: '25px' }}>
+          <h3 style={{ color: '#2c5530', marginBottom: '15px' }}>Premium Subscription</h3>
+          
+          <h4 style={{ color: '#333', marginTop: '15px', marginBottom: '10px' }}>Subscription Terms</h4>
+          <ul style={{ paddingLeft: '20px', color: '#666' }}>
+            <li>Premium features require paid subscription</li>
+            <li>Billing is automatic and recurring</li>
+            <li>You may cancel at any time</li>
+            <li>No refunds for partial billing periods</li>
+          </ul>
+
+          <h4 style={{ color: '#333', marginTop: '15px', marginBottom: '10px' }}>Premium Features</h4>
+          <ul style={{ paddingLeft: '20px', color: '#666' }}>
+            <li>Unlimited daily scans</li>
+            <li>Scan history and export</li>
+            <li>Priority AI processing</li>
+            <li>Advanced sharing options</li>
+          </ul>
+        </section>
+
+        <section style={{ marginBottom: '25px' }}>
+          <div style={{ 
+            backgroundColor: '#d1ecf1', 
+            padding: '20px', 
+            borderRadius: '8px', 
+            border: '1px solid #bee5eb'
+          }}>
+            <h3 style={{ color: '#0c5460', marginTop: 0, marginBottom: '15px' }}>⚖️ Limitation of Liability</h3>
+            <p style={{ color: '#0c5460', fontWeight: 'bold', marginBottom: '15px' }}>
+              TO THE MAXIMUM EXTENT PERMITTED BY LAW:
+            </p>
+            
+            <h4 style={{ color: '#0c5460', marginBottom: '10px' }}>No Warranties</h4>
+            <ul style={{ paddingLeft: '20px', color: '#0c5460', marginBottom: '15px' }}>
+              <li>The Service is provided "AS IS" without warranties of any kind</li>
+              <li>We do not guarantee accuracy, completeness, or reliability</li>
+              <li>We disclaim all warranties, express or implied</li>
+            </ul>
+
+            <h4 style={{ color: '#0c5460', marginBottom: '10px' }}>Limited Liability</h4>
+            <ul style={{ paddingLeft: '20px', color: '#0c5460', marginBottom: '15px' }}>
+              <li>Our total liability is limited to the amount you paid for the Service</li>
+              <li>We are not liable for indirect, incidental, or consequential damages</li>
+              <li>We are not responsible for health decisions made based on our Service</li>
+            </ul>
+
+            <h4 style={{ color: '#0c5460', marginBottom: '10px' }}>Health-Related Limitations</h4>
+            <ul style={{ paddingLeft: '20px', color: '#0c5460', margin: 0 }}>
+              <li>We are not liable for any health outcomes from using our suggestions</li>
+              <li>Users are solely responsible for their health and medical decisions</li>
+              <li>We strongly recommend consulting healthcare professionals</li>
+            </ul>
+          </div>
+        </section>
+
+        <section style={{ marginBottom: '25px' }}>
+          <h3 style={{ color: '#2c5530', marginBottom: '15px' }}>Dispute Resolution</h3>
+          
+          <h4 style={{ color: '#333', marginTop: '15px', marginBottom: '10px' }}>Dispute Resolution Process</h4>
+          <ol style={{ paddingLeft: '20px', color: '#666' }}>
+            <li><strong>Direct Communication:</strong> Contact us first to resolve disputes</li>
+            <li><strong>Mediation:</strong> Good faith attempt at mediation if needed</li>
+            <li><strong>Arbitration:</strong> Binding arbitration for unresolved disputes</li>
+            <li><strong>Class Action Waiver:</strong> No class action lawsuits permitted</li>
+          </ol>
+        </section>
+
+        <section style={{ marginBottom: '25px' }}>
+          <h3 style={{ color: '#2c5530', marginBottom: '15px' }}>Contact Information</h3>
+          <p style={{ color: '#666' }}>Questions about these Terms? Contact us:</p>
+          <ul style={{ paddingLeft: '20px', color: '#666' }}>
+            <li><strong>Email:</strong> legal@mediscan.app</li>
+            <li><strong>Address:</strong> [Your Business Address]</li>
+            <li><strong>Phone:</strong> [Your Phone Number]</li>
+          </ul>
+        </section>
+
+        <div style={{ 
+          textAlign: 'center', 
+          padding: '20px', 
+          backgroundColor: '#fff3cd', 
+          borderRadius: '8px',
+          border: '1px solid #ffeaa7',
+          marginTop: '30px'
+        }}>
+          <h4 style={{ color: '#856404', marginTop: 0, marginBottom: '10px' }}>📋 Acknowledgment</h4>
+          <p style={{ color: '#856404', fontSize: '14px', marginBottom: '10px' }}>
+            By using MediScan, you acknowledge that you have read, understood, and agree to be bound by these Terms of Use and our Privacy Policy.
+          </p>
+          <p style={{ color: '#856404', fontSize: '14px', fontWeight: 'bold', margin: 0 }}>
+            REMINDER: This app provides educational information only. Always consult qualified healthcare professionals for medical advice, diagnosis, and treatment decisions.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default TermsOfUse;
