@@ -13,7 +13,7 @@ import analytics, { trackScan, trackEvent, getDeviceId } from '../utils/analytic
 import storageManager, { addWatermark, getScanQuota } from '../utils/storageManager';
 import { generateEmailContent, generateDownloadReport, generateShareContent } from '../utils/shareWatermarkHelper';
 
-function Dashboard({ user }) {
+function Dashboard({ user, notifications }) {
   const [suggestions, setSuggestions] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [medicationName, setMedicationName] = useState("");
@@ -185,7 +185,7 @@ function Dashboard({ user }) {
     };
   }, [cameraStream]);  const handleScan = async () => {
     if (!medicationName.trim()) {
-      alert("Please enter a medication name to get suggestions.");
+      notifications?.showWarning("Please enter a medication name to get suggestions.", "Missing Information");
       await trackEvent('scan_attempt_failed', { reason: 'empty_medication_name' });
       return;
     }
@@ -269,7 +269,7 @@ function Dashboard({ user }) {
               userType: currentUserTier,
               limit: scanQuota.daily
             });
-            alert(`Daily limit reached! You can do ${scanQuota.daily} scans per day. Try again tomorrow or upgrade for more scans.`);
+            notifications?.showWarning(`Daily limit reached! You can do ${scanQuota.daily} scans per day. Try again tomorrow or upgrade for more scans.`, "Daily Limit Reached");
             setIsLoading(false);
             return;
           }        } else {
@@ -347,6 +347,9 @@ function Dashboard({ user }) {
       const processedSuggestions = addWatermark(data.suggestions, currentUserTier);
       setSuggestions(processedSuggestions);
       
+      // Show success notification
+      notifications?.showSuccess(`Successfully analyzed ${medicationName.trim()}!`, 'Analysis Complete');
+      
       // Track successful scan with comprehensive analytics
       await trackScan({
         medicationName: medicationName.trim(),
@@ -382,18 +385,18 @@ function Dashboard({ user }) {
         userTier: userTier
       });
       
-      alert("AI is currently unavailable. Please try again later.");
+      notifications?.showError("AI is currently unavailable. Please try again later.", "Service Unavailable");
     } finally {
       setIsLoading(false);
     }
   };const handleEmail = () => {
     if (!suggestions) {
-      alert("No suggestions to email yet.");
+      notifications?.showWarning("No suggestions to email yet.", "Nothing to Share");
       return;
     }
       // Free tier users need to sign up for email functionality
     if (!user) {
-      alert("Please sign up to email your results! Get 5 scans per month + permanent history.");
+      notifications?.showInfo("Please sign up to email your results! Get 5 scans per month + permanent history.", "Sign Up Required");
       return;
     }
     
@@ -407,7 +410,7 @@ function Dashboard({ user }) {
     showAIDisclaimerModal('email');
   };  const executeEmailShare = () => {
     if (!user?.email) {
-      alert("Please sign up to email your results!");
+      notifications?.showInfo("Please sign up to email your results!", "Sign Up Required");
       return;
     }
     
@@ -418,7 +421,7 @@ function Dashboard({ user }) {
 
   const handleShare = () => {
     if (!suggestions) {
-      alert("No suggestions to share yet.");
+      notifications?.showWarning("No suggestions to share yet.", "Nothing to Share");
       return;
     }
     
@@ -443,7 +446,7 @@ function Dashboard({ user }) {
     } else {
       // Fallback to copy to clipboard
       navigator.clipboard.writeText(shareContent);
-      alert('Results copied to clipboard!');
+      notifications?.showSuccess('Results copied to clipboard!', 'Copied');
     }
   };
 
@@ -463,7 +466,7 @@ function Dashboard({ user }) {
         previousScanCount: scanCount
       });
       
-      alert('🎉 Welcome to Premium! You now have unlimited scans and access to scan history.');
+      notifications?.showSuccess('🎉 Welcome to Premium! You now have unlimited scans and access to scan history.', 'Premium Activated');
     } catch (error) {
       console.error('Error updating premium status:', error);
       
@@ -636,11 +639,11 @@ function Dashboard({ user }) {
       
       // Fallback to file upload
       if (error.name === 'NotAllowedError') {
-        alert('Camera access denied. Please allow camera access or use the "Select Image" option instead.');
+        notifications?.showError('Camera access denied. Please allow camera access or use the "Select Image" option instead.', 'Camera Access Denied');
       } else if (error.name === 'NotFoundError') {
-        alert('No camera found. Please use the "Select Image" option instead.');
+        notifications?.showError('No camera found. Please use the "Select Image" option instead.', 'Camera Not Found');
       } else {
-        alert('Camera not available. Please use the "Select Image" option instead.');
+        notifications?.showError('Camera not available. Please use the "Select Image" option instead.', 'Camera Unavailable');
       }
     }
   };
@@ -742,7 +745,7 @@ function Dashboard({ user }) {
   };
   const handleDownload = () => {
     if (!suggestions) {
-      alert("No suggestions to download yet.");
+      notifications?.showWarning("No suggestions to download yet.", "Nothing to Download");
       return;
     }
 

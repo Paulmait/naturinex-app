@@ -1,12 +1,54 @@
 const express = require('express');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
 require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// Security middleware
+app.use(helmet());
+app.use(cors({
+  origin: process.env.NODE_ENV === 'production' 
+    ? ['https://your-production-domain.com'] 
+    : ['http://localhost:3000', 'http://127.0.0.1:3000'],
+  credentials: true
+}));
+
+// Rate limiting
+const createRateLimit = (windowMs, max, message) => rateLimit({
+  windowMs,
+  max,
+  message: { error: message },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// General API rate limit
+app.use('/api/', createRateLimit(15 * 60 * 1000, 100, 'Too many API requests'));
+
+// Strict rate limit for AI suggestions
+app.use('/suggest', createRateLimit(60 * 1000, 10, 'Too many AI requests - please wait'));
+
+app.use(express.json({ limit: '10mb' }));
+
+// Request logging middleware
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - IP: ${req.ip}`);
+  next();
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(500).json({ 
+    error: process.env.NODE_ENV === 'production' 
+      ? 'Internal server error' 
+      : err.message 
+  });
+});
 
 // Check if API key is configured
 if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_api_key_here') {
@@ -15,12 +57,41 @@ if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_a
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+// Input validation middleware
+const validateMedicationInput = (req, res, next) => {
+  const { medicationName } = req.body;
+  
+  if (!medicationName || typeof medicationName !== 'string') {
+    return res.status(400).json({ error: 'Medication name is required and must be a string' });
+  }
+  
+  const trimmed = medicationName.trim();
+  if (trimmed.length === 0) {
+    return res.status(400).json({ error: 'Medication name cannot be empty' });
+  }
+  
+  if (trimmed.length > 100) {
+    return res.status(400).json({ error: 'Medication name too long (max 100 characters)' });
+  }
+  
+  // Basic sanitization - remove potentially harmful characters
+  const sanitized = trimmed.replace(/[<>\"'&]/g, '');
+  req.body.medicationName = sanitized;
+  
+  next();
+};
+
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ status: 'Server is running', timestamp: new Date().toISOString() });
+  res.json({ 
+    status: 'Server is running', 
+    timestamp: new Date().toISOString(),
+    version: '2.0.0',
+    features: ['AI Analysis', 'Premium Tiers', 'Rate Limiting', 'Security Headers']
+  });
 });
 
-app.post('/suggest', async (req, res) => {
+app.post('/suggest', validateMedicationInput, async (req, res) => {
   const { medicationName, userTier = 'free', advancedAnalysis = false } = req.body;
   
   // Validate input

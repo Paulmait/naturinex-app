@@ -7,12 +7,17 @@ import Dashboard from './components/Dashboard';
 import Onboarding from './components/Onboarding';
 import PremiumCheckout from './components/PremiumCheckout';
 import AuthDebugger from './components/AuthDebugger';
+import ErrorBoundary from './components/ErrorBoundary';
+import NotificationSystem, { useNotifications } from './components/NotificationSystem';
 
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showPremiumCheckout, setShowPremiumCheckout] = useState(false);
+  
+  // Initialize notification system
+  const notifications = useNotifications();
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
@@ -104,46 +109,64 @@ function App() {
   // }
 
   if (user && showOnboarding) {
-    return <Onboarding user={user} onComplete={handleOnboardingComplete} />;
+    return (
+      <ErrorBoundary>
+        <NotificationSystem 
+          notifications={notifications.notifications}
+          removeNotification={notifications.removeNotification}
+        />
+        <Onboarding user={user} onComplete={handleOnboardingComplete} />
+      </ErrorBoundary>
+    );
   }
 
   if (showPremiumCheckout) {
     return (
-      <div style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        display: 'flex',
-        justifyContent: 'center',
-        alignItems: 'center',
-        zIndex: 1001
-      }}>
+      <ErrorBoundary>
+        <NotificationSystem 
+          notifications={notifications.notifications}
+          removeNotification={notifications.removeNotification}
+        />
         <div style={{
-          backgroundColor: 'white',
-          borderRadius: '15px',
-          maxWidth: '500px',
-          margin: '20px',
-          maxHeight: '90vh',
-          overflowY: 'auto'
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1001
         }}>
-          <PremiumCheckout 
-            user={user} 
-            onSuccess={handlePremiumSuccess}
-            onCancel={handlePremiumCancel}
-          />
+          <div style={{
+            backgroundColor: 'white',
+            borderRadius: '15px',
+            maxWidth: '500px',
+            margin: '20px',
+            maxHeight: '90vh',
+            overflowY: 'auto'
+          }}>
+            <PremiumCheckout 
+              user={user} 
+              onSuccess={handlePremiumSuccess}
+              onCancel={handlePremiumCancel}
+            />
+          </div>
         </div>
-      </div>
+      </ErrorBoundary>
     );
   }
 
   return (
-    <>
-      <Dashboard user={user} />
+    <ErrorBoundary>
+      <NotificationSystem 
+        notifications={notifications.notifications}
+        removeNotification={notifications.removeNotification}
+      />
+      <Dashboard user={user} notifications={notifications} />
       <AuthDebugger />
-    </>
+    </ErrorBoundary>
   );
 }
 
