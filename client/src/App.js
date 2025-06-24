@@ -6,7 +6,8 @@ import { doc, getDoc, setDoc } from 'firebase/firestore';
 import Dashboard from './components/Dashboard';
 import Onboarding from './components/Onboarding';
 import PremiumCheckout from './components/PremiumCheckout';
-import AuthDebugger from './components/AuthDebugger';
+// AuthDebugger removed - not needed for production
+// import AuthDebugger from './components/AuthDebugger';
 import ErrorBoundary from './components/ErrorBoundary';
 import NotificationSystem, { useNotifications } from './components/NotificationSystem';
 
@@ -165,7 +166,6 @@ function App() {
         removeNotification={notifications.removeNotification}
       />
       <Dashboard user={user} notifications={notifications} />
-      <AuthDebugger />
     </ErrorBoundary>
   );
 }
