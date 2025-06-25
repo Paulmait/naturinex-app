@@ -28,9 +28,9 @@ npm start
 #### **Step 3: Access on iPhone**
 1. **Connect iPhone to same WiFi** as your computer
 2. **Open Safari** on iPhone
-3. **Navigate to:** `http://10.0.0.74:3000` ✅ **USE THIS URL**
-   - Alternative ports: `http://10.0.0.74:3003` (production build)
-   - Alternative ports: `http://10.0.0.74:3001` (backup)
+3. **Navigate to:** `http://10.0.0.74:3003` ✅ **USE THIS URL** (CONFIRMED WORKING)
+   - Alternative ports: `http://10.0.0.74:3001` (development server)
+   - Alternative ports: `http://10.0.0.74:3000` (if available)
 
 ---
 
@@ -169,14 +169,15 @@ Based on your network configuration (`10.0.0.74`):
 
 #### **Primary Testing URL:**
 ```
-http://10.0.0.74:3000
+http://10.0.0.74:3003
 ```
+✅ **CONFIRMED WORKING** - iPhone tested successfully
 
 #### **Alternative URLs (if primary doesn't work):**
 ```
-http://10.0.0.74:3001  # Backup server
-http://10.0.0.74:3003  # Production build
-http://10.0.0.74:3004  # Development server
+http://10.0.0.74:3001  # Development server
+http://10.0.0.74:3000  # If available
+http://10.0.0.74:3004  # Additional backup
 ```
 
 ### **🚀 Quick Start (3 Steps):**
@@ -193,7 +194,7 @@ npm start
 
 #### **Step 3: Test on iPhone**
 1. Open Safari on iPhone
-2. Type: `http://10.0.0.74:3000`
+2. Type: `http://10.0.0.74:3003` ✅ **CONFIRMED WORKING**
 3. Bookmark it as "Naturinex Beta"
 
 ### **🔧 Network Troubleshooting:**

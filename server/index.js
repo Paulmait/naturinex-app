@@ -559,6 +559,141 @@ async function handleSubscriptionDeleted(subscription) {
   }
 }
 
+// Subscription management endpoints
+app.post('/api/subscription/details', async (req, res) => {
+  try {
+    const { subscriptionId } = req.body;
+    
+    if (!subscriptionId) {
+      return res.status(400).json({ error: 'Subscription ID is required' });
+    }
+    
+    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+    
+    res.json({
+      id: subscription.id,
+      status: subscription.status,
+      current_period_start: subscription.current_period_start,
+      current_period_end: subscription.current_period_end,
+      cancel_at_period_end: subscription.cancel_at_period_end,
+      customer: subscription.customer,
+      items: subscription.items,
+      latest_invoice: subscription.latest_invoice
+    });
+  } catch (error) {
+    console.error('❌ Error fetching subscription details:', error);
+    res.status(500).json({ error: 'Failed to fetch subscription details' });
+  }
+});
+
+app.post('/api/subscription/toggle-auto-renew', async (req, res) => {
+  try {
+    const { subscriptionId, autoRenew } = req.body;
+    
+    if (!subscriptionId || autoRenew === undefined) {
+      return res.status(400).json({ error: 'Subscription ID and autoRenew status are required' });
+    }
+    
+    const subscription = await stripe.subscriptions.update(subscriptionId, {
+      cancel_at_period_end: !autoRenew
+    });
+    
+    // Update user record in Firestore
+    const usersRef = admin.firestore().collection('users');
+    const snapshot = await usersRef.where('subscriptionId', '==', subscriptionId).get();
+    
+    if (!snapshot.empty) {
+      const userDoc = snapshot.docs[0];
+      await userDoc.ref.update({
+        autoRenewalEnabled: autoRenew,
+        subscriptionStatus: autoRenew ? 'active' : 'canceling'
+      });
+    }
+    
+    console.log(`🔄 Auto-renewal ${autoRenew ? 'enabled' : 'disabled'} for subscription ${subscriptionId}`);
+    
+    res.json({ 
+      success: true, 
+      autoRenew,
+      cancel_at_period_end: subscription.cancel_at_period_end
+    });
+  } catch (error) {
+    console.error('❌ Error toggling auto-renewal:', error);
+    res.status(500).json({ error: 'Failed to update auto-renewal setting' });
+  }
+});
+
+app.post('/api/subscription/renew-now', async (req, res) => {
+  try {
+    const { customerId } = req.body;
+    
+    if (!customerId) {
+      return res.status(400).json({ error: 'Customer ID is required' });
+    }
+    
+    // Create and pay an invoice immediately
+    const invoice = await stripe.invoices.create({
+      customer: customerId,
+      auto_advance: true
+    });
+    
+    const paidInvoice = await stripe.invoices.pay(invoice.id);
+    
+    console.log(`💳 Immediate renewal processed for customer ${customerId}`);
+    
+    res.json({ 
+      success: true, 
+      invoice: {
+        id: paidInvoice.id,
+        amount: paidInvoice.amount_paid,
+        status: paidInvoice.status
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error processing immediate renewal:', error);
+    res.status(500).json({ error: 'Failed to process renewal payment' });
+  }
+});
+
+app.post('/api/subscription/cancel', async (req, res) => {
+  try {
+    const { subscriptionId } = req.body;
+    
+    if (!subscriptionId) {
+      return res.status(400).json({ error: 'Subscription ID is required' });
+    }
+    
+    // Cancel at period end (don't immediately cancel)
+    const subscription = await stripe.subscriptions.update(subscriptionId, {
+      cancel_at_period_end: true
+    });
+    
+    // Update user record in Firestore
+    const usersRef = admin.firestore().collection('users');
+    const snapshot = await usersRef.where('subscriptionId', '==', subscriptionId).get();
+    
+    if (!snapshot.empty) {
+      const userDoc = snapshot.docs[0];
+      await userDoc.ref.update({
+        subscriptionStatus: 'canceling',
+        autoRenewalEnabled: false,
+        canceledAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+    }
+    
+    console.log(`❌ Subscription ${subscriptionId} set to cancel at period end`);
+    
+    res.json({ 
+      success: true,
+      cancel_at_period_end: true,
+      current_period_end: subscription.current_period_end
+    });
+  } catch (error) {
+    console.error('❌ Error canceling subscription:', error);
+    res.status(500).json({ error: 'Failed to cancel subscription' });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);

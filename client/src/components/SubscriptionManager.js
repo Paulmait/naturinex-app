@@ -1,0 +1,429 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { db } from '../firebase';
+import { doc, getDoc } from 'firebase/firestore';
+
+const SubscriptionManager = ({ user, isPremium, notifications }) => {
+  const [subscription, setSubscription] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState(false);
+
+  const loadSubscriptionData = useCallback(async () => {
+    try {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      const userData = userDoc.data();
+      
+      if (userData?.subscriptionId) {
+        // Fetch subscription details from backend
+        const response = await fetch('/api/subscription/details', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            subscriptionId: userData.subscriptionId
+          })
+        });
+        
+        if (response.ok) {
+          const subscriptionData = await response.json();
+          setSubscription(subscriptionData);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading subscription:', error);
+      notifications?.showError('Failed to load subscription details', 'Error');
+    } finally {
+      setLoading(false);
+    }
+  }, [user, notifications]);
+
+  useEffect(() => {
+    if (user && isPremium) {
+      loadSubscriptionData();
+    } else {
+      setLoading(false);
+    }
+  }, [user, isPremium, loadSubscriptionData]);
+
+  const toggleAutoRenewal = async () => {
+    if (!subscription) return;
+    
+    setActionLoading(true);
+    try {
+      const response = await fetch('/api/subscription/toggle-auto-renew', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          subscriptionId: subscription.id,
+          autoRenew: !subscription.cancel_at_period_end
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setSubscription(prev => ({
+          ...prev,
+          cancel_at_period_end: !result.autoRenew
+        }));
+        
+        notifications?.showSuccess(
+          result.autoRenew ? 'Auto-renewal enabled' : 'Auto-renewal disabled',
+          'Subscription Updated'
+        );
+      } else {
+        throw new Error('Failed to update subscription');
+      }
+    } catch (error) {
+      console.error('Error toggling auto-renewal:', error);
+      notifications?.showError('Failed to update auto-renewal setting', 'Error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const renewNow = async () => {
+    if (!subscription) return;
+    
+    setActionLoading(true);
+    try {
+      const response = await fetch('/api/subscription/renew-now', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          customerId: subscription.customer
+        })
+      });
+
+      if (response.ok) {
+        notifications?.showSuccess('Subscription renewed successfully!', 'Payment Processed');
+        loadSubscriptionData(); // Refresh subscription data
+      } else {
+        throw new Error('Failed to process renewal');
+      }
+    } catch (error) {
+      console.error('Error renewing subscription:', error);
+      notifications?.showError('Failed to process renewal. Please try again.', 'Payment Error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const cancelSubscription = async () => {
+    if (!subscription) return;
+    
+    if (!window.confirm('Are you sure you want to cancel your subscription? It will remain active until the current period ends.')) {
+      return;
+    }
+    
+    setActionLoading(true);
+    try {
+      const response = await fetch('/api/subscription/cancel', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          subscriptionId: subscription.id
+        })
+      });
+
+      if (response.ok) {
+        setSubscription(prev => ({
+          ...prev,
+          cancel_at_period_end: true
+        }));
+        
+        notifications?.showSuccess(
+          'Subscription will be canceled at the end of the current period',
+          'Subscription Canceled'
+        );
+      } else {
+        throw new Error('Failed to cancel subscription');
+      }
+    } catch (error) {
+      console.error('Error canceling subscription:', error);
+      notifications?.showError('Failed to cancel subscription', 'Error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const formatDate = (timestamp) => {
+    return new Date(timestamp * 1000).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
+
+  const formatPrice = (amount) => {
+    return (amount / 100).toFixed(2);
+  };
+
+  if (!isPremium) {
+    return (
+      <div style={{
+        padding: '20px',
+        backgroundColor: '#f8f9fa',
+        borderRadius: '8px',
+        border: '1px solid #e0e0e0',
+        marginBottom: '20px'
+      }}>
+        <h4 style={{ color: '#333', marginBottom: '15px' }}>💎 Subscription Management</h4>
+        <p style={{ color: '#666', marginBottom: '15px' }}>
+          You're currently on the free plan. Upgrade to Premium for unlimited scans and advanced features.
+        </p>
+        <button
+          style={{
+            backgroundColor: '#2c5530',
+            color: 'white',
+            border: 'none',
+            padding: '12px 24px',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            width: '100%'
+          }}
+          onClick={() => {
+            // This would trigger the premium checkout modal
+            // You can pass this up to the parent component
+            if (notifications) {
+              notifications.showSuccess('Upgrade feature coming soon!', 'Premium');
+            }
+          }}
+        >
+          🚀 Upgrade to Premium
+        </button>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div style={{
+        padding: '20px',
+        backgroundColor: '#f8f9fa',
+        borderRadius: '8px',
+        border: '1px solid #e0e0e0',
+        marginBottom: '20px',
+        textAlign: 'center'
+      }}>
+        <div style={{ color: '#666' }}>Loading subscription details...</div>
+      </div>
+    );
+  }
+
+  if (!subscription) {
+    return (
+      <div style={{
+        padding: '20px',
+        backgroundColor: '#fff3cd',
+        borderRadius: '8px',
+        border: '1px solid #ffeaa7',
+        marginBottom: '20px'
+      }}>
+        <h4 style={{ color: '#856404', marginBottom: '15px' }}>⚠️ Subscription Details Unavailable</h4>
+        <p style={{ color: '#856404', marginBottom: '0' }}>
+          Unable to load subscription details. Please contact support if this issue persists.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      padding: '20px',
+      backgroundColor: 'white',
+      borderRadius: '8px',
+      border: '1px solid #e0e0e0',
+      marginBottom: '20px'
+    }}>
+      <h4 style={{ color: '#333', marginBottom: '20px' }}>💎 Premium Subscription</h4>
+      
+      {/* Subscription Status */}
+      <div style={{
+        backgroundColor: subscription.cancel_at_period_end ? '#fff3cd' : '#d4edda',
+        border: `1px solid ${subscription.cancel_at_period_end ? '#ffeaa7' : '#c3e6cb'}`,
+        borderRadius: '6px',
+        padding: '15px',
+        marginBottom: '20px'
+      }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          marginBottom: '10px'
+        }}>
+          <span style={{ fontSize: '20px', marginRight: '10px' }}>
+            {subscription.cancel_at_period_end ? '⚠️' : '✅'}
+          </span>
+          <div>
+            <div style={{ 
+              fontWeight: 'bold',
+              color: subscription.cancel_at_period_end ? '#856404' : '#155724'
+            }}>
+              {subscription.cancel_at_period_end ? 'Canceling at Period End' : 'Active Subscription'}
+            </div>
+            <div style={{ 
+              fontSize: '14px',
+              color: subscription.cancel_at_period_end ? '#856404' : '#155724'
+            }}>
+              {subscription.cancel_at_period_end 
+                ? `Your subscription will end on ${formatDate(subscription.current_period_end)}`
+                : `Your subscription will renew on ${formatDate(subscription.current_period_end)}`
+              }
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Subscription Details */}
+      <div style={{ marginBottom: '25px' }}>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: '15px',
+          marginBottom: '15px'
+        }}>
+          <div>
+            <label style={{ color: '#666', fontSize: '14px', display: 'block', marginBottom: '5px' }}>
+              Current Period
+            </label>
+            <div style={{ color: '#333', fontWeight: 'bold' }}>
+              {formatDate(subscription.current_period_start)} - {formatDate(subscription.current_period_end)}
+            </div>
+          </div>
+          
+          <div>
+            <label style={{ color: '#666', fontSize: '14px', display: 'block', marginBottom: '5px' }}>
+              Amount
+            </label>
+            <div style={{ color: '#333', fontWeight: 'bold' }}>
+              ${formatPrice(subscription.items?.data?.[0]?.price?.unit_amount || 0)} / {subscription.items?.data?.[0]?.price?.recurring?.interval || 'month'}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Action Buttons */}
+      <div style={{ 
+        display: 'flex', 
+        flexDirection: 'column', 
+        gap: '10px' 
+      }}>
+        {/* Renew Now Button */}
+        <button
+          onClick={renewNow}
+          disabled={actionLoading}
+          style={{
+            backgroundColor: '#28a745',
+            color: 'white',
+            border: 'none',
+            padding: '12px 20px',
+            borderRadius: '6px',
+            cursor: actionLoading ? 'not-allowed' : 'pointer',
+            opacity: actionLoading ? 0.6 : 1,
+            fontSize: '16px',
+            fontWeight: 'bold'
+          }}
+        >
+          {actionLoading ? '⏳ Processing...' : '🔄 Renew Now'}
+        </button>
+
+        {/* Auto-Renewal Toggle */}
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          padding: '12px 15px',
+          backgroundColor: '#f8f9fa',
+          borderRadius: '6px',
+          border: '1px solid #e0e0e0'
+        }}>
+          <span style={{ color: '#333', fontWeight: 'bold' }}>
+            Auto-renew
+          </span>
+          <button
+            onClick={toggleAutoRenewal}
+            disabled={actionLoading}
+            style={{
+              backgroundColor: subscription.cancel_at_period_end ? '#dc3545' : '#28a745',
+              color: 'white',
+              border: 'none',
+              padding: '8px 16px',
+              borderRadius: '20px',
+              cursor: actionLoading ? 'not-allowed' : 'pointer',
+              opacity: actionLoading ? 0.6 : 1,
+              fontSize: '14px',
+              minWidth: '80px'
+            }}
+          >
+            {actionLoading ? '...' : (subscription.cancel_at_period_end ? 'OFF' : 'ON')}
+          </button>
+        </div>
+
+        {/* Cancel Subscription Button */}
+        {!subscription.cancel_at_period_end && (
+          <button
+            onClick={cancelSubscription}
+            disabled={actionLoading}
+            style={{
+              backgroundColor: '#dc3545',
+              color: 'white',
+              border: 'none',
+              padding: '10px 20px',
+              borderRadius: '6px',
+              cursor: actionLoading ? 'not-allowed' : 'pointer',
+              opacity: actionLoading ? 0.6 : 1,
+              fontSize: '14px'
+            }}
+          >
+            {actionLoading ? '⏳ Processing...' : '❌ Cancel Subscription'}
+          </button>
+        )}
+
+        {/* Reactivate Button */}
+        {subscription.cancel_at_period_end && (
+          <button
+            onClick={toggleAutoRenewal}
+            disabled={actionLoading}
+            style={{
+              backgroundColor: '#007bff',
+              color: 'white',
+              border: 'none',
+              padding: '12px 20px',
+              borderRadius: '6px',
+              cursor: actionLoading ? 'not-allowed' : 'pointer',
+              opacity: actionLoading ? 0.6 : 1,
+              fontSize: '16px',
+              fontWeight: 'bold'
+            }}
+          >
+            {actionLoading ? '⏳ Processing...' : '🔄 Reactivate Subscription'}
+          </button>
+        )}
+      </div>
+
+      {/* Help Text */}
+      <div style={{
+        marginTop: '20px',
+        padding: '15px',
+        backgroundColor: '#e7f3ff',
+        borderRadius: '6px',
+        border: '1px solid #b8daff'
+      }}>
+        <div style={{ color: '#004085', fontSize: '14px' }}>
+          <strong>💡 Need Help?</strong>
+          <br />
+          • Auto-renewal can be turned on/off at any time
+          • Canceling stops future charges but keeps access until period ends
+          • Contact support for billing questions or refund requests
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default SubscriptionManager;

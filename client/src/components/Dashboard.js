@@ -9,6 +9,7 @@ import PrivacyPolicy from './PrivacyPolicy';
 import TermsOfUse from './TermsOfUse';
 import Login from './Login';
 import BetaFeedback from './BetaFeedback';
+import SubscriptionManager from './SubscriptionManager';
 import analytics, { trackScan, trackEvent, getDeviceId } from '../utils/analytics';
 import storageManager, { addWatermark, getScanQuota } from '../utils/storageManager';
 import { generateEmailContent, generateDownloadReport, generateShareContent } from '../utils/shareWatermarkHelper';
@@ -1483,6 +1484,13 @@ function Dashboard({ user, notifications }) {
                   </div>
                 )}
                 
+                {/* Subscription Management */}
+                <SubscriptionManager 
+                  user={user}
+                  isPremium={isPremium}
+                  notifications={notifications}
+                />
+                
                 {/* Device Analytics */}
                 {deviceAnalytics && (
                   <div style={{ marginBottom: '20px' }}>
@@ -1952,6 +1960,7 @@ function Dashboard({ user, notifications }) {
                 cursor: 'pointer',
                 color: '#999',
                 lineHeight: 1
+
               }}
             >
               ×
