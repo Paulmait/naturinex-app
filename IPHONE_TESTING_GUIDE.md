@@ -9,9 +9,11 @@
 ### **Option 1: Local Network Access (Recommended)**
 
 #### **Step 1: Get Your Computer's IP Address**
-1. **Windows:** Open Command Prompt → `ipconfig` → Find your local IP (e.g., 192.168.1.100)
-2. **Mac:** System Preferences → Network → Your IP address
-3. **Alternative:** Use `http://10.0.0.74:3003` (common Android IP)
+**✅ YOUR COMPUTER'S IP:** `10.0.0.74` (from your network config)
+
+1. **Windows:** Open Command Prompt → `ipconfig` → Find your local IP
+2. **Your Current IP:** `10.0.0.74` (already identified)
+3. **Network:** Wireless LAN adapter Wi-Fi
 
 #### **Step 2: Start the Development Server**
 ```bash
@@ -20,15 +22,15 @@ cd c:\Users\maito\mediscan-app\client
 npm start
 
 # Server will start on http://localhost:3000
-# Also accessible via your IP: http://192.168.1.100:3000
+# Also accessible via your IP: http://10.0.0.74:3000
 ```
 
 #### **Step 3: Access on iPhone**
 1. **Connect iPhone to same WiFi** as your computer
 2. **Open Safari** on iPhone
-3. **Navigate to:** `http://[YOUR-IP]:3000`
-   - Example: `http://192.168.1.100:3000`
-   - Alternative: `http://10.0.0.74:3003`
+3. **Navigate to:** `http://10.0.0.74:3000` ✅ **USE THIS URL**
+   - Alternative ports: `http://10.0.0.74:3003` (production build)
+   - Alternative ports: `http://10.0.0.74:3001` (backup)
 
 ---
 
@@ -157,6 +159,48 @@ npm start
 - ✅ Firewall blocking → Allow node.js through Windows firewall
 - ✅ Router issues → Try mobile hotspot for testing
 - ✅ HTTPS required → Some features need secure context
+
+---
+
+## 🎯 **YOUR SPECIFIC IPHONE TESTING SETUP**
+
+### **✅ Ready-to-Use URLs for Your iPhone:**
+Based on your network configuration (`10.0.0.74`):
+
+#### **Primary Testing URL:**
+```
+http://10.0.0.74:3000
+```
+
+#### **Alternative URLs (if primary doesn't work):**
+```
+http://10.0.0.74:3001  # Backup server
+http://10.0.0.74:3003  # Production build
+http://10.0.0.74:3004  # Development server
+```
+
+### **🚀 Quick Start (3 Steps):**
+
+#### **Step 1: Start the Server**
+```bash
+cd c:\Users\maito\mediscan-app\client
+npm start
+```
+
+#### **Step 2: Connect iPhone to WiFi**
+- Use the same WiFi network as your computer
+- Your computer is on: **Wireless LAN adapter Wi-Fi**
+
+#### **Step 3: Test on iPhone**
+1. Open Safari on iPhone
+2. Type: `http://10.0.0.74:3000`
+3. Bookmark it as "Naturinex Beta"
+
+### **🔧 Network Troubleshooting:**
+- **Your IP:** `10.0.0.74` (fixed from network config)
+- **Subnet:** `255.255.255.0` (allows local network access)
+- **Gateway:** `10.0.0.1` (router IP)
+- **If connection fails:** Check Windows Firewall allows Node.js
 
 ---
 
