@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider } from "firebase/auth";
+import { getAuth, GoogleAuthProvider, createUserWithEmailAndPassword, signInWithEmailAndPassword } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 // Firebase configuration for Naturinex project (using existing mediscan project)
@@ -24,4 +24,4 @@ const db = getFirestore(app);
 // Initialize Google Auth Provider
 const provider = new GoogleAuthProvider();
 
-export { auth, db, provider };
+export { auth, db, provider, createUserWithEmailAndPassword, signInWithEmailAndPassword };
