@@ -100,13 +100,14 @@ class StorageManager {  constructor() {
   // Get scan quota for user tier
   getScanQuota(userTier) {
     const quotas = {
-      free: { daily: 1, monthly: 30 },           // 1 per day (forces daily engagement)
+      free: { daily: 2, monthly: 10 },           // 2 per day for free trial
+      beta: { daily: 20, monthly: 100 },         // GENEROUS limits for beta testers
       basic: { daily: 10, monthly: 10 },         // $7.99/month - 10 scans per month
       premium: { daily: 10, monthly: 50 },       // $14.99/month - 50 scans per month  
       professional: { daily: 20, monthly: 200 }  // $39.99/month - 200 scans per month
     };
     
-    return quotas[userTier] || quotas.basic;
+    return quotas[userTier] || quotas.free;
   }
 
   // Check if user can perform scan

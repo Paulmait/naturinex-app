@@ -5,8 +5,29 @@ const helmet = require('helmet');
 require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+// Add Firebase Admin SDK for webhook handling
+const admin = require('firebase-admin');
+
+// Initialize Firebase Admin SDK
+if (!admin.apps.length) {
+  // In production, use service account key or default credentials
+  // For development, you can use the Firebase Admin SDK with default credentials
+  try {
+    admin.initializeApp({
+      credential: admin.credential.applicationDefault(),
+      // You can also use service account key file:
+      // credential: admin.credential.cert(require('./path-to-service-account-key.json')),
+    });
+    console.log('🔥 Firebase Admin initialized successfully');
+  } catch (error) {
+    console.warn('⚠️ Firebase Admin initialization skipped (webhook functions may not work):', error.message);
+  }
+}
 
 const app = express();
+
+// Stripe webhook endpoint needs raw body - must be before express.json()
+app.use('/webhook', express.raw({ type: 'application/json' }));
 
 // Security middleware
 app.use(helmet());
@@ -311,6 +332,222 @@ app.post('/test-premium-upgrade', async (req, res) => {
     res.status(500).json({ error: 'Test upgrade failed', details: error.message });
   }
 });
+
+// 🔗 STRIPE WEBHOOK HANDLER FOR AUTOMATIC MONTHLY BILLING
+app.post('/webhook', async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
+  } catch (err) {
+    console.error('⚠️ Webhook signature verification failed:', err.message);
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  // Handle the event
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed':
+        await handleCheckoutSessionCompleted(event.data.object);
+        break;
+      
+      case 'invoice.payment_succeeded':
+        await handleInvoicePaymentSucceeded(event.data.object);
+        break;
+      
+      case 'invoice.payment_failed':
+        await handleInvoicePaymentFailed(event.data.object);
+        break;
+      
+      case 'customer.subscription.created':
+        await handleSubscriptionCreated(event.data.object);
+        break;
+      
+      case 'customer.subscription.updated':
+        await handleSubscriptionUpdated(event.data.object);
+        break;
+      
+      case 'customer.subscription.deleted':
+        await handleSubscriptionDeleted(event.data.object);
+        break;
+      
+      default:
+        console.log(`🔔 Unhandled event type ${event.type}`);
+    }
+
+    res.json({ received: true });
+  } catch (error) {
+    console.error('❌ Webhook handler error:', error);
+    res.status(500).json({ error: 'Webhook handler failed' });
+  }
+});
+
+// 🎯 WEBHOOK HANDLER FUNCTIONS
+
+async function handleCheckoutSessionCompleted(session) {
+  console.log('✅ Checkout session completed:', session.id);
+  
+  const userId = session.metadata.userId;
+  const customerEmail = session.customer_email;
+  const subscriptionId = session.subscription;
+  
+  if (!userId) {
+    console.error('❌ No userId in session metadata');
+    return;
+  }
+  
+  try {
+    // Update user's subscription status in Firestore
+    await admin.firestore().collection('users').doc(userId).update({
+      isPremium: true,
+      subscriptionStatus: 'active',
+      subscriptionId: subscriptionId,
+      customerEmail: customerEmail,
+      subscriptionStartDate: admin.firestore.FieldValue.serverTimestamp(),
+      lastBillingDate: admin.firestore.FieldValue.serverTimestamp(),
+      stripeCustomerId: session.customer
+    });
+    
+    console.log(`🎉 User ${userId} upgraded to premium successfully`);
+  } catch (error) {
+    console.error('❌ Error updating user subscription:', error);
+  }
+}
+
+async function handleInvoicePaymentSucceeded(invoice) {
+  console.log('💰 Invoice payment succeeded:', invoice.id);
+  
+  const subscriptionId = invoice.subscription;
+  const customerId = invoice.customer;
+  
+  try {
+    // Find user by subscription ID
+    const usersRef = admin.firestore().collection('users');
+    const snapshot = await usersRef.where('subscriptionId', '==', subscriptionId).get();
+    
+    if (snapshot.empty) {
+      console.error('❌ No user found for subscription:', subscriptionId);
+      return;
+    }
+    
+    // Update user's billing information
+    const userDoc = snapshot.docs[0];
+    await userDoc.ref.update({
+      isPremium: true,
+      subscriptionStatus: 'active',
+      lastBillingDate: admin.firestore.FieldValue.serverTimestamp(),
+      nextBillingDate: new Date(invoice.period_end * 1000),
+      lastInvoiceId: invoice.id,
+      // Reset monthly scan count on successful payment
+      scanCount: 0,
+      lastScanMonth: new Date().toISOString().slice(0, 7) // YYYY-MM format
+    });
+    
+    console.log(`💳 Monthly billing processed for user ${userDoc.id}`);
+  } catch (error) {
+    console.error('❌ Error processing invoice payment:', error);
+  }
+}
+
+async function handleInvoicePaymentFailed(invoice) {
+  console.log('❌ Invoice payment failed:', invoice.id);
+  
+  const subscriptionId = invoice.subscription;
+  
+  try {
+    // Find user by subscription ID
+    const usersRef = admin.firestore().collection('users');
+    const snapshot = await usersRef.where('subscriptionId', '==', subscriptionId).get();
+    
+    if (snapshot.empty) {
+      console.error('❌ No user found for subscription:', subscriptionId);
+      return;
+    }
+    
+    // Update user's status to indicate payment failure
+    const userDoc = snapshot.docs[0];
+    await userDoc.ref.update({
+      subscriptionStatus: 'past_due',
+      lastFailedPayment: admin.firestore.FieldValue.serverTimestamp(),
+      lastInvoiceId: invoice.id,
+      // Don't immediately downgrade - give them a grace period
+      paymentRetryCount: admin.firestore.FieldValue.increment(1)
+    });
+    
+    console.log(`⚠️ Payment failed for user ${userDoc.id} - marked as past_due`);
+  } catch (error) {
+    console.error('❌ Error handling payment failure:', error);
+  }
+}
+
+async function handleSubscriptionCreated(subscription) {
+  console.log('🆕 Subscription created:', subscription.id);
+  
+  // This is handled by checkout.session.completed, but we can add additional logic here
+  console.log(`📅 Subscription ${subscription.id} created for customer ${subscription.customer}`);
+}
+
+async function handleSubscriptionUpdated(subscription) {
+  console.log('🔄 Subscription updated:', subscription.id);
+  
+  try {
+    // Find user by subscription ID
+    const usersRef = admin.firestore().collection('users');
+    const snapshot = await usersRef.where('subscriptionId', '==', subscription.id).get();
+    
+    if (snapshot.empty) {
+      console.error('❌ No user found for subscription:', subscription.id);
+      return;
+    }
+    
+    // Update user's subscription status
+    const userDoc = snapshot.docs[0];
+    await userDoc.ref.update({
+      subscriptionStatus: subscription.status,
+      currentPeriodStart: new Date(subscription.current_period_start * 1000),
+      currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+      lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+    });
+    
+    console.log(`🔄 Subscription updated for user ${userDoc.id}: ${subscription.status}`);
+  } catch (error) {
+    console.error('❌ Error updating subscription:', error);
+  }
+}
+
+async function handleSubscriptionDeleted(subscription) {
+  console.log('🗑️ Subscription deleted:', subscription.id);
+  
+  try {
+    // Find user by subscription ID  
+    const usersRef = admin.firestore().collection('users');
+    const snapshot = await usersRef.where('subscriptionId', '==', subscription.id).get();
+    
+    if (snapshot.empty) {
+      console.error('❌ No user found for subscription:', subscription.id);
+      return;
+    }
+    
+    // Downgrade user to free tier
+    const userDoc = snapshot.docs[0];
+    await userDoc.ref.update({
+      isPremium: false,
+      subscriptionStatus: 'cancelled',
+      subscriptionId: null,
+      cancelledDate: admin.firestore.FieldValue.serverTimestamp(),
+      // Reset to free tier limits
+      scanCount: 0,
+      lastScanMonth: new Date().toISOString().slice(0, 7)
+    });
+    
+    console.log(`⬇️ User ${userDoc.id} downgraded to free tier`);
+  } catch (error) {
+    console.error('❌ Error handling subscription deletion:', error);
+  }
+}
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {

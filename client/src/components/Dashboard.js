@@ -8,6 +8,7 @@ import ScanHistory, { saveScanToHistory } from './ScanHistory';
 import PrivacyPolicy from './PrivacyPolicy';
 import TermsOfUse from './TermsOfUse';
 import Login from './Login';
+import BetaFeedback from './BetaFeedback';
 import analytics, { trackScan, trackEvent, getDeviceId } from '../utils/analytics';
 import storageManager, { addWatermark, getScanQuota } from '../utils/storageManager';
 import { generateEmailContent, generateDownloadReport, generateShareContent } from '../utils/shareWatermarkHelper';
@@ -47,6 +48,9 @@ function Dashboard({ user, notifications }) {
   // Account deletion state
   const [showAccountDeletion, setShowAccountDeletion] = useState(false);
   
+  // Beta feedback state
+  const [showBetaFeedback, setShowBetaFeedback] = useState(false);
+  
   // eslint-disable-next-line no-unused-vars
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
@@ -55,6 +59,20 @@ function Dashboard({ user, notifications }) {
   const [cameraStream, setCameraStream] = useState(null);
     const handleSignOut = () => {
     signOut(auth).catch(console.error);
+  };
+
+  // 🧹 DEBUG: Clear all app state for testing (development only)
+  const handleClearAppState = async () => {
+    try {
+      // Import the clear function
+      const { clearAllAppState } = await import('../firebase');
+      await clearAllAppState();
+      
+      // Force page reload to ensure clean state
+      window.location.reload();
+    } catch (error) {
+      console.error('Error clearing app state:', error);
+    }
   };  // Function to close all modals - helps prevent stuck overlays
   const closeAllModals = () => {
     setShowPremiumModal(false);
@@ -62,6 +80,7 @@ function Dashboard({ user, notifications }) {
     setShowAIDisclaimer(false);
     setShowLoginModal(false);
     setShowAccountDeletion(false);
+    setShowBetaFeedback(false);
     setPendingShareAction(null);
   };
 
@@ -785,16 +804,49 @@ function Dashboard({ user, notifications }) {
         }}>
           Naturinex
         </h1>
-        <button onClick={handleSignOut} style={{
-          backgroundColor: 'transparent',
-          border: '1px solid #ddd',
-          padding: '8px 16px',
-          borderRadius: '6px',
-          cursor: 'pointer',
-          fontSize: '14px'
-        }}>
-          Sign Out
-        </button>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          {/* Beta Feedback Button */}
+          <button onClick={() => setShowBetaFeedback(true)} style={{
+            backgroundColor: '#2c5530',
+            color: 'white',
+            border: 'none',
+            padding: '6px 12px',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '12px',
+            fontWeight: 'bold'
+          }}>
+            💬 Feedback
+          </button>
+          
+          {/* Debug Clear State Button (for beta testing) */}
+          {(!user || process.env.NODE_ENV === 'development') && (
+            <button onClick={handleClearAppState} style={{
+              backgroundColor: '#ff6b6b',
+              color: 'white',
+              border: 'none',
+              padding: '6px 12px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '12px',
+              fontWeight: 'bold'
+            }}>
+              🧹 Clear
+            </button>
+          )}
+          {user && (
+            <button onClick={handleSignOut} style={{
+              backgroundColor: 'transparent',
+              border: '1px solid #ddd',
+              padding: '8px 16px',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '14px'
+            }}>
+              Sign Out
+            </button>
+          )}
+        </div>
       </div>      {/* Main Content */}
       <div style={{ padding: '20px', maxWidth: '500px', margin: '0 auto' }}>
         
@@ -1948,6 +2000,7 @@ function Dashboard({ user, notifications }) {
               color: '#495057'
             }}>
               <strong>By sharing this information, you acknowledge that:</strong>
+             
               <br />
               You understand this is AI-generated educational content and not professional medical advice
             </div>
@@ -2149,6 +2202,14 @@ function Dashboard({ user, notifications }) {
             />
           </div>
         </div>
+      )}
+
+      {/* Beta Feedback Modal */}
+      {showBetaFeedback && (
+        <BetaFeedback 
+          user={user}
+          onClose={() => setShowBetaFeedback(false)}
+        />
       )}
     </div>
   );

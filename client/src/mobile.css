@@ -1,0 +1,201 @@
+/* Mobile-optimized styles for Naturinex */
+
+/* Base mobile styles */
+@media screen and (max-width: 768px) {
+  .mobile-optimized {
+    font-size: 16px; /* Prevent zoom on iOS */
+    -webkit-text-size-adjust: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  /* Touch-friendly buttons */
+  button {
+    min-height: 44px !important;
+    min-width: 44px !important;
+    padding: 12px 20px !important;
+    font-size: 16px !important;
+  }
+
+  /* Input fields */
+  input[type="text"],
+  input[type="email"],
+  input[type="password"] {
+    font-size: 16px !important; /* Prevent zoom */
+    min-height: 44px !important;
+    padding: 12px 16px !important;
+    border-radius: 8px !important;
+  }
+
+  /* Modal adjustments */
+  .modal {
+    margin: 10px !important;
+    max-height: 90vh !important;
+    overflow-y: auto !important;
+  }
+
+  /* Text readability */
+  .mobile-text {
+    font-size: 16px !important;
+    line-height: 1.5 !important;
+  }
+
+  /* Navigation spacing */
+  .mobile-nav {
+    padding: 15px !important;
+    gap: 15px !important;
+  }
+
+  /* Bottom navigation */
+  .bottom-nav {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: white;
+    border-top: 1px solid #ddd;
+    padding: 10px 0;
+    z-index: 1000;
+  }
+
+  .bottom-nav button {
+    flex: 1;
+    border: none;
+    background: transparent;
+    padding: 8px 4px;
+    font-size: 12px;
+    color: #666;
+  }
+
+  .bottom-nav button.active {
+    color: #2c5530;
+  }
+
+  /* Content padding for bottom nav */
+  .main-content {
+    padding-bottom: 80px !important;
+  }
+
+  /* Loading states */
+  .loading-mobile {
+    padding: 20px;
+    text-align: center;
+    font-size: 16px;
+  }
+
+  /* Error messages */
+  .error-mobile {
+    padding: 15px;
+    margin: 10px;
+    border-radius: 8px;
+    background: #ffebee;
+    color: #c62828;
+    font-size: 14px;
+  }
+
+  /* Success messages */
+  .success-mobile {
+    padding: 15px;
+    margin: 10px;
+    border-radius: 8px;
+    background: #e8f5e8;
+    color: #2c5530;
+    font-size: 14px;
+  }
+}
+
+/* Tablet styles */
+@media screen and (min-width: 769px) and (max-width: 1024px) {
+  .tablet-optimized {
+    max-width: 600px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+}
+
+/* High DPI displays */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .high-dpi img {
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+  }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .dark-mode {
+    background-color: #1a1a1a;
+    color: #ffffff;
+  }
+
+  .dark-mode .modal {
+    background-color: #2a2a2a;
+    color: #ffffff;
+  }
+
+  .dark-mode input {
+    background-color: #333;
+    color: #fff;
+    border-color: #555;
+  }
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  .print-only {
+    display: block !important;
+  }
+}
+
+/* PWA styles */
+@media all and (display-mode: standalone) {
+  .pwa-mode {
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Landscape orientation */
+@media screen and (orientation: landscape) and (max-height: 600px) {
+  .landscape-mobile {
+    font-size: 14px;
+  }
+  
+  .landscape-mobile .modal {
+    max-height: 80vh;
+  }
+}
+
+/* Specific device targeting */
+/* iPhone */
+@media only screen 
+  and (device-width: 375px) 
+  and (device-height: 667px) 
+  and (-webkit-device-pixel-ratio: 2) {
+  .iphone-specific {
+    -webkit-appearance: none;
+    appearance: none;
+    border-radius: 0;
+  }
+}
+
+/* Android specific */
+@media screen and (-webkit-min-device-pixel-ratio: 1.5) and (max-width: 480px) {
+  .android-specific {
+    -webkit-tap-highlight-color: transparent;
+  }
+}

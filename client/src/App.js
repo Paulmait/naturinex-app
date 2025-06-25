@@ -8,6 +8,7 @@ import Onboarding from './components/Onboarding';
 import PremiumCheckout from './components/PremiumCheckout';
 // AuthDebugger removed - not needed for production
 // import AuthDebugger from './components/AuthDebugger';
+import './mobile.css'; // Mobile optimizations
 import ErrorBoundary from './components/ErrorBoundary';
 import NotificationSystem, { useNotifications } from './components/NotificationSystem';
 import { useAutoLogout } from './utils/autoLogout';
