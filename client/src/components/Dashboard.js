@@ -28,7 +28,7 @@ function Dashboard({ user, notifications }) {
   // Analytics state
   const [deviceAnalytics, setDeviceAnalytics] = useState(null);
     // Check if user is admin (you can customize this logic)
-  const isAdmin = user?.email === 'admin@mediscan.com' || user?.email === 'your-email@example.com';
+  const isAdmin = user?.email === 'admin@mediscan.com' || user?.email === 'maito@example.com';
 
   // Debug state to track modal issues
   const [debugInfo, setDebugInfo] = useState('');
