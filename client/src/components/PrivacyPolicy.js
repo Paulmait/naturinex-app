@@ -42,7 +42,7 @@ function PrivacyPolicy({ onBack }) {
         <section style={{ marginBottom: '25px' }}>
           <h3 style={{ color: '#2c5530', marginBottom: '15px' }}>Introduction</h3>
           <p>
-            MediScan ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application and web service (the "Service").
+            Naturinex ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application and web service (the "Service").
           </p>
         </section>
 
@@ -146,7 +146,7 @@ function PrivacyPolicy({ onBack }) {
           }}>
             <h3 style={{ color: '#856404', marginTop: 0, marginBottom: '10px' }}>⚠️ Medical Disclaimer</h3>
             <p style={{ color: '#856404', margin: 0 }}>
-              <strong>IMPORTANT:</strong> MediScan provides educational information only and is not a substitute for professional medical advice, diagnosis, or treatment. Always consult qualified healthcare providers before making medical decisions.
+              <strong>IMPORTANT:</strong> Naturinex provides educational information only and is not a substitute for professional medical advice, diagnosis, or treatment. Always consult qualified healthcare providers before making medical decisions.
             </p>
           </div>
         </section>
@@ -157,7 +157,7 @@ function PrivacyPolicy({ onBack }) {
             If you have questions about this Privacy Policy, please contact us:
           </p>
           <ul style={{ paddingLeft: '20px', color: '#666' }}>
-            <li><strong>Email:</strong> privacy@mediscan.app</li>
+            <li><strong>Email:</strong> privacy@Naturinex.app</li>
             <li><strong>Address:</strong> [Your Business Address]</li>
             <li><strong>Phone:</strong> [Your Phone Number]</li>
           </ul>
@@ -171,7 +171,7 @@ function PrivacyPolicy({ onBack }) {
           marginTop: '30px'
         }}>
           <p style={{ color: '#666', fontSize: '14px', margin: 0 }}>
-            This Privacy Policy is effective as of the date listed above and governs your use of the MediScan service.
+            This Privacy Policy is effective as of the date listed above and governs your use of the Naturinex service.
           </p>
         </div>
       </div>

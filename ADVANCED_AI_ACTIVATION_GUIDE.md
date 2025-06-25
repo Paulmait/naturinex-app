@@ -108,7 +108,7 @@ Test the same medication with:
 ## 🎯 **HOW TO ACTIVATE FOR TESTING**
 
 ### **Method 1: Manual User Upgrade**
-1. **Sign in** to MediScan
+1. **Sign in** to Naturinex
 2. **Go to Profile** → Click "Upgrade to Premium"  
 3. **Complete checkout** (use Stripe test cards)
 4. **Scan medication** → See advanced AI response

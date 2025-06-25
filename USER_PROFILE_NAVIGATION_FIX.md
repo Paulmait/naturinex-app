@@ -140,7 +140,7 @@ Profile Access → Load from userProfile state → Display user information
 
 ## 🎉 **Result**
 
-The MediScan app now provides a complete, professional user experience with:
+The Naturinex app now provides a complete, professional user experience with:
 - ✅ **Proper onboarding flow** that only shows once
 - ✅ **Full navigation system** with 4 functional tabs
 - ✅ **Complete profile management** with user data display

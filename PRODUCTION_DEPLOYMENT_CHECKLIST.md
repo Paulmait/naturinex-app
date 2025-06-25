@@ -72,7 +72,7 @@ vercel --prod
 **Backend (Heroku)**
 ```bash
 # 1. Install Heroku CLI
-heroku create mediscan-api
+heroku create Naturinex-api
 heroku config:set NODE_ENV=production
 heroku config:set GOOGLE_AI_API_KEY=your_key
 # ... set all environment variables
@@ -212,7 +212,7 @@ npm run build
 ### Post-Launch Monitoring
 ```bash
 # Monitor logs
-heroku logs --tail -a mediscan-api
+heroku logs --tail -a Naturinex-api
 
 # Check performance
 lighthouse https://your-domain.com

@@ -1,16 +1,16 @@
-# Terms of Use for MediScan
+# Terms of Use for Naturinex
 
 **Last Updated: June 22, 2025**
 
 ## Agreement to Terms
 
-By accessing or using the MediScan application ("Service"), you agree to be bound by these Terms of Use ("Terms"). If you disagree with any part of these terms, you may not access the Service.
+By accessing or using the Naturinex application ("Service"), you agree to be bound by these Terms of Use ("Terms"). If you disagree with any part of these terms, you may not access the Service.
 
 ## Medical Disclaimer and Limitation of Liability
 
 ### IMPORTANT MEDICAL DISCLAIMER
 
-**MediScan is for educational and informational purposes only and is not intended to provide medical advice, diagnosis, or treatment recommendations.**
+**Naturinex is for educational and informational purposes only and is not intended to provide medical advice, diagnosis, or treatment recommendations.**
 
 - **Not Medical Advice**: Information provided is not a substitute for professional medical consultation
 - **No Doctor-Patient Relationship**: Use of this Service does not create a doctor-patient relationship
@@ -19,7 +19,7 @@ By accessing or using the MediScan application ("Service"), you agree to be boun
 
 ### Your Acknowledgment
 
-By using MediScan, you acknowledge and agree that:
+By using Naturinex, you acknowledge and agree that:
 - You understand the limitations of AI-generated health information
 - You will not rely solely on our suggestions for medical decisions
 - You will consult healthcare professionals before making medication changes
@@ -27,7 +27,7 @@ By using MediScan, you acknowledge and agree that:
 
 ## Service Description
 
-MediScan provides:
+Naturinex provides:
 - **Medication Scanning**: Photo and barcode recognition of medications
 - **AI Suggestions**: Educational information about natural alternatives
 - **Health Information**: General wellness and medication information
@@ -52,7 +52,7 @@ You agree NOT to:
 ## Intellectual Property Rights
 
 ### Our Content
-- MediScan owns all Service content, features, and functionality
+- Naturinex owns all Service content, features, and functionality
 - Our trademarks, logos, and brand features are protected
 - You may not use our intellectual property without written permission
 
@@ -96,7 +96,7 @@ You agree NOT to:
 
 ## Indemnification
 
-You agree to indemnify and hold harmless MediScan, its officers, directors, employees, and agents from any claims, losses, damages, or expenses arising from:
+You agree to indemnify and hold harmless Naturinex, its officers, directors, employees, and agents from any claims, losses, damages, or expenses arising from:
 - Your use of the Service
 - Your violation of these Terms
 - Your violation of any third-party rights
@@ -144,13 +144,13 @@ If any provision of these Terms is found to be unenforceable, the remaining prov
 
 Questions about these Terms? Contact us:
 
-- **Email**: legal@mediscan.app
+- **Email**: legal@Naturinex.app
 - **Address**: [Your Business Address]
 - **Phone**: [Your Phone Number]
 
 ## Acknowledgment
 
-By using MediScan, you acknowledge that you have read, understood, and agree to be bound by these Terms of Use and our Privacy Policy.
+By using Naturinex, you acknowledge that you have read, understood, and agree to be bound by these Terms of Use and our Privacy Policy.
 
 ---
 

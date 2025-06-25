@@ -2,7 +2,7 @@ import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-// Firebase configuration for Mediscan project
+// Firebase configuration for Naturinex project (using existing mediscan project)
 const firebaseConfig = {
   apiKey: "AIzaSyDsTe9-uNbFq4rCJbIjXra7_j9hRCy9Nq4",
   authDomain: "mediscan-b6252.firebaseapp.com",

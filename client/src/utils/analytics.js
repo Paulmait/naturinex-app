@@ -1,4 +1,4 @@
-// 📊 MediScan Analytics & Device Tracking Utility
+// 📊 Naturinex Analytics & Device Tracking Utility
 // Comprehensive user analytics, device fingerprinting, and usage tracking
 
 import { doc, setDoc, getDoc, updateDoc, collection, addDoc } from 'firebase/firestore';
@@ -27,13 +27,13 @@ class AnalyticsService {
   // Generate unique device fingerprint
   async getOrCreateDeviceId() {
     // Check if device ID already exists
-    let deviceId = localStorage.getItem('mediscan_device_id');
+    let deviceId = localStorage.getItem('Naturinex_device_id');
     
     if (!deviceId) {
       // Create unique device fingerprint
       const fingerprint = await this.generateDeviceFingerprint();
       deviceId = `device_${fingerprint}_${Date.now()}`;
-      localStorage.setItem('mediscan_device_id', deviceId);
+      localStorage.setItem('Naturinex_device_id', deviceId);
       
       // Store device info in Firestore
       await this.storeDeviceInfo(deviceId);
@@ -68,7 +68,7 @@ class AnalyticsService {
       const ctx = canvas.getContext('2d');
       ctx.textBaseline = 'top';
       ctx.font = '14px Arial';
-      ctx.fillText('MediScan Device ID', 2, 2);
+      ctx.fillText('Naturinex Device ID', 2, 2);
       return canvas.toDataURL().substring(0, 50);
     } catch (e) {
       return 'canvas_unavailable';

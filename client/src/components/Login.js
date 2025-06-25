@@ -79,7 +79,7 @@ function Login() {
           marginBottom: '10px',
           fontSize: '2.5em'
         }}>
-          🏥 Mediscan
+          🏥 Naturinex
         </h1>
         <p style={{ 
           color: '#666', 

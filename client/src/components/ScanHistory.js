@@ -31,7 +31,7 @@ function ScanHistory({ user }) {
   const exportToPDF = (scan) => {
     // Create a simple text-based PDF export
     const content = `
-MEDISCAN REPORT
+Naturinex REPORT
 Generated: ${new Date().toLocaleDateString()}
 
 Medication: ${scan.medication}
@@ -49,7 +49,7 @@ Always consult healthcare professionals before making any medical decisions.
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `mediscan-${scan.medication}-${Date.now()}.txt`;
+    a.download = `Naturinex-${scan.medication}-${Date.now()}.txt`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -57,11 +57,11 @@ Always consult healthcare professionals before making any medical decisions.
   };
 
   const shareResults = (scan) => {
-    const shareText = `Mediscan Results for ${scan.medication}:\n\n${scan.results}\n\nGenerated on ${new Date(scan.timestamp).toLocaleDateString()}`;
+    const shareText = `Naturinex Results for ${scan.medication}:\n\n${scan.results}\n\nGenerated on ${new Date(scan.timestamp).toLocaleDateString()}`;
     
     if (navigator.share) {
       navigator.share({
-        title: `Mediscan Results - ${scan.medication}`,
+        title: `Naturinex Results - ${scan.medication}`,
         text: shareText,
         url: window.location.href,
       });

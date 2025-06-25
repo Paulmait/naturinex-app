@@ -1,4 +1,4 @@
-# 🚀 MediScan Beta Launch Strategy - July 4th Production Ready
+# 🚀 Naturinex Beta Launch Strategy - July 4th Production Ready
 
 ## 📅 **RECOMMENDED TIMELINE**
 

@@ -96,7 +96,7 @@ function App() {
       }}>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontSize: '48px', marginBottom: '20px' }}>💊</div>
-          <div style={{ color: '#2c5530', fontWeight: 'bold' }}>Loading MediScan...</div>
+          <div style={{ color: '#2c5530', fontWeight: 'bold' }}>Loading Naturinex...</div>
         </div>
       </div>
     );

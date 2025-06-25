@@ -1,4 +1,4 @@
-# 🚀 Mediscan App - Enhanced User Experience & Monetization
+# 🚀 Naturinex App - Enhanced User Experience & Monetization
 
 ## ✅ Fixed Issues & Enhancements
 
@@ -131,7 +131,7 @@ users/{userId}: {
 ### **Firebase Auth Domains**
 - ✅ localhost (web development)
 - ✅ 10.0.0.74 (Android emulator)
-- ✅ mediscan-b6252.firebaseapp.com (production)
+- ✅ Naturinex-b6252.firebaseapp.com (production)
 
 ## 🔒 Legal & Safety Compliance
 
@@ -152,7 +152,7 @@ users/{userId}: {
 
 ## 🎉 Ready for Production
 
-The Mediscan app is now ready for production deployment with:
+The Naturinex app is now ready for production deployment with:
 - ✅ **Complete trial system** (5 free scans)
 - ✅ **Gated premium features** (email/share restrictions)
 - ✅ **Professional upgrade prompts**

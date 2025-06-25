@@ -21,7 +21,7 @@ Implemented a mandatory click-wrap disclaimer that appears before users can shar
 - ✅ **AI Limitations** - Warns AI can make errors or provide incomplete info
 - ✅ **Professional Consultation** - Directs users to licensed healthcare providers
 - ✅ **Emergency Disclaimer** - Directs urgent matters to emergency services
-- ✅ **No Liability** - States MediScan not responsible for AI-based decisions
+- ✅ **No Liability** - States Naturinex not responsible for AI-based decisions
 
 ## 🛡️ Implementation Details
 
@@ -84,7 +84,7 @@ const [pendingShareAction, setPendingShareAction] = useState(null);
 ## 📋 Testing Instructions
 
 ### **Basic Functionality Test**
-1. Launch MediScan app
+1. Launch Naturinex app
 2. Login with Google account
 3. Generate AI suggestions for any medication
 4. Click "📧 Email" button
@@ -154,7 +154,7 @@ While this implementation provides strong protection, consider having a health t
 
 ## ✅ Status: PRODUCTION READY
 
-This implementation provides **critical liability protection** for your MediScan app and is ready for production deployment. The click-wrap disclaimer significantly reduces legal risk while maintaining a user-friendly experience.
+This implementation provides **critical liability protection** for your Naturinex app and is ready for production deployment. The click-wrap disclaimer significantly reduces legal risk while maintaining a user-friendly experience.
 
 **Next Steps:**
 1. ✅ Implementation complete

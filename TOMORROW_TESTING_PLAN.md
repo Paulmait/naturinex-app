@@ -104,11 +104,11 @@
 ### **1. Start Applications:**
 ```bash
 # Terminal 1 (Frontend)
-cd c:\Users\maito\mediscan-app\client
+cd c:\Users\maito\Naturinex-app\client
 npm start
 
 # Terminal 2 (Backend)  
-cd c:\Users\maito\mediscan-app\server
+cd c:\Users\maito\Naturinex-app\server
 npm start
 ```
 

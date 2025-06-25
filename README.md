@@ -1,4 +1,4 @@
-# Mediscan App
+# Naturinex App
 
 A full-stack application that helps users find natural alternatives to medications using AI-powered suggestions.
 
@@ -111,7 +111,7 @@ The application will be available at:
 ## Project Structure
 
 ```
-mediscan-app/
+Naturinex-app/
 ├── client/                 # React frontend
 │   ├── public/
 │   ├── src/

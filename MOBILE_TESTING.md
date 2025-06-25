@@ -72,7 +72,7 @@
 6. **Bottom Navigation Testing**:
    - **Home Tab** (🏠): Main scanner interface with camera/photo/barcode options
    - **Scans Tab** (📊): Scan history (Premium only) or upgrade prompt
-   - **Info Tab** (ℹ️): About MediScan, features, and privacy information
+   - **Info Tab** (ℹ️): About Naturinex, features, and privacy information
    - **Profile Tab** (👤): User profile, settings, and account management
    - All tabs should be clickable and show appropriate content
 

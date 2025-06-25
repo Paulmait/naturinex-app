@@ -1,4 +1,4 @@
-# MediScan User Experience & Monetization Strategy
+# Naturinex User Experience & Monetization Strategy
 
 ## 🎯 Onboarding Strategy (Inspired by Cal AI)
 

@@ -6,7 +6,7 @@
 
 ## 🎯 Overview
 
-Successfully implemented **free tier access** that allows users to start using MediScan immediately without requiring sign-up. This removes the friction of account creation and provides instant value to users.
+Successfully implemented **free tier access** that allows users to start using Naturinex immediately without requiring sign-up. This removes the friction of account creation and provides instant value to users.
 
 ## 🆓 Free Tier Features
 

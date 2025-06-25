@@ -1,4 +1,4 @@
-# 🧪 MediScan Complete Testing Guide
+# 🧪 Naturinex Complete Testing Guide
 
 ## ✅ Testing Checklist - All Features
 

@@ -1,7 +1,7 @@
 {
-  "name": "mediscan-app",
+  "name": "naturinex-app",
   "version": "1.0.0",
-  "description": "Mediscan fullstack app - AI-powered natural medication alternatives",
+  "description": "Naturinex fullstack app - AI-powered natural medication alternatives",
   "main": "server/index.js",
   "scripts": {
     "start": "concurrently \"npm run server\" \"npm run client\"",
@@ -10,8 +10,8 @@
     "install-all": "npm install && cd server && npm install && cd ../client && npm install",
     "build": "cd client && npm run build"
   },
-  "keywords": ["mediscan", "ai", "healthcare", "natural-alternatives"],
-  "author": "Mediscan Team",
+  "keywords": ["naturinex", "ai", "healthcare", "natural-alternatives"],
+  "author": "Naturinex Team",
   "license": "MIT",
   "devDependencies": {
     "concurrently": "^8.2.2"

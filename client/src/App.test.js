@@ -27,7 +27,7 @@ jest.mock('./utils/analytics', () => ({
   getDeviceId: jest.fn(() => 'test-device-id')
 }));
 
-describe('MediScan App', () => {
+describe('Naturinex App', () => {
   test('renders without crashing', () => {
     render(<App />);
     // App should render without throwing errors
@@ -35,7 +35,7 @@ describe('MediScan App', () => {
 
   test('shows loading state initially', () => {
     render(<App />);
-    expect(screen.getByText(/Loading MediScan/i)).toBeInTheDocument();
+    expect(screen.getByText(/Loading Naturinex/i)).toBeInTheDocument();
   });
 
   test('error boundary catches and displays errors', () => {

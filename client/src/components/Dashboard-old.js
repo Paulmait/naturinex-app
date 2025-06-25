@@ -54,7 +54,7 @@ function Dashboard({ user }) {
   };
 
   const handleEmail = () => {
-    const mailto = `mailto:${user.email}?subject=Your Mediscan Results&body=${encodeURIComponent(suggestions)}`;
+    const mailto = `mailto:${user.email}?subject=Your Naturinex Results&body=${encodeURIComponent(suggestions)}`;
     window.location.href = mailto;
   };
 

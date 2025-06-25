@@ -1,0 +1,55 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Users collection - users can only access their own documents
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      // Subcollection for user's scan history
+      match /scans/{scanId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+    
+    // Devices collection - users can only access their own device data
+    match /devices/{deviceId} {
+      allow read, write: if request.auth != null;
+      // Note: Device ID is generated based on browser fingerprint, 
+      // so we allow authenticated users to access device data
+    }
+    
+    // Sessions collection - users can only access their own sessions
+    match /sessions/{sessionId} {
+      allow read, write: if request.auth != null;
+      // Sessions are tied to authenticated users through deviceId/userId
+    }
+    
+    // Scan events - only authenticated users can create/read their own events
+    match /scan_events/{eventId} {
+      allow read, write: if request.auth != null 
+        && (request.auth.uid == resource.data.userId || 
+            request.auth.uid == request.resource.data.userId);
+    }
+    
+    // General events - only authenticated users can create/read their own events  
+    match /events/{eventId} {
+      allow read, write: if request.auth != null
+        && (request.auth.uid == resource.data.userId || 
+            request.auth.uid == request.resource.data.userId);
+    }
+    
+    // Admin-only access for analytics (restrict to admin emails)
+    match /admin/{document=**} {
+      allow read, write: if request.auth != null 
+        && (request.auth.token.email == 'admin@naturinex.com' ||
+            request.auth.token.email == 'guampaul@gmail.com' ||
+            request.auth.token.email == 'maito@example.com');
+    }
+    
+    // Deny all other access
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

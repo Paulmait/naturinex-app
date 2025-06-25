@@ -42,7 +42,7 @@ function TermsOfUse({ onBack }) {
         <section style={{ marginBottom: '25px' }}>
           <h3 style={{ color: '#2c5530', marginBottom: '15px' }}>Agreement to Terms</h3>
           <p>
-            By accessing or using the MediScan application ("Service"), you agree to be bound by these Terms of Use ("Terms"). If you disagree with any part of these terms, you may not access the Service.
+            By accessing or using the Naturinex application ("Service"), you agree to be bound by these Terms of Use ("Terms"). If you disagree with any part of these terms, you may not access the Service.
           </p>
         </section>
 
@@ -56,7 +56,7 @@ function TermsOfUse({ onBack }) {
           }}>
             <h3 style={{ color: '#721c24', marginTop: 0, marginBottom: '15px' }}>⚠️ IMPORTANT MEDICAL DISCLAIMER</h3>
             <p style={{ color: '#721c24', fontWeight: 'bold', marginBottom: '15px' }}>
-              MediScan is for educational and informational purposes only and is not intended to provide medical advice, diagnosis, or treatment recommendations.
+              Naturinex is for educational and informational purposes only and is not intended to provide medical advice, diagnosis, or treatment recommendations.
             </p>
             <ul style={{ paddingLeft: '20px', color: '#721c24', margin: 0 }}>
               <li><strong>Not Medical Advice:</strong> Information provided is not a substitute for professional medical consultation</li>
@@ -67,7 +67,7 @@ function TermsOfUse({ onBack }) {
           </div>
 
           <h4 style={{ color: '#333', marginBottom: '10px' }}>Your Acknowledgment</h4>
-          <p style={{ color: '#666' }}>By using MediScan, you acknowledge and agree that:</p>
+          <p style={{ color: '#666' }}>By using Naturinex, you acknowledge and agree that:</p>
           <ul style={{ paddingLeft: '20px', color: '#666' }}>
             <li>You understand the limitations of AI-generated health information</li>
             <li>You will not rely solely on our suggestions for medical decisions</li>
@@ -78,7 +78,7 @@ function TermsOfUse({ onBack }) {
 
         <section style={{ marginBottom: '25px' }}>
           <h3 style={{ color: '#2c5530', marginBottom: '15px' }}>Service Description</h3>
-          <p style={{ color: '#666', marginBottom: '15px' }}>MediScan provides:</p>
+          <p style={{ color: '#666', marginBottom: '15px' }}>Naturinex provides:</p>
           <ul style={{ paddingLeft: '20px', color: '#666' }}>
             <li><strong>Medication Scanning:</strong> Photo and barcode recognition of medications</li>
             <li><strong>AI Suggestions:</strong> Educational information about natural alternatives</li>
@@ -180,7 +180,7 @@ function TermsOfUse({ onBack }) {
           <h3 style={{ color: '#2c5530', marginBottom: '15px' }}>Contact Information</h3>
           <p style={{ color: '#666' }}>Questions about these Terms? Contact us:</p>
           <ul style={{ paddingLeft: '20px', color: '#666' }}>
-            <li><strong>Email:</strong> legal@mediscan.app</li>
+            <li><strong>Email:</strong> legal@Naturinex.app</li>
             <li><strong>Address:</strong> [Your Business Address]</li>
             <li><strong>Phone:</strong> [Your Phone Number]</li>
           </ul>
@@ -196,7 +196,7 @@ function TermsOfUse({ onBack }) {
         }}>
           <h4 style={{ color: '#856404', marginTop: 0, marginBottom: '10px' }}>📋 Acknowledgment</h4>
           <p style={{ color: '#856404', fontSize: '14px', marginBottom: '10px' }}>
-            By using MediScan, you acknowledge that you have read, understood, and agree to be bound by these Terms of Use and our Privacy Policy.
+            By using Naturinex, you acknowledge that you have read, understood, and agree to be bound by these Terms of Use and our Privacy Policy.
           </p>
           <p style={{ color: '#856404', fontSize: '14px', fontWeight: 'bold', margin: 0 }}>
             REMINDER: This app provides educational information only. Always consult qualified healthcare professionals for medical advice, diagnosis, and treatment decisions.

@@ -1,13 +1,13 @@
 {
-  "name": "mediscan-app",
+  "name": "naturinex-app",
   "version": "1.0.0",
-  "description": "Mediscan fullstack app",
+  "description": "Naturinex fullstack app",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js"
   },
-  "author": "Mediscan Team",
+  "author": "Naturinex Team",
   "license": "MIT",
   "devDependencies": {
     "concurrently": "^8.2.2"

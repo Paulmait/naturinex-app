@@ -86,14 +86,14 @@ function Dashboard({ user }) {
       alert("No suggestions to email yet.");
       return;
     }
-    const mailto = `mailto:${user.email}?subject=Your Mediscan Results&body=${encodeURIComponent(suggestions)}`;
+    const mailto = `mailto:${user.email}?subject=Your Naturinex Results&body=${encodeURIComponent(suggestions)}`;
     window.location.href = mailto;
   };
 
   const handleShare = () => {
     if (navigator.share && suggestions) {
       navigator.share({
-        title: 'Mediscan Results',
+        title: 'Naturinex Results',
         text: suggestions,
         url: window.location.href,
       });
@@ -192,7 +192,7 @@ function Dashboard({ user }) {
           fontSize: '24px',
           fontWeight: 'bold'
         }}>
-          Mediscan
+          Naturinex
         </h1>
         <button onClick={handleSignOut} style={{
           backgroundColor: 'transparent',

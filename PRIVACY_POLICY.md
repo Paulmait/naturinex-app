@@ -1,10 +1,10 @@
-# Privacy Policy for MediScan
+# Privacy Policy for Naturinex
 
 **Last Updated: June 22, 2025**
 
 ## Introduction
 
-MediScan ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application and web service (the "Service").
+Naturinex ("we," "our," or "us") is committed to protecting your privacy. This Privacy Policy explains how we collect, use, disclose, and safeguard your information when you use our mobile application and web service (the "Service").
 
 ## Information We Collect
 
@@ -81,7 +81,7 @@ MediScan ("we," "our," or "us") is committed to protecting your privacy. This Pr
 
 ## Children's Privacy
 
-MediScan is not intended for children under 13. We do not knowingly collect personal information from children under 13. If you believe we have collected information from a child under 13, please contact us immediately.
+Naturinex is not intended for children under 13. We do not knowingly collect personal information from children under 13. If you believe we have collected information from a child under 13, please contact us immediately.
 
 ## International Users
 
@@ -96,16 +96,16 @@ We may update this Privacy Policy from time to time. We will notify you of any c
 
 ## Medical Disclaimer
 
-**IMPORTANT**: MediScan provides educational information only and is not a substitute for professional medical advice, diagnosis, or treatment. Always consult qualified healthcare providers before making medical decisions.
+**IMPORTANT**: Naturinex provides educational information only and is not a substitute for professional medical advice, diagnosis, or treatment. Always consult qualified healthcare providers before making medical decisions.
 
 ## Contact Information
 
 If you have questions about this Privacy Policy, please contact us:
 
-- **Email**: privacy@mediscan.app
+- **Email**: privacy@Naturinex.app
 - **Address**: [Your Business Address]
 - **Phone**: [Your Phone Number]
 
 ---
 
-*This Privacy Policy is effective as of the date listed above and governs your use of the MediScan service.*
+*This Privacy Policy is effective as of the date listed above and governs your use of the Naturinex service.*

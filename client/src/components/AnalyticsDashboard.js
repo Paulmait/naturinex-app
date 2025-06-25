@@ -218,7 +218,7 @@ function AnalyticsDashboard({ user }) {
   return (
     <div style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto' }}>
       <div style={{ marginBottom: '30px' }}>
-        <h1 style={{ color: '#2c5530', marginBottom: '10px' }}>📊 MediScan Analytics</h1>
+        <h1 style={{ color: '#2c5530', marginBottom: '10px' }}>📊 Naturinex Analytics</h1>
         <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
           {['24h', '7d', '30d', 'all'].map(range => (
             <button

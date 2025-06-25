@@ -22,7 +22,7 @@ function Onboarding({ user, onComplete }) {
   const steps = [
     {
       id: 'welcome',
-      title: '👋 Welcome to MediScan',
+      title: '👋 Welcome to Naturinex',
       subtitle: 'Your personal medication companion',
       component: WelcomeStep
     },
@@ -53,7 +53,7 @@ function Onboarding({ user, onComplete }) {
     {
       id: 'paywall',
       title: '🚀 Unlock Premium Features',
-      subtitle: 'Get the most out of MediScan',
+      subtitle: 'Get the most out of Naturinex',
       component: PaywallStep
     }
   ];
@@ -132,7 +132,7 @@ function Onboarding({ user, onComplete }) {
             fontWeight: 'bold',
             color: '#2c5530'
           }}>
-            MediScan
+            Naturinex
           </div>
           <div style={{ flex: 1 }}>
             <div style={{
@@ -270,7 +270,7 @@ function PrivacyStep({ userData, updateUserData, onNext, onBack, stepData }) {
         marginBottom: '25px'
       }}>
         <p style={{ color: '#856404', margin: 0, fontSize: '14px' }}>
-          <strong>Medical Disclaimer:</strong> MediScan provides educational information only. 
+          <strong>Medical Disclaimer:</strong> Naturinex provides educational information only. 
           Always consult healthcare professionals before making medical decisions.
         </p>
       </div>
@@ -283,7 +283,7 @@ function PrivacyStep({ userData, updateUserData, onNext, onBack, stepData }) {
       }}>
         <h4 style={{ color: '#333', marginBottom: '15px' }}>📋 Legal Agreement Required</h4>
         <p style={{ color: '#666', fontSize: '14px', marginBottom: '15px' }}>
-          By using MediScan, you must agree to our Terms of Use and Privacy Policy:
+          By using Naturinex, you must agree to our Terms of Use and Privacy Policy:
         </p>
         
         <div style={{ marginBottom: '15px' }}>

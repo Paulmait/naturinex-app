@@ -1,4 +1,4 @@
-# Mobile UI Update - Mediscan App
+# Mobile UI Update - Naturinex App
 
 ## ✅ Completed Tasks
 
