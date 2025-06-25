@@ -8,7 +8,6 @@ import ScanHistory, { saveScanToHistory } from './ScanHistory';
 import PrivacyPolicy from './PrivacyPolicy';
 import TermsOfUse from './TermsOfUse';
 import Login from './Login';
-import AnalyticsDashboard from './AnalyticsDashboard';
 import analytics, { trackScan, trackEvent, getDeviceId } from '../utils/analytics';
 import storageManager, { addWatermark, getScanQuota } from '../utils/storageManager';
 import { generateEmailContent, generateDownloadReport, generateShareContent } from '../utils/shareWatermarkHelper';
@@ -438,7 +437,7 @@ function Dashboard({ user, notifications }) {
     
     if (navigator.share) {
       navigator.share({
-        title: `MediScan Analysis: ${medicationName}`,
+        title: `Naturinex Analysis: ${medicationName}`,
         text: shareContent,
         url: window.location.href,
       });
@@ -784,7 +783,7 @@ function Dashboard({ user, notifications }) {
           fontSize: '24px',
           fontWeight: 'bold'
         }}>
-          Mediscan
+          Naturinex
         </h1>
         <button onClick={handleSignOut} style={{
           backgroundColor: 'transparent',
@@ -1246,12 +1245,12 @@ function Dashboard({ user, notifications }) {
             borderRadius: '8px',
             border: '1px solid #e0e0e0'
           }}>
-            <h3 style={{ color: '#2c5530', marginBottom: '20px' }}>ℹ️ About MediScan</h3>
+            <h3 style={{ color: '#2c5530', marginBottom: '20px' }}>ℹ️ About Naturinex</h3>
             
             <div style={{ marginBottom: '20px' }}>
-              <h4 style={{ color: '#333', marginBottom: '10px' }}>What is MediScan?</h4>
+              <h4 style={{ color: '#333', marginBottom: '10px' }}>What is Naturinex?</h4>
               <p style={{ color: '#666', lineHeight: '1.5' }}>
-                MediScan helps you discover natural alternatives to your medications using AI-powered analysis. 
+                Naturinex helps you discover natural alternatives to your medications using AI-powered analysis. 
                 Simply scan or upload your medication to get personalized suggestions.
               </p>
             </div>
@@ -1521,7 +1520,7 @@ function Dashboard({ user, notifications }) {
                 }}>
                   <div style={{ fontSize: '48px', marginBottom: '15px' }}>👋</div>
                   <h4 style={{ color: '#2c5530', marginBottom: '10px' }}>
-                    Welcome to MediScan!
+                    Welcome to Naturinex!
                   </h4>                  <p style={{ color: '#666', marginBottom: '20px' }}>
                     You get 1 free scan per day. Sign up for more!
                   </p>
@@ -1935,7 +1934,7 @@ function Dashboard({ user, notifications }) {
                 <li><strong>AI May Be Wrong:</strong> Artificial intelligence can make errors or provide incomplete information</li>
                 <li><strong>Consult Professionals:</strong> Always verify with licensed healthcare providers, pharmacists, or doctors</li>
                 <li><strong>Emergency Situations:</strong> For urgent health matters, contact emergency services immediately</li>
-                <li><strong>No Liability:</strong> MediScan is not responsible for any decisions made based on AI suggestions</li>
+                <li><strong>No Liability:</strong> Naturinex is not responsible for any decisions made based on AI suggestions</li>
               </ul>
             </div>
 

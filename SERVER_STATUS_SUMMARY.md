@@ -3,7 +3,7 @@
 ## ✅ Current Server Status
 
 ### 🌐 Production Build (Final Version)
-- **URL**: http://localhost:3000
+- **URL**: http://localhost:3003
 - **Status**: ✅ Running
 - **Version**: Production build (194.2 kB)
 - **Features**: 
@@ -23,7 +23,7 @@
 
 ## 🎯 Which Server to Use
 
-### For Testing/Demo: **http://localhost:3000**
+### For Testing/Demo: **http://localhost:3003**
 - This is the **production-ready version**
 - No debug panels or development artifacts
 - Optimized performance
@@ -36,12 +36,12 @@
 
 ## 🎉 Success!
 
-**Naturinex production build is now running perfectly on port 3000!** 
+**Naturinex production build is now running perfectly on port 3003!** 
 
-The debug panel has been completely removed and the app is ready for public use. You can now safely share **http://localhost:3000** to demonstrate the clean, professional Naturinex application.
+The debug panel has been completely removed and the app is ready for public use. You can now safely share **http://localhost:3003** to demonstrate the clean, professional Naturinex application.
 
 ## 📱 Next Steps
-1. **Test the production version** at http://localhost:3000
+1. **Test the production version** at http://localhost:3003
 2. **Verify admin access** works with your email
 3. **Push to GitHub** when ready
 4. **Deploy to Firebase Hosting** for public access (optional)
