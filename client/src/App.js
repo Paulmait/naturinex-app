@@ -10,6 +10,7 @@ import PremiumCheckout from './components/PremiumCheckout';
 // import AuthDebugger from './components/AuthDebugger';
 import ErrorBoundary from './components/ErrorBoundary';
 import NotificationSystem, { useNotifications } from './components/NotificationSystem';
+import { useAutoLogout } from './utils/autoLogout';
 
 function App() {
   const [user, setUser] = useState(null);
@@ -19,6 +20,9 @@ function App() {
   
   // Initialize notification system
   const notifications = useNotifications();
+  
+  // Initialize auto-logout for security and API cost savings
+  useAutoLogout(user, notifications);
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {

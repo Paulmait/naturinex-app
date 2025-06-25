@@ -1910,9 +1910,9 @@ function Dashboard({ user, notifications }) {
           <div style={{
             backgroundColor: 'white',
             borderRadius: '15px',
-            maxWidth: '500px',
+            maxWidth: '400px',
             width: '100%',
-            padding: '30px',
+            padding: '25px',
             boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
             position: 'relative',
             maxHeight: '80vh',
@@ -1922,49 +1922,59 @@ function Dashboard({ user, notifications }) {
               onClick={handleAIDisclaimerReject}
               style={{
                 position: 'absolute',
-                top: '15px',
-                right: '20px',
+                top: '10px',
+                right: '15px',
                 background: 'none',
                 border: 'none',
-                fontSize: '24px',
+                fontSize: '20px',
                 cursor: 'pointer',
-                color: '#666',
+                color: '#999',
                 lineHeight: 1
               }}
             >
               ×
             </button>
             
-            <div style={{ textAlign: 'center', marginBottom: '25px' }}>
-              <div style={{ fontSize: '48px', marginBottom: '15px' }}>⚠️</div>
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <div style={{ fontSize: '32px', marginBottom: '10px' }}>⚠️</div>
               <h2 style={{ 
-                color: '#d63384', 
-                marginBottom: '10px',
-                fontSize: '24px'
+                color: '#dc3545', 
+                marginBottom: '5px',
+                fontSize: '18px',
+                fontWeight: 'bold'
               }}>
                 AI Medical Disclaimer
               </h2>
             </div>
 
             <div style={{ 
-              backgroundColor: '#fff3cd',
-              border: '2px solid #ffc107',
+              backgroundColor: '#fff9c4',
+              border: '1px solid #ffc107',
               borderRadius: '8px',
-              padding: '20px',
-              marginBottom: '25px'
+              padding: '15px',
+              marginBottom: '20px'
             }}>
-              <h3 style={{ 
-                color: '#856404', 
-                marginTop: 0,
-                fontSize: '18px'
+              <div style={{ 
+                display: 'flex', 
+                alignItems: 'flex-start',
+                marginBottom: '10px'
               }}>
-                🤖 IMPORTANT: This is AI-Generated Information
-              </h3>
+                <span style={{ fontSize: '16px', marginRight: '8px' }}>⚠️</span>
+                <span style={{ 
+                  color: '#856404', 
+                  fontWeight: 'bold',
+                  fontSize: '14px'
+                }}>
+                  IMPORTANT: This is AI-Generated Information
+                </span>
+              </div>
               
               <ul style={{ 
                 color: '#856404',
-                lineHeight: '1.6',
-                paddingLeft: '20px'
+                fontSize: '12px',
+                lineHeight: '1.4',
+                paddingLeft: '20px',
+                margin: 0
               }}>
                 <li><strong>NOT Medical Advice:</strong> This information is for educational purposes only</li>
                 <li><strong>AI May Be Wrong:</strong> Artificial intelligence can make errors or provide incomplete information</li>
@@ -1978,30 +1988,20 @@ function Dashboard({ user, notifications }) {
               backgroundColor: '#f8f9fa',
               border: '1px solid #dee2e6',
               borderRadius: '8px',
-              padding: '15px',
-              marginBottom: '25px',
-              textAlign: 'center'
+              padding: '12px',
+              marginBottom: '20px',
+              fontSize: '12px',
+              color: '#495057'
             }}>
-              <p style={{ 
-                margin: 0,
-                color: '#495057',
-                fontWeight: 'bold'
-              }}>
-                By sharing this information, you acknowledge that:
-              </p>
-              <p style={{ 
-                margin: '10px 0 0 0',
-                color: '#6c757d',
-                fontSize: '14px'
-              }}>
-                You understand this is AI-generated educational content and not professional medical advice
-              </p>
+              <strong>By sharing this information, you acknowledge that:</strong>
+              <br />
+              You understand this is AI-generated educational content and not professional medical advice
             </div>
 
             <div style={{ 
               display: 'flex', 
-              gap: '15px',
-              justifyContent: 'center'
+              gap: '10px',
+              justifyContent: 'space-between'
             }}>
               <button
                 onClick={handleAIDisclaimerReject}
@@ -2009,11 +2009,12 @@ function Dashboard({ user, notifications }) {
                   backgroundColor: '#6c757d',
                   color: 'white',
                   border: 'none',
-                  padding: '12px 24px',
-                  borderRadius: '8px',
+                  padding: '10px 20px',
+                  borderRadius: '6px',
                   cursor: 'pointer',
-                  fontSize: '16px',
-                  fontWeight: '500'
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  flex: 1
                 }}
               >
                 Cancel
@@ -2024,11 +2025,12 @@ function Dashboard({ user, notifications }) {
                   backgroundColor: '#dc3545',
                   color: 'white',
                   border: 'none',
-                  padding: '12px 24px',
-                  borderRadius: '8px',
+                  padding: '10px 20px',
+                  borderRadius: '6px',
                   cursor: 'pointer',
-                  fontSize: '16px',
-                  fontWeight: '500'
+                  fontSize: '14px',
+                  fontWeight: '500',
+                  flex: 2
                 }}
               >
                 I Understand & Share
