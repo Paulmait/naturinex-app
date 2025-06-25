@@ -32,8 +32,7 @@ function Dashboard({ user, notifications }) {
                   user?.email === 'guampaul@gmail.com' || 
                   user?.email === 'maito@example.com';
 
-  // Debug state to track modal issues
-  const [debugInfo, setDebugInfo] = useState('');
+
     // User profile state
   const [userProfile, setUserProfile] = useState(null);
     // Legal documents state
@@ -65,7 +64,6 @@ function Dashboard({ user, notifications }) {
     setShowLoginModal(false);
     setShowAccountDeletion(false);
     setPendingShareAction(null);
-    setDebugInfo(prev => prev + ' | Closed all modals at ' + new Date().toLocaleTimeString());
   };
 
   // Function to show AI disclaimer before sharing
@@ -105,7 +103,6 @@ function Dashboard({ user, notifications }) {
     if (showPremiumModal || showCheckout || showAIDisclaimer || showLoginModal) {
       const timer = setTimeout(() => {
         closeAllModals();
-        setDebugInfo(prev => prev + ' | Auto-closed modals after timeout');
       }, 30000);
       return () => clearTimeout(timer);
     }
@@ -764,18 +761,6 @@ function Dashboard({ user, notifications }) {
     link.click();
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);  };
-
-  // Auto-debug on tier changes (for development)
-  useEffect(() => {
-    if (userTier) {
-      console.log('🔍 MediScan Debug Info:');
-      console.log('User:', user?.email || 'Not logged in');
-      console.log('User Tier:', userTier);
-      console.log('Is Premium:', isPremium);
-      console.log('Advanced AI Active:', userTier === 'premium' || userTier === 'professional');
-      console.log('AI Model:', (userTier === 'premium' || userTier === 'professional') ? 'Gemini Pro' : 'Gemini Flash');
-    }
-  }, [userTier, isPremium, user?.email]);
 
   return (
     <div style={{ 
@@ -1794,39 +1779,7 @@ function Dashboard({ user, notifications }) {
         </div>
       )}
 
-      {/* Debug Panel for Modal States (only in development) */}
-      {process.env.NODE_ENV === 'development' && (
-        <div style={{
-          position: 'fixed',
-          top: '10px',
-          left: '10px',
-          backgroundColor: 'rgba(255,255,255,0.9)',
-          padding: '10px',
-          borderRadius: '5px',
-          fontSize: '12px',
-          fontFamily: 'monospace',
-          zIndex: 10001,
-          border: '1px solid #ddd'
-        }}>
-          <div><strong>Modal Debug:</strong></div>
-          <div>Premium Modal: {showPremiumModal ? '✅ OPEN' : '❌ Closed'}</div>
-          <div>Checkout Modal: {showCheckout ? '✅ OPEN' : '❌ Closed'}</div>
-          <div>Premium Status: {isPremium ? '💎 Premium' : '🆓 Free'}</div>
-          <div>Scan Count: {scanCount}/5</div>
-          {debugInfo && <div>Debug: {debugInfo}</div>}
-          <button 
-            onClick={closeAllModals}
-            style={{
-              marginTop: '5px',
-              padding: '2px 8px',
-              fontSize: '10px',
-              cursor: 'pointer'
-            }}
-          >
-            Force Close All
-          </button>
-        </div>
-      )}
+
 
       {/* Premium Modal */}
       {showPremiumModal && <PremiumModal />}
