@@ -586,6 +586,18 @@ function Dashboard({ user, notifications }) {
       setShowPremiumModal(true);
       return;
     }
+
+    // Check if camera is available and secure context
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      notifications?.showError('Camera not supported on this device. Please use "Select Image" instead.', 'Camera Not Supported');
+      return;
+    }
+
+    // Check secure context for mobile
+    if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+      notifications?.showError('Camera requires HTTPS or localhost. Please use "Select Image" instead.', 'Camera Requires HTTPS');
+      return;
+    }
     
     try {
       setIsScanning(true);
@@ -654,13 +666,17 @@ function Dashboard({ user, notifications }) {
       setIsScanning(false);
       setScanningMessage('');
       
-      // Fallback to file upload
+      // Improved error handling
       if (error.name === 'NotAllowedError') {
-        notifications?.showError('Camera access denied. Please allow camera access or use the "Select Image" option instead.', 'Camera Access Denied');
+        notifications?.showError('Camera access denied. Please allow camera access in your browser settings, or use "Select Image" instead.', 'Camera Access Denied');
       } else if (error.name === 'NotFoundError') {
-        notifications?.showError('No camera found. Please use the "Select Image" option instead.', 'Camera Not Found');
+        notifications?.showError('No camera found on this device. Please use "Select Image" instead.', 'Camera Not Found');
+      } else if (error.name === 'NotSupportedError') {
+        notifications?.showError('Camera not supported. Please use "Select Image" instead.', 'Camera Not Supported');
+      } else if (error.name === 'NotReadableError') {
+        notifications?.showError('Camera is in use by another app. Please close other camera apps and try again, or use "Select Image".', 'Camera Busy');
       } else {
-        notifications?.showError('Camera not available. Please use the "Select Image" option instead.', 'Camera Unavailable');
+        notifications?.showError('Camera unavailable. Please use "Select Image" to upload photos instead.', 'Camera Unavailable');
       }
     }
   };

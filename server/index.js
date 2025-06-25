@@ -34,7 +34,17 @@ app.use(helmet());
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
     ? ['https://your-production-domain.com'] 
-    : ['http://localhost:3000', 'http://localhost:3001', 'http://localhost:3003', 'http://localhost:3004', 'http://127.0.0.1:3000'],
+    : [
+        'http://localhost:3000', 
+        'http://localhost:3001', 
+        'http://localhost:3003', 
+        'http://localhost:3004', 
+        'http://127.0.0.1:3000',
+        'http://10.0.0.74:3000',    // Mobile testing
+        'http://10.0.0.74:3001',    // Mobile testing
+        'http://10.0.0.74:3003',    // Mobile testing
+        'http://10.0.0.74:3004'     // Mobile testing
+      ],
   credentials: true
 }));
 
