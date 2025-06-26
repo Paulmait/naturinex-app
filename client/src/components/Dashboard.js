@@ -99,6 +99,8 @@ function Dashboard({ user, notifications }) {
       executeEmailShare();
     } else if (pendingShareAction === 'share') {
       executeShare();
+    } else if (pendingShareAction === 'download') {
+      executeDownload();
     }
     setPendingShareAction(null);
   };
@@ -784,6 +786,22 @@ function Dashboard({ user, notifications }) {
       return;
     }
 
+    // Check if user has exceeded free limit and is not premium
+    if (!isPremium && scanCount > 5) {
+      setShowPremiumModal(true);
+      return;
+    }
+
+    // Show AI disclaimer before downloading
+    showAIDisclaimerModal('download');
+  };
+
+  const executeDownload = () => {
+    if (!suggestions) {
+      notifications?.showWarning("No suggestions to download yet.", "Nothing to Download");
+      return;
+    }
+
     // Generate professional download report with proper watermarking
     const reportData = generateDownloadReport(suggestions, medicationName, userTier, user);
 
@@ -796,7 +814,8 @@ function Dashboard({ user, notifications }) {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);  };
+    window.URL.revokeObjectURL(url);
+  };
 
   return (
     <div style={{ 
