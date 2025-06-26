@@ -10,6 +10,7 @@ import TermsOfUse from './TermsOfUse';
 import Login from './Login';
 import BetaFeedback from './BetaFeedback';
 import SubscriptionManager from './SubscriptionManager';
+import { Logo } from './Branding';
 import analytics, { trackScan, trackEvent, getDeviceId } from '../utils/analytics';
 import storageManager, { addWatermark, getScanQuota } from '../utils/storageManager';
 import { generateEmailContent, generateDownloadReport, generateShareContent } from '../utils/shareWatermarkHelper';
@@ -595,7 +596,7 @@ function Dashboard({ user, notifications }) {
     }
 
     // Check secure context for mobile
-    if (!window.isSecureContext && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+    if (!window.isSecureContext && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
       notifications?.showError('Camera requires HTTPS or localhost. Please use "Select Image" instead.', 'Camera Requires HTTPS');
       return;
     }
@@ -813,14 +814,15 @@ function Dashboard({ user, notifications }) {
         justifyContent: 'space-between',
         alignItems: 'center'
       }}>
-        <h1 style={{ 
-          color: '#2c5530', 
-          margin: 0,
-          fontSize: '24px',
-          fontWeight: 'bold'
-        }}>
-          Naturinex
-        </h1>
+        <Logo 
+          variant="full" 
+          size="header" 
+          alt="Naturinex - Natural Medication Alternatives"
+          style={{
+            maxHeight: '40px',
+            width: 'auto'
+          }}
+        />
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
           {/* Beta Feedback Button */}
           <button onClick={() => setShowBetaFeedback(true)} style={{

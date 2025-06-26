@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const helmet = require('helmet');
+const { body, validationResult } = require('express-validator');
 require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
@@ -25,6 +26,124 @@ if (!admin.apps.length) {
 }
 
 const app = express();
+
+// 🔒 COMPREHENSIVE SECURITY CONFIGURATION
+
+// Request size limits to prevent DoS
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ limit: '1mb', extended: true }));
+
+// Enhanced security headers
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+      scriptSrc: ["'self'"],
+      connectSrc: ["'self'", "https://api.stripe.com"],
+      frameSrc: ["https://js.stripe.com"]
+    }
+  },
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  }
+}));
+
+// Additional security headers
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  next();
+});
+
+// Rate limiting for different endpoints
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 requests per window
+  message: { error: 'Too many requests, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // 5 authentication attempts per window
+  message: { error: 'Too many authentication attempts' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const apiLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 10, // 10 API calls per minute
+  message: { error: 'API rate limit exceeded' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply rate limiting
+app.use('/api/auth', authLimiter);
+app.use('/api/analyze', apiLimiter);
+app.use(generalLimiter);
+
+// Input validation middleware
+const validateInput = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ 
+      error: 'Invalid input',
+      details: errors.array().map(err => ({
+        field: err.param,
+        message: err.msg
+      }))
+    });
+  }
+  next();
+};
+
+// Enhanced error handling middleware
+const errorHandler = (err, req, res, next) => {
+  // Log full error for debugging (never send to client)
+  console.error('🚨 Server Error:', {
+    error: err.message,
+    stack: err.stack,
+    url: req.url,
+    method: req.method,
+    ip: req.ip,
+    userAgent: req.get('User-Agent'),
+    timestamp: new Date().toISOString()
+  });
+  
+  // Send sanitized error to client
+  res.status(err.status || 500).json({
+    error: process.env.NODE_ENV === 'production' 
+      ? 'Internal server error' 
+      : err.message,
+    requestId: req.id || 'unknown',
+    timestamp: new Date().toISOString()
+  });
+};
+
+// Webhook verification middleware
+const verifyStripeWebhook = (req, res, next) => {
+  const signature = req.headers['stripe-signature'];
+  
+  try {
+    // Verify webhook signature
+    stripe.webhooks.constructEvent(req.body, signature, process.env.STRIPE_WEBHOOK_SECRET);
+    next();
+  } catch (err) {
+    console.error('⚠️ Webhook signature verification failed:', err.message);
+    return res.status(400).send('Invalid webhook signature');
+  }
+};
 
 // Stripe webhook endpoint needs raw body - must be before express.json()
 app.use('/webhook', express.raw({ type: 'application/json' }));
@@ -122,7 +241,23 @@ app.get('/health', (req, res) => {
   });
 });
 
-app.post('/suggest', validateMedicationInput, async (req, res) => {
+app.post('/suggest', [
+  body('medicationName')
+    .isLength({ min: 1, max: 100 })
+    .trim()
+    .escape()
+    .matches(/^[a-zA-Z0-9\s\-\.\/]+$/)
+    .withMessage('Medication name contains invalid characters'),
+  body('userTier')
+    .optional()
+    .isIn(['free', 'basic', 'premium', 'professional', 'beta'])
+    .withMessage('Invalid user tier'),
+  body('advancedAnalysis')
+    .optional()
+    .isBoolean()
+    .withMessage('Advanced analysis must be boolean'),
+  validateInput
+], async (req, res) => {
   const { medicationName, userTier = 'free', advancedAnalysis = false } = req.body;
   
   // Validate input
@@ -344,7 +479,7 @@ app.post('/test-premium-upgrade', async (req, res) => {
 });
 
 // 🔗 STRIPE WEBHOOK HANDLER FOR AUTOMATIC MONTHLY BILLING
-app.post('/webhook', async (req, res) => {
+app.post('/webhook', verifyStripeWebhook, async (req, res) => {
   const sig = req.headers['stripe-signature'];
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -560,7 +695,13 @@ async function handleSubscriptionDeleted(subscription) {
 }
 
 // Subscription management endpoints
-app.post('/api/subscription/details', async (req, res) => {
+app.post('/api/subscription/details', [
+  body('subscriptionId')
+    .isLength({ min: 1, max: 100 })
+    .matches(/^sub_[a-zA-Z0-9]+$/)
+    .withMessage('Invalid subscription ID format'),
+  validateInput
+], async (req, res) => {
   try {
     const { subscriptionId } = req.body;
     
@@ -586,7 +727,16 @@ app.post('/api/subscription/details', async (req, res) => {
   }
 });
 
-app.post('/api/subscription/toggle-auto-renew', async (req, res) => {
+app.post('/api/subscription/toggle-auto-renew', [
+  body('subscriptionId')
+    .isLength({ min: 1, max: 100 })
+    .matches(/^sub_[a-zA-Z0-9]+$/)
+    .withMessage('Invalid subscription ID format'),
+  body('autoRenew')
+    .isBoolean()
+    .withMessage('autoRenew must be boolean'),
+  validateInput
+], async (req, res) => {
   try {
     const { subscriptionId, autoRenew } = req.body;
     
@@ -693,6 +843,9 @@ app.post('/api/subscription/cancel', async (req, res) => {
     res.status(500).json({ error: 'Failed to cancel subscription' });
   }
 });
+
+// Apply error handler middleware
+app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
