@@ -1,0 +1,20 @@
+{
+  "name": "naturinex-mobile",
+  "version": "1.0.0",
+  "description": "Naturinex Mobile App Build Scripts",
+  "scripts": {
+    "mobile:setup": "npm install && npx cap sync",
+    "mobile:build": "npm run build && npx cap sync",
+    "mobile:android": "npm run mobile:build && npx cap open android",
+    "mobile:ios": "npm run mobile:build && npx cap open ios",
+    "mobile:run:android": "npx cap run android",
+    "mobile:run:ios": "npx cap run ios",
+    "mobile:clean": "npx cap clean && npm run mobile:setup",
+    "store:prepare": "npm run mobile:build && echo 'Mobile apps ready for store submission!'",
+    "icons:generate": "echo 'Run generate-icons.sh to create app icons'",
+    "version:bump": "npm version patch && npx cap sync"
+  },
+  "keywords": ["naturinex", "mobile", "capacitor", "ios", "android"],
+  "author": "Naturinex Team",
+  "license": "MIT"
+}

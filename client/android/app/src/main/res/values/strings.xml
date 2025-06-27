@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Naturinex</string>
+    <string name="title_activity_main">Naturinex</string>
+    <string name="package_name">com.naturinex.app</string>
+    <string name="custom_url_scheme">com.naturinex.app</string>
+</resources>
