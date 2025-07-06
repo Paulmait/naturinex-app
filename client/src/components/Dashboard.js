@@ -8,9 +8,7 @@ import ScanHistory, { saveScanToHistory } from './ScanHistory';
 import PrivacyPolicy from './PrivacyPolicy';
 import TermsOfUse from './TermsOfUse';
 import Login from './Login';
-import BetaFeedback from './BetaFeedback';
-import SubscriptionManager from './SubscriptionManager';
-import { Logo } from './Branding';
+import AnalyticsDashboard from './AnalyticsDashboard';
 import analytics, { trackScan, trackEvent, getDeviceId } from '../utils/analytics';
 import storageManager, { addWatermark, getScanQuota } from '../utils/storageManager';
 import { generateEmailContent, generateDownloadReport, generateShareContent } from '../utils/shareWatermarkHelper';
@@ -29,12 +27,11 @@ function Dashboard({ user, notifications }) {
   
   // Analytics state
   const [deviceAnalytics, setDeviceAnalytics] = useState(null);
-    // Check if user is admin - Updated to include your email
-  const isAdmin = user?.email === 'admin@naturinex.com' || 
-                  user?.email === 'guampaul@gmail.com' || 
-                  user?.email === 'maito@example.com';
+    // Check if user is admin (you can customize this logic)
+  const isAdmin = user?.email === 'admin@Naturinex.com' || user?.email === 'maito@example.com';
 
-
+  // Debug state to track modal issues
+  const [debugInfo, setDebugInfo] = useState('');
     // User profile state
   const [userProfile, setUserProfile] = useState(null);
     // Legal documents state
@@ -50,9 +47,6 @@ function Dashboard({ user, notifications }) {
   // Account deletion state
   const [showAccountDeletion, setShowAccountDeletion] = useState(false);
   
-  // Beta feedback state
-  const [showBetaFeedback, setShowBetaFeedback] = useState(false);
-  
   // eslint-disable-next-line no-unused-vars
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
@@ -61,20 +55,6 @@ function Dashboard({ user, notifications }) {
   const [cameraStream, setCameraStream] = useState(null);
     const handleSignOut = () => {
     signOut(auth).catch(console.error);
-  };
-
-  // 🧹 DEBUG: Clear all app state for testing (development only)
-  const handleClearAppState = async () => {
-    try {
-      // Import the clear function
-      const { clearAllAppState } = await import('../firebase');
-      await clearAllAppState();
-      
-      // Force page reload to ensure clean state
-      window.location.reload();
-    } catch (error) {
-      console.error('Error clearing app state:', error);
-    }
   };  // Function to close all modals - helps prevent stuck overlays
   const closeAllModals = () => {
     setShowPremiumModal(false);
@@ -82,8 +62,8 @@ function Dashboard({ user, notifications }) {
     setShowAIDisclaimer(false);
     setShowLoginModal(false);
     setShowAccountDeletion(false);
-    setShowBetaFeedback(false);
     setPendingShareAction(null);
+    setDebugInfo(prev => prev + ' | Closed all modals at ' + new Date().toLocaleTimeString());
   };
 
   // Function to show AI disclaimer before sharing
@@ -99,8 +79,6 @@ function Dashboard({ user, notifications }) {
       executeEmailShare();
     } else if (pendingShareAction === 'share') {
       executeShare();
-    } else if (pendingShareAction === 'download') {
-      executeDownload();
     }
     setPendingShareAction(null);
   };
@@ -125,6 +103,7 @@ function Dashboard({ user, notifications }) {
     if (showPremiumModal || showCheckout || showAIDisclaimer || showLoginModal) {
       const timer = setTimeout(() => {
         closeAllModals();
+        setDebugInfo(prev => prev + ' | Auto-closed modals after timeout');
       }, 30000);
       return () => clearTimeout(timer);
     }
@@ -590,18 +569,6 @@ function Dashboard({ user, notifications }) {
       setShowPremiumModal(true);
       return;
     }
-
-    // Check if camera is available and secure context
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      notifications?.showError('Camera not supported on this device. Please use "Select Image" instead.', 'Camera Not Supported');
-      return;
-    }
-
-    // Check secure context for mobile
-    if (!window.isSecureContext && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-      notifications?.showError('Camera requires HTTPS or localhost. Please use "Select Image" instead.', 'Camera Requires HTTPS');
-      return;
-    }
     
     try {
       setIsScanning(true);
@@ -670,17 +637,13 @@ function Dashboard({ user, notifications }) {
       setIsScanning(false);
       setScanningMessage('');
       
-      // Improved error handling
+      // Fallback to file upload
       if (error.name === 'NotAllowedError') {
-        notifications?.showError('Camera access denied. Please allow camera access in your browser settings, or use "Select Image" instead.', 'Camera Access Denied');
+        notifications?.showError('Camera access denied. Please allow camera access or use the "Select Image" option instead.', 'Camera Access Denied');
       } else if (error.name === 'NotFoundError') {
-        notifications?.showError('No camera found on this device. Please use "Select Image" instead.', 'Camera Not Found');
-      } else if (error.name === 'NotSupportedError') {
-        notifications?.showError('Camera not supported. Please use "Select Image" instead.', 'Camera Not Supported');
-      } else if (error.name === 'NotReadableError') {
-        notifications?.showError('Camera is in use by another app. Please close other camera apps and try again, or use "Select Image".', 'Camera Busy');
+        notifications?.showError('No camera found. Please use the "Select Image" option instead.', 'Camera Not Found');
       } else {
-        notifications?.showError('Camera unavailable. Please use "Select Image" to upload photos instead.', 'Camera Unavailable');
+        notifications?.showError('Camera not available. Please use the "Select Image" option instead.', 'Camera Unavailable');
       }
     }
   };
@@ -786,22 +749,6 @@ function Dashboard({ user, notifications }) {
       return;
     }
 
-    // Check if user has exceeded free limit and is not premium
-    if (!isPremium && scanCount > 5) {
-      setShowPremiumModal(true);
-      return;
-    }
-
-    // Show AI disclaimer before downloading
-    showAIDisclaimerModal('download');
-  };
-
-  const executeDownload = () => {
-    if (!suggestions) {
-      notifications?.showWarning("No suggestions to download yet.", "Nothing to Download");
-      return;
-    }
-
     // Generate professional download report with proper watermarking
     const reportData = generateDownloadReport(suggestions, medicationName, userTier, user);
 
@@ -814,8 +761,19 @@ function Dashboard({ user, notifications }) {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
-  };
+    window.URL.revokeObjectURL(url);  };
+
+  // Auto-debug on tier changes (for development)
+  useEffect(() => {
+    if (userTier) {
+      console.log('🔍 Naturinex Debug Info:');
+      console.log('User:', user?.email || 'Not logged in');
+      console.log('User Tier:', userTier);
+      console.log('Is Premium:', isPremium);
+      console.log('Advanced AI Active:', userTier === 'premium' || userTier === 'professional');
+      console.log('AI Model:', (userTier === 'premium' || userTier === 'professional') ? 'Gemini Pro' : 'Gemini Flash');
+    }
+  }, [userTier, isPremium, user?.email]);
 
   return (
     <div style={{ 
@@ -833,58 +791,24 @@ function Dashboard({ user, notifications }) {
         justifyContent: 'space-between',
         alignItems: 'center'
       }}>
-        <Logo 
-          variant="full" 
-          size="header" 
-          alt="Naturinex - Natural Medication Alternatives"
-          style={{
-            maxHeight: '40px',
-            width: 'auto'
-          }}
-        />
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-          {/* Beta Feedback Button */}
-          <button onClick={() => setShowBetaFeedback(true)} style={{
-            backgroundColor: '#2c5530',
-            color: 'white',
-            border: 'none',
-            padding: '6px 12px',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '12px',
-            fontWeight: 'bold'
-          }}>
-            💬 Feedback
-          </button>
-          
-          {/* Debug Clear State Button (for beta testing) */}
-          {(!user || process.env.NODE_ENV === 'development') && (
-            <button onClick={handleClearAppState} style={{
-              backgroundColor: '#ff6b6b',
-              color: 'white',
-              border: 'none',
-              padding: '6px 12px',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              fontSize: '12px',
-              fontWeight: 'bold'
-            }}>
-              🧹 Clear
-            </button>
-          )}
-          {user && (
-            <button onClick={handleSignOut} style={{
-              backgroundColor: 'transparent',
-              border: '1px solid #ddd',
-              padding: '8px 16px',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              fontSize: '14px'
-            }}>
-              Sign Out
-            </button>
-          )}
-        </div>
+        <h1 style={{ 
+          color: '#2c5530', 
+          margin: 0,
+          fontSize: '24px',
+          fontWeight: 'bold'
+        }}>
+          Naturinex
+        </h1>
+        <button onClick={handleSignOut} style={{
+          backgroundColor: 'transparent',
+          border: '1px solid #ddd',
+          padding: '8px 16px',
+          borderRadius: '6px',
+          cursor: 'pointer',
+          fontSize: '14px'
+        }}>
+          Sign Out
+        </button>
       </div>      {/* Main Content */}
       <div style={{ padding: '20px', maxWidth: '500px', margin: '0 auto' }}>
         
@@ -1505,13 +1429,6 @@ function Dashboard({ user, notifications }) {
                   </div>
                 )}
                 
-                {/* Subscription Management */}
-                <SubscriptionManager 
-                  user={user}
-                  isPremium={isPremium}
-                  notifications={notifications}
-                />
-                
                 {/* Device Analytics */}
                 {deviceAnalytics && (
                   <div style={{ marginBottom: '20px' }}>
@@ -1875,7 +1792,39 @@ function Dashboard({ user, notifications }) {
         </div>
       )}
 
-
+      {/* Debug Panel for Modal States (only in development) */}
+      {process.env.NODE_ENV === 'development' && (
+        <div style={{
+          position: 'fixed',
+          top: '10px',
+          left: '10px',
+          backgroundColor: 'rgba(255,255,255,0.9)',
+          padding: '10px',
+          borderRadius: '5px',
+          fontSize: '12px',
+          fontFamily: 'monospace',
+          zIndex: 10001,
+          border: '1px solid #ddd'
+        }}>
+          <div><strong>Modal Debug:</strong></div>
+          <div>Premium Modal: {showPremiumModal ? '✅ OPEN' : '❌ Closed'}</div>
+          <div>Checkout Modal: {showCheckout ? '✅ OPEN' : '❌ Closed'}</div>
+          <div>Premium Status: {isPremium ? '💎 Premium' : '🆓 Free'}</div>
+          <div>Scan Count: {scanCount}/5</div>
+          {debugInfo && <div>Debug: {debugInfo}</div>}
+          <button 
+            onClick={closeAllModals}
+            style={{
+              marginTop: '5px',
+              padding: '2px 8px',
+              fontSize: '10px',
+              cursor: 'pointer'
+            }}
+          >
+            Force Close All
+          </button>
+        </div>
+      )}
 
       {/* Premium Modal */}
       {showPremiumModal && <PremiumModal />}
@@ -1981,7 +1930,6 @@ function Dashboard({ user, notifications }) {
                 cursor: 'pointer',
                 color: '#999',
                 lineHeight: 1
-
               }}
             >
               ×
@@ -2046,7 +1994,6 @@ function Dashboard({ user, notifications }) {
               color: '#495057'
             }}>
               <strong>By sharing this information, you acknowledge that:</strong>
-             
               <br />
               You understand this is AI-generated educational content and not professional medical advice
             </div>
@@ -2248,14 +2195,6 @@ function Dashboard({ user, notifications }) {
             />
           </div>
         </div>
-      )}
-
-      {/* Beta Feedback Modal */}
-      {showBetaFeedback && (
-        <BetaFeedback 
-          user={user}
-          onClose={() => setShowBetaFeedback(false)}
-        />
       )}
     </div>
   );
