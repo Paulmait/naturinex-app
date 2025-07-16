@@ -4,7 +4,7 @@
 import React, { useState } from 'react';
 import { auth, db } from '../firebase';
 import { deleteUser } from 'firebase/auth';
-import { doc, updateDoc, collection, getDocs, query, where } from 'firebase/firestore';
+import { doc, updateDoc } from 'firebase/firestore';
 import { trackEvent } from '../utils/analytics';
 
 function AccountDeletion({ user, onCancel, onSuccess }) {

@@ -1,0 +1,405 @@
+/**
+ * Push Notification Service for Medication Reminders
+ * Handles push notifications, medication reminders, and scheduling
+ */
+
+import { db } from '../firebase';
+import { doc, setDoc, getDoc, collection, query, where, getDocs, deleteDoc } from 'firebase/firestore';
+
+class NotificationService {
+  constructor() {
+    this.permission = 'default';
+    this.vapidKey = process.env.REACT_APP_FIREBASE_VAPID_KEY;
+    this.isSupported = 'Notification' in window && 'serviceWorker' in navigator;
+  }
+
+  // Initialize notification service
+  async initialize() {
+    if (!this.isSupported) {
+      console.warn('Push notifications are not supported in this browser');
+      return false;
+    }
+
+    try {
+      // Register service worker
+      const registration = await navigator.serviceWorker.register('/service-worker.js');
+      console.log('Service Worker registered:', registration);
+
+      // Check current permission status
+      this.permission = Notification.permission;
+
+      return true;
+    } catch (error) {
+      console.error('Failed to initialize notifications:', error);
+      return false;
+    }
+  }
+
+  // Request permission from user
+  async requestPermission() {
+    if (!this.isSupported) {
+      return false;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      this.permission = permission;
+
+      if (permission === 'granted') {
+        // Subscribe to push notifications
+        await this.subscribeToPush();
+        return true;
+      }
+
+      return false;
+    } catch (error) {
+      console.error('Error requesting notification permission:', error);
+      return false;
+    }
+  }
+
+  // Subscribe to push notifications
+  async subscribeToPush() {
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      
+      // Check if already subscribed
+      let subscription = await registration.pushManager.getSubscription();
+      
+      if (!subscription) {
+        // Create new subscription
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: this.urlBase64ToUint8Array(this.vapidKey)
+        });
+      }
+
+      // Save subscription to database
+      await this.saveSubscription(subscription);
+
+      return subscription;
+    } catch (error) {
+      console.error('Failed to subscribe to push notifications:', error);
+      throw error;
+    }
+  }
+
+  // Save subscription to Firestore
+  async saveSubscription(subscription, userId) {
+    if (!userId) {
+      console.warn('No user ID provided for subscription');
+      return;
+    }
+
+    try {
+      const subscriptionData = {
+        endpoint: subscription.endpoint,
+        keys: {
+          auth: btoa(String.fromCharCode.apply(null, new Uint8Array(subscription.getKey('auth')))),
+          p256dh: btoa(String.fromCharCode.apply(null, new Uint8Array(subscription.getKey('p256dh'))))
+        },
+        userId,
+        createdAt: new Date().toISOString(),
+        active: true
+      };
+
+      await setDoc(doc(db, 'push_subscriptions', userId), subscriptionData);
+      console.log('Push subscription saved');
+    } catch (error) {
+      console.error('Failed to save subscription:', error);
+    }
+  }
+
+  // Create medication reminder
+  async createMedicationReminder(userId, reminder) {
+    try {
+      const reminderId = `reminder_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      
+      const reminderData = {
+        id: reminderId,
+        userId,
+        medicationName: reminder.medicationName,
+        dosage: reminder.dosage,
+        frequency: reminder.frequency, // daily, twice-daily, weekly, etc.
+        times: reminder.times, // Array of times ['09:00', '21:00']
+        startDate: reminder.startDate || new Date().toISOString(),
+        endDate: reminder.endDate || null,
+        notes: reminder.notes || '',
+        active: true,
+        createdAt: new Date().toISOString(),
+        nextReminder: this.calculateNextReminder(reminder)
+      };
+
+      await setDoc(doc(db, 'medication_reminders', reminderId), reminderData);
+
+      // Schedule the reminder
+      await this.scheduleReminder(reminderData);
+
+      return { success: true, reminderId };
+    } catch (error) {
+      console.error('Failed to create reminder:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Calculate next reminder time
+  calculateNextReminder(reminder) {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    
+    // Find the next reminder time
+    const times = reminder.times.sort();
+    
+    for (const time of times) {
+      const [hours, minutes] = time.split(':').map(Number);
+      const reminderTime = new Date(today);
+      reminderTime.setHours(hours, minutes, 0, 0);
+      
+      if (reminderTime > now) {
+        return reminderTime.toISOString();
+      }
+    }
+    
+    // If all times have passed today, schedule for tomorrow
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const [hours, minutes] = times[0].split(':').map(Number);
+    tomorrow.setHours(hours, minutes, 0, 0);
+    
+    return tomorrow.toISOString();
+  }
+
+  // Schedule a reminder
+  async scheduleReminder(reminder) {
+    if (this.permission !== 'granted') {
+      console.warn('Notification permission not granted');
+      return;
+    }
+
+    const now = new Date();
+    const reminderTime = new Date(reminder.nextReminder);
+    const delay = reminderTime.getTime() - now.getTime();
+
+    if (delay > 0) {
+      // Schedule notification
+      setTimeout(() => {
+        this.showNotification(reminder);
+        
+        // Calculate and schedule next reminder
+        const updatedReminder = {
+          ...reminder,
+          nextReminder: this.calculateNextReminder(reminder)
+        };
+        
+        this.updateReminder(updatedReminder);
+        this.scheduleReminder(updatedReminder);
+      }, delay);
+    }
+  }
+
+  // Show notification
+  async showNotification(reminder) {
+    if (this.permission !== 'granted') {
+      return;
+    }
+
+    const options = {
+      body: `Time to take ${reminder.dosage} of ${reminder.medicationName}`,
+      icon: '/icon-192x192.png',
+      badge: '/icon-72x72.png',
+      tag: reminder.id,
+      requireInteraction: true,
+      actions: [
+        { action: 'taken', title: '✓ Taken' },
+        { action: 'snooze', title: '⏰ Snooze 15 min' }
+      ],
+      data: {
+        reminderId: reminder.id,
+        medicationName: reminder.medicationName,
+        dosage: reminder.dosage
+      }
+    };
+
+    try {
+      const registration = await navigator.serviceWorker.ready;
+      await registration.showNotification('Medication Reminder', options);
+    } catch (error) {
+      console.error('Failed to show notification:', error);
+    }
+  }
+
+  // Update reminder in database
+  async updateReminder(reminder) {
+    try {
+      await setDoc(doc(db, 'medication_reminders', reminder.id), reminder, { merge: true });
+    } catch (error) {
+      console.error('Failed to update reminder:', error);
+    }
+  }
+
+  // Get user's active reminders
+  async getUserReminders(userId) {
+    try {
+      const remindersQuery = query(
+        collection(db, 'medication_reminders'),
+        where('userId', '==', userId),
+        where('active', '==', true)
+      );
+
+      const snapshot = await getDocs(remindersQuery);
+      const reminders = [];
+
+      snapshot.forEach(doc => {
+        reminders.push({ id: doc.id, ...doc.data() });
+      });
+
+      return reminders.sort((a, b) => new Date(a.nextReminder) - new Date(b.nextReminder));
+    } catch (error) {
+      console.error('Failed to fetch reminders:', error);
+      return [];
+    }
+  }
+
+  // Toggle reminder active status
+  async toggleReminder(reminderId, active) {
+    try {
+      await setDoc(doc(db, 'medication_reminders', reminderId), { active }, { merge: true });
+      return { success: true };
+    } catch (error) {
+      console.error('Failed to toggle reminder:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Delete reminder
+  async deleteReminder(reminderId) {
+    try {
+      await deleteDoc(doc(db, 'medication_reminders', reminderId));
+      return { success: true };
+    } catch (error) {
+      console.error('Failed to delete reminder:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Log medication taken
+  async logMedicationTaken(userId, medicationName, reminderId = null) {
+    try {
+      const logId = `log_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      
+      const logData = {
+        id: logId,
+        userId,
+        medicationName,
+        reminderId,
+        takenAt: new Date().toISOString(),
+        method: 'reminder' // or 'manual' if logged without reminder
+      };
+
+      await setDoc(doc(db, 'medication_logs', logId), logData);
+
+      return { success: true, logId };
+    } catch (error) {
+      console.error('Failed to log medication:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Get medication adherence stats
+  async getAdherenceStats(userId, days = 30) {
+    try {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+
+      // Get reminders
+      const reminders = await this.getUserReminders(userId);
+      
+      // Get logs
+      const logsQuery = query(
+        collection(db, 'medication_logs'),
+        where('userId', '==', userId),
+        where('takenAt', '>=', startDate.toISOString())
+      );
+
+      const logsSnapshot = await getDocs(logsQuery);
+      const logs = [];
+      
+      logsSnapshot.forEach(doc => {
+        logs.push(doc.data());
+      });
+
+      // Calculate adherence
+      const adherenceByMedication = {};
+      
+      reminders.forEach(reminder => {
+        const medicationLogs = logs.filter(log => 
+          log.medicationName === reminder.medicationName
+        );
+        
+        const expectedDoses = this.calculateExpectedDoses(reminder, days);
+        const actualDoses = medicationLogs.length;
+        const adherenceRate = expectedDoses > 0 ? (actualDoses / expectedDoses) * 100 : 0;
+        
+        adherenceByMedication[reminder.medicationName] = {
+          expectedDoses,
+          actualDoses,
+          adherenceRate: Math.round(adherenceRate),
+          lastTaken: medicationLogs.length > 0 
+            ? medicationLogs.sort((a, b) => new Date(b.takenAt) - new Date(a.takenAt))[0].takenAt
+            : null
+        };
+      });
+
+      // Overall adherence
+      const totalExpected = Object.values(adherenceByMedication).reduce((sum, med) => sum + med.expectedDoses, 0);
+      const totalActual = Object.values(adherenceByMedication).reduce((sum, med) => sum + med.actualDoses, 0);
+      const overallAdherence = totalExpected > 0 ? Math.round((totalActual / totalExpected) * 100) : 0;
+
+      return {
+        overallAdherence,
+        byMedication: adherenceByMedication,
+        period: `${days} days`
+      };
+    } catch (error) {
+      console.error('Failed to calculate adherence:', error);
+      return null;
+    }
+  }
+
+  // Calculate expected doses based on frequency
+  calculateExpectedDoses(reminder, days) {
+    const frequency = reminder.frequency;
+    const timesPerDay = reminder.times.length;
+    
+    switch (frequency) {
+      case 'daily':
+        return days * timesPerDay;
+      case 'weekly':
+        return Math.floor(days / 7) * timesPerDay;
+      case 'twice-weekly':
+        return Math.floor(days / 7) * 2 * timesPerDay;
+      default:
+        return days * timesPerDay;
+    }
+  }
+
+  // Utility function to convert VAPID key
+  urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding)
+      .replace(/\-/g, '+')
+      .replace(/_/g, '/');
+
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  }
+}
+
+// Export singleton instance
+const notificationService = new NotificationService();
+export default notificationService;

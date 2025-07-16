@@ -1,74 +1,40 @@
-import React, { useEffect, useState } from 'react';
-import { auth, db } from './firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-// Login component no longer needed - allowing free tier access
-// import Login from './components/Login';
+import React, { useState } from 'react';
+import { useUser } from './hooks/useUser';
+import { useAutoLogout } from './utils/autoLogout';
+import { APP_CONFIG } from './constants/appConfig';
+
+// Components
 import Dashboard from './components/Dashboard';
 import Onboarding from './components/Onboarding';
 import PremiumCheckout from './components/PremiumCheckout';
-// AuthDebugger removed - not needed for production
-// import AuthDebugger from './components/AuthDebugger';
-import './mobile.css'; // Mobile optimizations
 import ErrorBoundary from './components/ErrorBoundary';
 import NotificationSystem, { useNotifications } from './components/NotificationSystem';
-import { useAutoLogout } from './utils/autoLogout';
+
+// Styles
+import './mobile.css';
 
 function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showPremiumCheckout, setShowPremiumCheckout] = useState(false);
   
-  // Initialize notification system
+  // Initialize hooks
   const notifications = useNotifications();
+  const { user, isLoading, userProfile } = useUser();
   
   // Initialize auto-logout for security and API cost savings
   useAutoLogout(user, notifications);
 
-  useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(async (user) => {
-      setUser(user);
+  // Check if user needs onboarding
+  React.useEffect(() => {
+    if (user && !isLoading) {
+      const onboardingCompleted = userProfile?.onboardingCompleted || 
+        localStorage.getItem(`${APP_CONFIG.STORAGE_KEYS.ONBOARDING_PREFIX}${user.uid}`) === 'completed';
       
-      if (user) {
-        // Check if user needs onboarding
-        try {
-          const userRef = doc(db, 'users', user.uid);
-          const docSnap = await getDoc(userRef);
-          
-          // Check Firestore first, then localStorage backup
-          const firestoreCompleted = docSnap.exists() && docSnap.data().onboardingCompleted;
-          const localStorageCompleted = localStorage.getItem(`onboarding-${user.uid}`) === 'completed';
-          
-          if (!firestoreCompleted && !localStorageCompleted) {
-            setShowOnboarding(true);
-          } else if (localStorageCompleted && !firestoreCompleted) {
-            // Sync localStorage to Firestore if needed
-            try {
-              await setDoc(userRef, {
-                onboardingCompleted: true,
-                onboardingDate: new Date(),
-                isPremium: false,
-                scanCount: 0,
-                lastScanDate: null
-              }, { merge: true });
-            } catch (error) {
-              console.error('Error syncing onboarding to Firestore:', error);
-            }
-          }
-        } catch (error) {
-          console.error('Error checking onboarding status:', error);
-          // Check localStorage as fallback
-          const localStorageCompleted = localStorage.getItem(`onboarding-${user.uid}`) === 'completed';
-          if (!localStorageCompleted) {
-            setShowOnboarding(true);
-          }
-        }
+      if (!onboardingCompleted) {
+        setShowOnboarding(true);
       }
-      
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
+    }
+  }, [user, isLoading, userProfile]);
 
   const handleOnboardingComplete = (shouldShowPremium) => {
     setShowOnboarding(false);
@@ -85,35 +51,19 @@ function App() {
     setShowPremiumCheckout(false);
   };
 
-  if (loading) {
+  // Loading state
+  if (isLoading) {
     return (
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        height: '100vh',
-        fontSize: '18px',
-        backgroundColor: '#f8f9fa'
-      }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: '48px', marginBottom: '20px' }}>💊</div>
-          <div style={{ color: '#2c5530', fontWeight: 'bold' }}>Loading Naturinex...</div>
+      <div className="loading-container">
+        <div className="loading-content">
+          <div className="loading-icon">💊</div>
+          <div className="loading-text">Loading {APP_CONFIG.APP_NAME}...</div>
         </div>
       </div>
     );
   }
 
-  // CHANGE: Allow free tier access without login
-  // Users can scan without signing up, login required for premium features
-  // if (!user) {
-  //   return (
-  //     <>
-  //       <Login />
-  //       <AuthDebugger />
-  //     </>
-  //   );
-  // }
-
+  // Onboarding flow
   if (user && showOnboarding) {
     return (
       <ErrorBoundary>
@@ -126,6 +76,7 @@ function App() {
     );
   }
 
+  // Premium checkout modal
   if (showPremiumCheckout) {
     return (
       <ErrorBoundary>
@@ -133,26 +84,8 @@ function App() {
           notifications={notifications.notifications}
           removeNotification={notifications.removeNotification}
         />
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: 'rgba(0,0,0,0.5)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 1001
-        }}>
-          <div style={{
-            backgroundColor: 'white',
-            borderRadius: '15px',
-            maxWidth: '500px',
-            margin: '20px',
-            maxHeight: '90vh',
-            overflowY: 'auto'
-          }}>
+        <div className="modal-overlay">
+          <div className="modal-container">
             <PremiumCheckout 
               user={user} 
               onSuccess={handlePremiumSuccess}
@@ -164,6 +97,7 @@ function App() {
     );
   }
 
+  // Main app
   return (
     <ErrorBoundary>
       <NotificationSystem 

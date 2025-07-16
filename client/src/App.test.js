@@ -27,15 +27,50 @@ jest.mock('./utils/analytics', () => ({
   getDeviceId: jest.fn(() => 'test-device-id')
 }));
 
+// Mock useUser hook
+jest.mock('./hooks/useUser', () => ({
+  useUser: () => ({
+    user: null,
+    isPremium: false,
+    canPerformScan: () => true,
+    getRemainingScans: () => 3,
+    incrementScanCount: jest.fn(),
+    isLoading: false,
+    userProfile: null
+  })
+}));
+
+// Mock notification system
+const mockNotifications = {
+  showSuccess: jest.fn(),
+  showError: jest.fn(),
+  showWarning: jest.fn(),
+  showInfo: jest.fn(),
+  notifications: [],
+  addNotification: jest.fn(),
+  removeNotification: jest.fn()
+};
+
+jest.mock('./components/NotificationSystem', () => ({
+  __esModule: true,
+  default: ({ children }) => <>{children}</>,
+  useNotifications: () => mockNotifications
+}));
+
+// Mock useAutoLogout
+jest.mock('./utils/autoLogout', () => ({
+  useAutoLogout: jest.fn()
+}));
+
 describe('Naturinex App', () => {
   test('renders without crashing', () => {
     render(<App />);
     // App should render without throwing errors
   });
 
-  test('shows loading state initially', () => {
+  test('renders dashboard when not loading', () => {
     render(<App />);
-    expect(screen.getByText(/Loading Naturinex/i)).toBeInTheDocument();
+    expect(screen.getByText('Naturinex')).toBeInTheDocument();
   });
 
   test('error boundary catches and displays errors', () => {
@@ -65,28 +100,36 @@ describe('Naturinex App', () => {
 });
 
 describe('Dashboard Component', () => {
-  const mockNotifications = {
-    showSuccess: jest.fn(),
-    showError: jest.fn(),
-    showWarning: jest.fn(),
-    showInfo: jest.fn()
-  };
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
 
   test('renders medication input field', () => {
-    render(<Dashboard user={null} notifications={mockNotifications} />);
+    render(<Dashboard />);
     expect(screen.getByPlaceholderText(/Enter medication name/i)).toBeInTheDocument();
   });
 
-  test('shows warning when trying to scan empty medication name', async () => {
-    render(<Dashboard user={null} notifications={mockNotifications} />);
+  test('disables scan button when medication name is empty', () => {
+    render(<Dashboard />);
     
-    const scanButton = screen.getByText(/Get Suggestions/i);
+    const scanButton = screen.getByText(/Analyze Medication/i);
+    expect(scanButton).toBeDisabled();
+  });
+
+  test('shows warning for invalid medication name', async () => {
+    render(<Dashboard />);
+    
+    const input = screen.getByPlaceholderText(/Enter medication name/i);
+    const scanButton = screen.getByText(/Analyze Medication/i);
+    
+    // Enter a single character (less than minimum required)
+    fireEvent.change(input, { target: { value: 'a' } });
     fireEvent.click(scanButton);
 
     await waitFor(() => {
       expect(mockNotifications.showWarning).toHaveBeenCalledWith(
-        "Please enter a medication name to get suggestions.",
-        "Missing Information"
+        'Medication name must be at least 2 characters',
+        'Invalid Input'
       );
     });
   });

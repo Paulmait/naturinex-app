@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { auth, provider, createUserWithEmailAndPassword, signInWithEmailAndPassword } from '../firebase';
+import { auth, provider } from '../firebase';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { signInWithPopup, signInWithRedirect, getRedirectResult } from 'firebase/auth';
 
 function Login() {

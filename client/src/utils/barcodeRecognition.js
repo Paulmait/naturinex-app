@@ -2,7 +2,6 @@
 // Provides camera-based barcode scanning and image-to-medication-name extraction
 
 import { trackEvent } from './analytics';
-import errorHandler, { ERROR_TYPES } from './errorHandler';
 
 // Common medication barcodes and their mappings
 const MEDICATION_BARCODE_DATABASE = {
@@ -172,20 +171,13 @@ export const scanBarcodeFromImage = async (imageData) => {
   } catch (error) {
     console.error('Error scanning barcode:', error);
     
-    // Enhanced error handling
-    const processedError = errorHandler.processError(error, 'barcodeScan');
-    const suggestions = errorHandler.getErrorSuggestions(processedError.type);
-    
     await trackEvent('barcode_scan_failed', {
-      error: processedError.message,
-      errorType: processedError.type
+      error: error.message
     });
     
     return {
       success: false,
-      error: processedError.message,
-      errorType: processedError.type,
-      suggestions
+      error: error.message
     };
   }
 };

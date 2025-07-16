@@ -1,14 +1,14 @@
 import React, { useState } from 'react';
-import { auth, db } from '../firebase';
+import { db } from '../firebase';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 
 function Dashboard({ user }) {
-  const [file, setFile] = useState(null);
+  // const [file, setFile] = useState(null);
   const [suggestions, setSuggestions] = useState("");
 
-  const handleImage = (e) => {
-    setFile(e.target.files[0]);
-  };
+  // const handleImage = (e) => {
+  //   setFile(e.target.files[0]);
+  // };
 
   const handleScan = async () => {
     const userRef = doc(db, "users", user.uid);
@@ -62,7 +62,7 @@ function Dashboard({ user }) {
     <div style={{ padding: 20 }}>
       <h2>Welcome, {user.displayName}</h2>
 
-      <input type="file" accept="image/*" onChange={handleImage} />
+      {/* <input type="file" accept="image/*" onChange={handleImage} /> */}
       <br /><br />
 
       <button onClick={handleScan}>Scan Medication</button>

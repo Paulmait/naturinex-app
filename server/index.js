@@ -145,8 +145,9 @@ const verifyStripeWebhook = (req, res, next) => {
   }
 };
 
-// Stripe webhook endpoint needs raw body - must be before express.json()
+// Stripe webhook endpoints need raw body - must be before express.json()
 app.use('/webhook', express.raw({ type: 'application/json' }));
+app.use('/webhooks/stripe', express.raw({ type: 'application/json' }));
 
 // Security middleware
 app.use(helmet());
@@ -479,7 +480,17 @@ app.post('/test-premium-upgrade', async (req, res) => {
 });
 
 // 🔗 STRIPE WEBHOOK HANDLER FOR AUTOMATIC MONTHLY BILLING
+// Support both webhook paths for backward compatibility
 app.post('/webhook', verifyStripeWebhook, async (req, res) => {
+  await handleStripeWebhook(req, res);
+});
+
+app.post('/webhooks/stripe', verifyStripeWebhook, async (req, res) => {
+  await handleStripeWebhook(req, res);
+});
+
+// Common webhook handler function
+async function handleStripeWebhook(req, res) {
   const sig = req.headers['stripe-signature'];
   const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -528,7 +539,7 @@ app.post('/webhook', verifyStripeWebhook, async (req, res) => {
     console.error('❌ Webhook handler error:', error);
     res.status(500).json({ error: 'Webhook handler failed' });
   }
-});
+}
 
 // 🎯 WEBHOOK HANDLER FUNCTIONS
 

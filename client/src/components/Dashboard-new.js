@@ -15,10 +15,10 @@ function Dashboard({ user }) {
     signOut(auth).catch(console.error);
   };
 
-  const handleImage = (e) => {
-    // File upload for future image processing implementation
-    console.log('File selected:', e.target.files[0]);
-  };
+  // const handleImage = (e) => {
+  //   // File upload for future image processing implementation
+  //   console.log('File selected:', e.target.files[0]);
+  // };
 
   const handleScan = async () => {
     if (!medicationName.trim()) {
