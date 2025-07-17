@@ -27,6 +27,9 @@ if (!admin.apps.length) {
 
 const app = express();
 
+// Trust proxy headers (required for cloud platforms like Render)
+app.set('trust proxy', true);
+
 // 🔒 COMPREHENSIVE SECURITY CONFIGURATION
 
 // Request size limits to prevent DoS
