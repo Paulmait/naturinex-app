@@ -2,14 +2,14 @@ import { initializeApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
-// Firebase configuration for Mediscan project
+// Firebase configuration - DO NOT HARDCODE API KEYS!
 const firebaseConfig = {
-  apiKey: "AIzaSyDsTe9-uNbFq4rCJbIjXra7_j9hRCy9Nq4",
-  authDomain: "mediscan-b6252.firebaseapp.com",
-  projectId: "mediscan-b6252",
-  storageBucket: "mediscan-b6252.appspot.com",
-  messagingSenderId: "890126739800",
-  appId: "1:890126739800:web:fc1bf8d290b0533e501d2d"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "mediscan-b6252.firebaseapp.com",
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || "mediscan-b6252",
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "mediscan-b6252.appspot.com",
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "890126739800",
+  appId: process.env.REACT_APP_FIREBASE_APP_ID
 };
 
 // Initialize Firebase
