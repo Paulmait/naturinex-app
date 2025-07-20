@@ -33,7 +33,7 @@ app.set('trust proxy', true);
 // 🔒 COMPREHENSIVE SECURITY CONFIGURATION
 
 // Request size limits to prevent DoS
-app.use(express.json({ limit: '1mb' }));
+// Note: express.json() is added later after webhook routes
 app.use(express.urlencoded({ limit: '1mb', extended: true }));
 
 // Enhanced security headers
@@ -148,10 +148,6 @@ const verifyStripeWebhook = (req, res, next) => {
   }
 };
 
-// Stripe webhook endpoints need raw body - must be before express.json()
-app.use('/webhook', express.raw({ type: 'application/json' }));
-app.use('/webhooks/stripe', express.raw({ type: 'application/json' }));
-
 // Security middleware
 app.use(helmet());
 app.use(cors({
@@ -185,6 +181,10 @@ app.use('/api/', createRateLimit(15 * 60 * 1000, 100, 'Too many API requests'));
 
 // Strict rate limit for AI suggestions
 app.use('/suggest', createRateLimit(60 * 1000, 10, 'Too many AI requests - please wait'));
+
+// Stripe webhook endpoints need raw body - must be before express.json()
+app.use('/webhook', express.raw({ type: 'application/json' }));
+app.use('/webhooks/stripe', express.raw({ type: 'application/json' }));
 
 app.use(express.json({ limit: '10mb' }));
 

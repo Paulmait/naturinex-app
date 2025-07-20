@@ -1,0 +1,25 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(npm install:*)",
+      "Bash(powershell:*)",
+      "Bash(eas init:*)",
+      "Bash(mkdir:*)",
+      "Bash(copy publiclogo192.png assetsicon.png)",
+      "Bash(copy publiclogo192.png assetsadaptive-icon.png)",
+      "Bash(copy publiclogo192.png assetssplash.png)",
+      "Bash(copy publicfavicon.ico assetsfavicon.png)",
+      "Bash(cp:*)",
+      "Bash(npm start)",
+      "Bash(npx expo install:*)",
+      "Bash(npm start:*)",
+      "Bash(taskkill:*)",
+      "Bash(npx kill-port:*)",
+      "Bash(expo start:*)",
+      "Bash(ipconfig)",
+      "Bash(npx expo start:*)"
+    ],
+    "deny": []
+  }
+}

@@ -1,97 +1,91 @@
 import React from 'react';
-import { logErrorToService } from '../utils/errorHandling';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null, errorInfo: null };
+    this.state = { hasError: false, error: null };
   }
 
   static getDerivedStateFromError(error) {
-    return { hasError: true };
+    return { hasError: true, error };
   }
 
   componentDidCatch(error, errorInfo) {
-    console.error('Error Boundary caught an error:', error, errorInfo);
-    
-    // Log error to monitoring service
-    logErrorToService(error, errorInfo);
-    
-    this.setState({
-      error: error,
-      errorInfo: errorInfo
-    });
+    console.error('ErrorBoundary caught an error:', error, errorInfo);
   }
+
+  handleRestart = () => {
+    this.setState({ hasError: false, error: null });
+  };
 
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{
-          padding: '20px',
-          margin: '20px',
-          backgroundColor: '#fff5f5',
-          border: '1px solid #fed7d7',
-          borderRadius: '8px',
-          textAlign: 'center'
-        }}>
-          <h2 style={{ color: '#e53e3e', marginBottom: '16px' }}>
-            🚨 Something went wrong
-          </h2>
-          <p style={{ color: '#742a2a', marginBottom: '20px' }}>
-            We encountered an unexpected error. Our team has been notified.
-          </p>
-          <button
-            onClick={() => window.location.reload()}
-            style={{
-              backgroundColor: '#38a169',
-              color: 'white',
-              padding: '10px 20px',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              marginRight: '10px'
-            }}
-          >
-            🔄 Reload Page
-          </button>
-          <button
-            onClick={() => this.setState({ hasError: false, error: null, errorInfo: null })}
-            style={{
-              backgroundColor: '#3182ce',
-              color: 'white',
-              padding: '10px 20px',
-              border: 'none',
-              borderRadius: '6px',
-              cursor: 'pointer'
-            }}
-          >
-            🔄 Try Again
-          </button>
-          {process.env.NODE_ENV === 'development' && (
-            <details style={{ marginTop: '20px', textAlign: 'left' }}>
-              <summary style={{ cursor: 'pointer', color: '#e53e3e' }}>
-                🔧 Debug Information (Development Only)
-              </summary>
-              <pre style={{ 
-                backgroundColor: '#f7fafc', 
-                padding: '10px', 
-                borderRadius: '4px',
-                fontSize: '12px',
-                overflow: 'auto',
-                marginTop: '10px'
-              }}>
-                {this.state.error && this.state.error.toString()}
-                <br />
-                {this.state.errorInfo.componentStack}
-              </pre>
-            </details>
-          )}
-        </div>
+        <View style={styles.container}>
+          <View style={styles.errorContainer}>
+            <MaterialIcons name="error" size={64} color="#EF4444" />
+            <Text style={styles.title}>Something went wrong</Text>
+            <Text style={styles.message}>
+              We're sorry, but something unexpected happened. Please try again.
+            </Text>
+            <TouchableOpacity style={styles.button} onPress={this.handleRestart}>
+              <Text style={styles.buttonText}>Try Again</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       );
     }
 
     return this.props.children;
   }
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorContainer: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 30,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginTop: 15,
+    marginBottom: 10,
+  },
+  message: {
+    fontSize: 16,
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 24,
+    marginBottom: 25,
+  },
+  button: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 25,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  buttonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+});
 
 export default ErrorBoundary;
