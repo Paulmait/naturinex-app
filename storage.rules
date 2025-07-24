@@ -1,0 +1,68 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isValidImageFile() {
+      return request.resource.contentType.matches('image/.*') &&
+             request.resource.size < 10 * 1024 * 1024; // 10MB max
+    }
+    
+    // User scan images
+    match /scans/{userId}/{scanId}/{fileName} {
+      allow read: if isAuthenticated() && isOwner(userId);
+      allow write: if isAuthenticated() && 
+                     isOwner(userId) && 
+                     isValidImageFile();
+      allow delete: if false; // Scans cannot be deleted
+    }
+    
+    // User profile images
+    match /profiles/{userId}/avatar/{fileName} {
+      allow read: if isAuthenticated();
+      allow write: if isAuthenticated() && 
+                     isOwner(userId) && 
+                     isValidImageFile() &&
+                     request.resource.size < 5 * 1024 * 1024; // 5MB max for avatars
+      allow delete: if isAuthenticated() && isOwner(userId);
+    }
+    
+    // Beta feedback attachments
+    match /feedback/{userId}/{feedbackId}/{fileName} {
+      allow read: if isAuthenticated() && 
+                    (isOwner(userId) || 
+                     request.auth.token.admin == true);
+      allow write: if isAuthenticated() && 
+                     isOwner(userId) && 
+                     request.resource.size < 25 * 1024 * 1024; // 25MB max
+      allow delete: if false;
+    }
+    
+    // Public assets (app icons, etc)
+    match /public/{allPaths=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+    
+    // Temporary uploads (for processing)
+    match /temp/{userId}/{tempId} {
+      allow read: if isAuthenticated() && isOwner(userId);
+      allow write: if isAuthenticated() && 
+                     isOwner(userId) && 
+                     request.resource.size < 50 * 1024 * 1024; // 50MB max
+      // Auto-deleted after 24 hours via lifecycle rule
+    }
+    
+    // Deny all other paths
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

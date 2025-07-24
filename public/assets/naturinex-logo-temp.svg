@@ -1,0 +1,23 @@
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px" 
+     width="192px" height="192px" viewBox="0 0 192 192" enable-background="new 0 0 192 192" xml:space="preserve">
+<defs>
+  <style type="text/css">
+    .naturinex-bg { fill: #2c5530; }
+    .naturinex-accent { fill: #7fb069; }
+    .naturinex-text { fill: #ffffff; font-family: Arial, sans-serif; font-weight: bold; }
+  </style>
+</defs>
+
+<!-- Background Circle -->
+<circle class="naturinex-bg" cx="96" cy="96" r="90"/>
+
+<!-- Leaf Icon -->
+<path class="naturinex-accent" d="M96,45 C76,45 60,61 60,81 C60,101 76,117 96,117 C116,117 132,101 132,81 C132,61 116,45 96,45 Z
+                                 M96,55 C110,55 122,67 122,81 C122,95 110,107 96,107 C82,107 70,95 70,81 C70,67 82,55 96,55 Z"/>
+<path class="naturinex-accent" d="M85,70 Q96,60 107,70 Q96,80 85,70 Z"/>
+
+<!-- Text -->
+<text class="naturinex-text" x="96" y="140" text-anchor="middle" font-size="18">Naturinex</text>
+
+</svg>

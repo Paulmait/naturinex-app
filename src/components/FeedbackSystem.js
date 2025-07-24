@@ -1,0 +1,298 @@
+import React, { useState, useEffect } from 'react';
+import { Star, MessageCircle, ThumbsUp, ThumbsDown, Send, X } from 'lucide-react';
+import { db } from '../firebase';
+import { doc, setDoc, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { useUser } from '../hooks/useUser';
+import { useNotifications } from './NotificationSystem';
+import './FeedbackSystem.css';
+
+const FeedbackSystem = ({ medicationName, naturalAlternatives, scanId }) => {
+  const { user } = useUser();
+  const { showNotification } = useNotifications();
+  const [rating, setRating] = useState(0);
+  const [hoveredRating, setHoveredRating] = useState(0);
+  const [feedback, setFeedback] = useState('');
+  const [helpful, setHelpful] = useState(null);
+  const [showFeedbackForm, setShowFeedbackForm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [recentFeedback, setRecentFeedback] = useState([]);
+  const [showRecentFeedback, setShowRecentFeedback] = useState(false);
+
+  useEffect(() => {
+    if (medicationName) {
+      fetchRecentFeedback();
+    }
+  }, [medicationName]);
+
+  const fetchRecentFeedback = async () => {
+    try {
+      const feedbackQuery = query(
+        collection(db, 'feedback'),
+        where('medicationName', '==', medicationName.toLowerCase()),
+        orderBy('timestamp', 'desc'),
+        limit(5)
+      );
+
+      const snapshot = await getDocs(feedbackQuery);
+      const feedbackData = [];
+      
+      snapshot.forEach(doc => {
+        const data = doc.data();
+        if (data.isPublic) {
+          feedbackData.push({
+            id: doc.id,
+            ...data
+          });
+        }
+      });
+
+      setRecentFeedback(feedbackData);
+    } catch (error) {
+      console.error('Error fetching feedback:', error);
+    }
+  };
+
+  const handleSubmitFeedback = async () => {
+    if (!user) {
+      showNotification('Please sign in to submit feedback', 'warning');
+      return;
+    }
+
+    if (rating === 0) {
+      showNotification('Please select a rating', 'warning');
+      return;
+    }
+
+    setSubmitting(true);
+
+    try {
+      const feedbackId = `feedback_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      const feedbackData = {
+        id: feedbackId,
+        userId: user.uid,
+        scanId: scanId || null,
+        medicationName: medicationName.toLowerCase(),
+        naturalAlternatives: naturalAlternatives || [],
+        rating,
+        helpful,
+        feedback: feedback.trim(),
+        timestamp: new Date().toISOString(),
+        isPublic: feedback.trim().length > 0,
+        verified: false
+      };
+
+      await setDoc(doc(db, 'feedback', feedbackId), feedbackData);
+
+      // Update medication statistics
+      await updateMedicationStats(medicationName, rating);
+
+      showNotification('Thank you for your feedback!', 'success');
+      setHasSubmitted(true);
+      setShowFeedbackForm(false);
+      
+      // Refresh recent feedback
+      fetchRecentFeedback();
+    } catch (error) {
+      console.error('Error submitting feedback:', error);
+      showNotification('Failed to submit feedback. Please try again.', 'error');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const updateMedicationStats = async (medication, newRating) => {
+    try {
+      const statsRef = doc(db, 'medication_stats', medication.toLowerCase());
+      const statsQuery = await getDocs(query(
+        collection(db, 'feedback'),
+        where('medicationName', '==', medication.toLowerCase())
+      ));
+
+      let totalRating = 0;
+      let ratingCount = 0;
+      let helpfulCount = 0;
+      let notHelpfulCount = 0;
+
+      statsQuery.forEach(doc => {
+        const data = doc.data();
+        if (data.rating) {
+          totalRating += data.rating;
+          ratingCount += 1;
+        }
+        if (data.helpful === true) helpfulCount += 1;
+        if (data.helpful === false) notHelpfulCount += 1;
+      });
+
+      const averageRating = ratingCount > 0 ? totalRating / ratingCount : 0;
+      const helpfulPercentage = (helpfulCount + notHelpfulCount) > 0 
+        ? (helpfulCount / (helpfulCount + notHelpfulCount)) * 100 
+        : 0;
+
+      await setDoc(statsRef, {
+        medicationName: medication.toLowerCase(),
+        averageRating: Math.round(averageRating * 10) / 10,
+        totalRatings: ratingCount,
+        helpfulPercentage: Math.round(helpfulPercentage),
+        lastUpdated: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error updating medication stats:', error);
+    }
+  };
+
+  const StarRating = () => (
+    <div className="star-rating">
+      {[1, 2, 3, 4, 5].map((star) => (
+        <Star
+          key={star}
+          className={`star ${star <= (hoveredRating || rating) ? 'filled' : ''}`}
+          onClick={() => setRating(star)}
+          onMouseEnter={() => setHoveredRating(star)}
+          onMouseLeave={() => setHoveredRating(0)}
+        />
+      ))}
+    </div>
+  );
+
+  const HelpfulnessButtons = () => (
+    <div className="helpfulness-buttons">
+      <button
+        className={`helpful-btn ${helpful === true ? 'active' : ''}`}
+        onClick={() => setHelpful(true)}
+      >
+        <ThumbsUp size={20} />
+        <span>Helpful</span>
+      </button>
+      <button
+        className={`helpful-btn ${helpful === false ? 'active' : ''}`}
+        onClick={() => setHelpful(false)}
+      >
+        <ThumbsDown size={20} />
+        <span>Not Helpful</span>
+      </button>
+    </div>
+  );
+
+  if (hasSubmitted) {
+    return (
+      <div className="feedback-success">
+        <div className="success-icon">✓</div>
+        <h3>Thank you for your feedback!</h3>
+        <p>Your input helps us improve our recommendations for everyone.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="feedback-system">
+      {!showFeedbackForm ? (
+        <div className="feedback-prompt">
+          <button
+            className="feedback-trigger"
+            onClick={() => setShowFeedbackForm(true)}
+          >
+            <MessageCircle size={20} />
+            <span>Rate & Review</span>
+          </button>
+          
+          {recentFeedback.length > 0 && (
+            <button
+              className="view-feedback-btn"
+              onClick={() => setShowRecentFeedback(!showRecentFeedback)}
+            >
+              <Star size={16} />
+              <span>View Reviews ({recentFeedback.length})</span>
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="feedback-form">
+          <div className="feedback-header">
+            <h3>How was your experience?</h3>
+            <button
+              className="close-btn"
+              onClick={() => setShowFeedbackForm(false)}
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          <div className="feedback-content">
+            <div className="rating-section">
+              <p>Rate the suggestions for {medicationName}</p>
+              <StarRating />
+            </div>
+
+            <div className="helpfulness-section">
+              <p>Were the natural alternatives helpful?</p>
+              <HelpfulnessButtons />
+            </div>
+
+            <div className="comment-section">
+              <label htmlFor="feedback">Additional comments (optional)</label>
+              <textarea
+                id="feedback"
+                value={feedback}
+                onChange={(e) => setFeedback(e.target.value)}
+                placeholder="Share your experience..."
+                rows={4}
+                maxLength={500}
+              />
+              <div className="char-count">{feedback.length}/500</div>
+            </div>
+
+            <button
+              className="submit-feedback-btn"
+              onClick={handleSubmitFeedback}
+              disabled={submitting || rating === 0}
+            >
+              {submitting ? (
+                <>Submitting...</>
+              ) : (
+                <>
+                  <Send size={18} />
+                  <span>Submit Feedback</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {showRecentFeedback && recentFeedback.length > 0 && (
+        <div className="recent-feedback">
+          <h4>Recent Reviews</h4>
+          {recentFeedback.map((item) => (
+            <div key={item.id} className="feedback-item">
+              <div className="feedback-rating">
+                {[...Array(5)].map((_, i) => (
+                  <Star
+                    key={i}
+                    size={16}
+                    className={i < item.rating ? 'filled' : ''}
+                  />
+                ))}
+              </div>
+              {item.feedback && (
+                <p className="feedback-text">{item.feedback}</p>
+              )}
+              <div className="feedback-meta">
+                <span className="feedback-date">
+                  {new Date(item.timestamp).toLocaleDateString()}
+                </span>
+                {item.helpful !== null && (
+                  <span className="feedback-helpful">
+                    {item.helpful ? '👍 Found helpful' : '👎 Not helpful'}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default FeedbackSystem;

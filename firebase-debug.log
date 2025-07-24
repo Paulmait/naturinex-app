@@ -1,0 +1,93 @@
+[debug] [2025-07-21T00:01:59.444Z] ----------------------------------------------------------------------
+[debug] [2025-07-21T00:01:59.446Z] Command:       C:\Program Files\nodejs\node.exe C:\Users\maito\AppData\Roaming\npm\node_modules\firebase-tools\lib\bin\firebase.js deploy --only functions --debug
+[debug] [2025-07-21T00:01:59.446Z] CLI Version:   14.10.1
+[debug] [2025-07-21T00:01:59.446Z] Platform:      win32
+[debug] [2025-07-21T00:01:59.446Z] Node Version:  v22.16.0
+[debug] [2025-07-21T00:01:59.446Z] Time:          Sun Jul 20 2025 20:01:59 GMT-0400 (Eastern Daylight Time)
+[debug] [2025-07-21T00:01:59.447Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2025-07-21T00:01:59.602Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2025-07-21T00:01:59.603Z] > authorizing via signed-in user (guampaul@gmail.com)
+[debug] [2025-07-21T00:01:59.603Z] [iam] checking project mediscan-b6252 for permissions ["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]
+[debug] [2025-07-21T00:01:59.604Z] Checked if tokens are valid: true, expires at: 1753057204873
+[debug] [2025-07-21T00:01:59.605Z] Checked if tokens are valid: true, expires at: 1753057204873
+[debug] [2025-07-21T00:01:59.606Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/mediscan-b6252:testIamPermissions [none]
+[debug] [2025-07-21T00:01:59.606Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/mediscan-b6252:testIamPermissions x-goog-quota-user=projects/mediscan-b6252
+[debug] [2025-07-21T00:01:59.606Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/mediscan-b6252:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]}
+[debug] [2025-07-21T00:01:59.832Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/mediscan-b6252:testIamPermissions 200
+[debug] [2025-07-21T00:01:59.832Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/mediscan-b6252:testIamPermissions {"permissions":["cloudfunctions.functions.create","cloudfunctions.functions.delete","cloudfunctions.functions.get","cloudfunctions.functions.list","cloudfunctions.functions.update","cloudfunctions.operations.get","firebase.projects.get"]}
+[debug] [2025-07-21T00:01:59.833Z] Checked if tokens are valid: true, expires at: 1753057204873
+[debug] [2025-07-21T00:01:59.833Z] Checked if tokens are valid: true, expires at: 1753057204873
+[debug] [2025-07-21T00:01:59.833Z] >>> [apiv2][query] POST https://iam.googleapis.com/v1/projects/mediscan-b6252/serviceAccounts/mediscan-b6252@appspot.gserviceaccount.com:testIamPermissions [none]
+[debug] [2025-07-21T00:01:59.833Z] >>> [apiv2][body] POST https://iam.googleapis.com/v1/projects/mediscan-b6252/serviceAccounts/mediscan-b6252@appspot.gserviceaccount.com:testIamPermissions {"permissions":["iam.serviceAccounts.actAs"]}
+[debug] [2025-07-21T00:02:00.036Z] <<< [apiv2][status] POST https://iam.googleapis.com/v1/projects/mediscan-b6252/serviceAccounts/mediscan-b6252@appspot.gserviceaccount.com:testIamPermissions 200
+[debug] [2025-07-21T00:02:00.036Z] <<< [apiv2][body] POST https://iam.googleapis.com/v1/projects/mediscan-b6252/serviceAccounts/mediscan-b6252@appspot.gserviceaccount.com:testIamPermissions {"permissions":["iam.serviceAccounts.actAs"]}
+[info] 
+[info] === Deploying to 'mediscan-b6252'...
+[info] 
+[info] i  deploying functions 
+[debug] [2025-07-21T00:02:00.038Z] Checked if tokens are valid: true, expires at: 1753057204873
+[debug] [2025-07-21T00:02:00.038Z] Checked if tokens are valid: true, expires at: 1753057204873
+[debug] [2025-07-21T00:02:00.038Z] >>> [apiv2][query] GET https://cloudresourcemanager.googleapis.com/v1/projects/mediscan-b6252 [none]
+[debug] [2025-07-21T00:02:00.150Z] <<< [apiv2][status] GET https://cloudresourcemanager.googleapis.com/v1/projects/mediscan-b6252 200
+[debug] [2025-07-21T00:02:00.151Z] <<< [apiv2][body] GET https://cloudresourcemanager.googleapis.com/v1/projects/mediscan-b6252 {"projectNumber":"890126739800","projectId":"mediscan-b6252","lifecycleState":"ACTIVE","name":"Mediscan","labels":{"firebase":"enabled","firebase-core":"disabled","generative-language":"enabled"},"createTime":"2025-06-22T19:20:22.165798Z"}
+[info] i  functions: preparing codebase default for deployment 
+[info] i  functions: ensuring required API cloudfunctions.googleapis.com is enabled... 
+[info] i  functions: ensuring required API cloudbuild.googleapis.com is enabled... 
+[info] i  artifactregistry: ensuring required API artifactregistry.googleapis.com is enabled... 
+[debug] [2025-07-21T00:02:00.152Z] Checked if tokens are valid: true, expires at: 1753057204873
+[debug] [2025-07-21T00:02:00.152Z] Checked if tokens are valid: true, expires at: 1753057204873
+[debug] [2025-07-21T00:02:00.152Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects/mediscan-b6252/adminSdkConfig [none]
+[debug] [2025-07-21T00:02:00.369Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects/mediscan-b6252/adminSdkConfig 200
+[debug] [2025-07-21T00:02:00.370Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects/mediscan-b6252/adminSdkConfig {"projectId":"mediscan-b6252","storageBucket":"mediscan-b6252.firebasestorage.app"}
+[debug] [2025-07-21T00:02:00.370Z] Checked if tokens are valid: true, expires at: 1753057204873
+[debug] [2025-07-21T00:02:00.370Z] Checked if tokens are valid: true, expires at: 1753057204873
+[debug] [2025-07-21T00:02:00.370Z] >>> [apiv2][query] GET https://runtimeconfig.googleapis.com/v1beta1/projects/mediscan-b6252/configs [none]
+[debug] [2025-07-21T00:03:15.639Z] <<< [apiv2][status] GET https://runtimeconfig.googleapis.com/v1beta1/projects/mediscan-b6252/configs 200
+[debug] [2025-07-21T00:03:15.640Z] <<< [apiv2][body] GET https://runtimeconfig.googleapis.com/v1beta1/projects/mediscan-b6252/configs {}
+[debug] [2025-07-21T00:03:15.640Z] Validating nodejs source
+[debug] [2025-07-21T00:03:15.689Z] checkFunctionsSDKVersion encountered error: Unexpected end of JSON input {}
+[debug] [2025-07-21T00:03:15.690Z] > [functions] package.json contents: {
+  "name": "naturinex-functions",
+  "scripts": {
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "serve": "npm run build && firebase emulators:start --only functions",
+    "shell": "npm run build && firebase functions:shell",
+    "start": "npm run shell",
+    "deploy": "firebase deploy --only functions",
+    "logs": "firebase functions:log"
+  },
+  "engines": {
+    "node": "18"
+  },
+  "main": "lib/index.js",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.2",
+    "firebase-admin": "^12.0.0",
+    "firebase-functions": "^5.0.0",
+    "stripe": "^14.0.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^5.60.0",
+    "@typescript-eslint/parser": "^5.60.0",
+    "eslint": "^8.40.0",
+    "eslint-config-google": "^0.14.0",
+    "eslint-plugin-import": "^2.27.5",
+    "firebase-functions-test": "^3.1.0",
+    "typescript": "^5.0.0"
+  },
+  "private": true
+}
+[debug] [2025-07-21T00:03:15.690Z] Building nodejs source
+[info] i  functions: Loading and analyzing source code for codebase default to determine what to deploy 
+[debug] [2025-07-21T00:03:15.690Z] Could not find functions.yaml. Must use http discovery
+[debug] [2025-07-21T00:03:15.698Z] Found firebase-functions binary at 'C:\Users\maito\mediscan-app\naturinex-app\functions\node_modules\.bin\firebase-functions'
+[error] /usr/bin/bash: Files\Git\bin\bash.exe: No such file or directory
+
+[debug] [2025-07-21T00:03:25.733Z] Failed to call quitquitquit. This often means the server failed to start request to http://localhost:8821/__/quitquitquit failed, reason:  {"message":"request to http://localhost:8821/__/quitquitquit failed, reason: ","type":"system","errno":"ECONNREFUSED","code":"ECONNREFUSED"}

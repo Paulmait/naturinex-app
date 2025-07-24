@@ -1,0 +1,369 @@
+import * as admin from 'firebase-admin';
+import { Request, Response, NextFunction } from 'express';
+import rateLimit from 'express-rate-limit';
+import crypto from 'crypto';
+
+/**
+ * Comprehensive security middleware with logging
+ */
+
+// Store for request tracking
+const requestStore = new Map<string, any>();
+
+/**
+ * Log all requests for debugging and analytics
+ */
+export async function logRequest(req: Request, res: Response, next: NextFunction) {
+  const requestId = crypto.randomBytes(16).toString('hex');
+  const startTime = Date.now();
+  
+  // Attach request ID for tracking
+  (req as any).requestId = requestId;
+  
+  // Extract user info
+  const userId = req.body?.userId || req.query?.userId || 'anonymous';
+  const userAgent = req.headers['user-agent'] || 'unknown';
+  const ip = req.headers['x-forwarded-for'] || req.connection.remoteAddress;
+  
+  // Log request start
+  const requestLog = {
+    requestId,
+    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    method: req.method,
+    path: req.path,
+    userId,
+    ip,
+    userAgent,
+    headers: JSON.stringify(req.headers),
+    body: req.method !== 'GET' ? JSON.stringify(req.body).substring(0, 1000) : null, // Limit body size
+    query: JSON.stringify(req.query),
+    startTime: new Date(startTime).toISOString()
+  };
+  
+  // Store in memory for response logging
+  requestStore.set(requestId, { startTime, requestLog });
+  
+  // Log to Firestore (async, don't block request)
+  admin.firestore()
+    .collection('api_logs')
+    .doc(requestId)
+    .set(requestLog)
+    .catch(err => console.error('Failed to log request:', err));
+  
+  // Intercept response
+  const originalSend = res.send;
+  res.send = function(data: any) {
+    const endTime = Date.now();
+    const duration = endTime - startTime;
+    
+    // Log response
+    const responseLog = {
+      requestId,
+      statusCode: res.statusCode,
+      duration,
+      responseSize: JSON.stringify(data).length,
+      endTime: new Date(endTime).toISOString(),
+      success: res.statusCode < 400
+    };
+    
+    // Update log with response
+    admin.firestore()
+      .collection('api_logs')
+      .doc(requestId)
+      .update(responseLog)
+      .catch(err => console.error('Failed to log response:', err));
+    
+    // Clean up memory
+    requestStore.delete(requestId);
+    
+    // Call original send
+    return originalSend.call(this, data);
+  };
+  
+  next();
+}
+
+/**
+ * Rate limiting configurations
+ */
+export const rateLimiters = {
+  // General API rate limit
+  general: rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // 100 requests per window
+    message: 'Too many requests, please try again later.',
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: async (req, res) => {
+      // Log rate limit violation
+      await logSecurityEvent('rate_limit_exceeded', {
+        userId: req.body?.userId || 'anonymous',
+        ip: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+        path: req.path
+      });
+      
+      res.status(429).json({
+        error: 'Too many requests',
+        retryAfter: 900 // 15 minutes in seconds
+      });
+    }
+  }),
+  
+  // Strict limit for scanning
+  scanning: rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 10, // 10 scans per minute
+    message: 'Scanning limit reached. Please wait before scanning again.',
+    keyGenerator: (req) => req.body?.userId || req.ip,
+    handler: async (req, res) => {
+      await logSecurityEvent('scan_rate_limit_exceeded', {
+        userId: req.body?.userId || 'anonymous',
+        scanCount: 10
+      });
+      
+      res.status(429).json({
+        error: 'Scan limit reached',
+        retryAfter: 60,
+        message: 'You can perform 10 scans per minute. Please wait.'
+      });
+    }
+  }),
+  
+  // Strict limit for auth attempts
+  auth: rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 5, // 5 attempts per window
+    skipSuccessfulRequests: true, // Don't count successful logins
+    keyGenerator: (req) => req.body?.email || req.ip
+  }),
+  
+  // Payment endpoints
+  payment: rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 3, // 3 payment attempts per minute
+    keyGenerator: (req) => req.body?.userId || req.ip
+  })
+};
+
+/**
+ * Privacy consent validation
+ */
+export async function validatePrivacyConsent(req: Request, res: Response, next: NextFunction) {
+  const userId = req.body?.userId || req.query?.userId;
+  
+  if (!userId) {
+    return next(); // Skip for non-authenticated requests
+  }
+  
+  try {
+    const userDoc = await admin.firestore()
+      .collection('users')
+      .doc(userId as string)
+      .get();
+    
+    const userData = userDoc.data();
+    
+    // Check if user has accepted latest privacy policy
+    if (!userData?.privacyConsent?.accepted) {
+      await logSecurityEvent('privacy_consent_missing', { userId });
+      
+      return res.status(403).json({
+        error: 'privacy_consent_required',
+        message: 'Please accept the privacy policy to continue',
+        privacyPolicyUrl: 'https://app.naturinex.com/privacy',
+        currentVersion: '1.0'
+      });
+    }
+    
+    // Check if consent is expired (re-consent every year)
+    const consentDate = userData.privacyConsent.timestamp?.toDate();
+    const oneYearAgo = new Date();
+    oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+    
+    if (consentDate < oneYearAgo) {
+      return res.status(403).json({
+        error: 'privacy_consent_expired',
+        message: 'Please review and accept the updated privacy policy',
+        privacyPolicyUrl: 'https://app.naturinex.com/privacy'
+      });
+    }
+    
+    next();
+  } catch (error) {
+    console.error('Error checking privacy consent:', error);
+    next(); // Don't block on error
+  }
+}
+
+/**
+ * Log security events
+ */
+export async function logSecurityEvent(eventType: string, details: any) {
+  try {
+    await admin.firestore()
+      .collection('security_logs')
+      .add({
+        eventType,
+        details,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        severity: getSeverityLevel(eventType)
+      });
+  } catch (error) {
+    console.error('Failed to log security event:', error);
+  }
+}
+
+/**
+ * Get severity level for security events
+ */
+function getSeverityLevel(eventType: string): string {
+  const severityMap: Record<string, string> = {
+    'rate_limit_exceeded': 'warning',
+    'scan_rate_limit_exceeded': 'warning',
+    'privacy_consent_missing': 'info',
+    'privacy_consent_expired': 'info',
+    'invalid_api_key': 'error',
+    'suspicious_activity': 'critical',
+    'payment_fraud_detected': 'critical'
+  };
+  
+  return severityMap[eventType] || 'info';
+}
+
+/**
+ * Validate API requests have proper structure
+ */
+export function validateRequestStructure(req: Request, res: Response, next: NextFunction) {
+  // Check for suspicious patterns
+  const suspiciousPatterns = [
+    /eval\(/i,
+    /javascript:/i,
+    /<script/i,
+    /onclick=/i,
+    /onerror=/i
+  ];
+  
+  const bodyString = JSON.stringify(req.body);
+  const queryString = JSON.stringify(req.query);
+  
+  for (const pattern of suspiciousPatterns) {
+    if (pattern.test(bodyString) || pattern.test(queryString)) {
+      logSecurityEvent('suspicious_activity', {
+        pattern: pattern.toString(),
+        body: bodyString.substring(0, 200),
+        query: queryString.substring(0, 200),
+        ip: req.ip
+      });
+      
+      return res.status(400).json({
+        error: 'Invalid request',
+        message: 'Request contains invalid content'
+      });
+    }
+  }
+  
+  next();
+}
+
+/**
+ * Track user activity for analytics and debugging
+ */
+export async function trackUserActivity(action: string, userId: string, metadata: any = {}) {
+  try {
+    await admin.firestore()
+      .collection('user_activity')
+      .add({
+        userId,
+        action,
+        metadata,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        date: new Date().toISOString().split('T')[0] // For daily aggregation
+      });
+  } catch (error) {
+    console.error('Failed to track user activity:', error);
+  }
+}
+
+/**
+ * Middleware to check if user is blocked/banned
+ */
+export async function checkUserStatus(req: Request, res: Response, next: NextFunction) {
+  const userId = req.body?.userId;
+  
+  if (!userId) {
+    return next();
+  }
+  
+  try {
+    const userDoc = await admin.firestore()
+      .collection('users')
+      .doc(userId)
+      .get();
+    
+    const userData = userDoc.data();
+    
+    if (userData?.status === 'blocked') {
+      await logSecurityEvent('blocked_user_attempt', { userId });
+      
+      return res.status(403).json({
+        error: 'account_blocked',
+        message: 'Your account has been blocked. Please contact support.',
+        supportEmail: 'support@naturinex.com'
+      });
+    }
+    
+    if (userData?.status === 'suspended') {
+      return res.status(403).json({
+        error: 'account_suspended',
+        message: 'Your account is temporarily suspended.',
+        reason: userData.suspensionReason,
+        until: userData.suspensionUntil
+      });
+    }
+    
+    next();
+  } catch (error) {
+    console.error('Error checking user status:', error);
+    next();
+  }
+}
+
+/**
+ * Create a comprehensive error handler
+ */
+export function errorHandler(err: any, req: Request, res: Response, next: NextFunction) {
+  const requestId = (req as any).requestId || 'unknown';
+  
+  // Log error details
+  const errorLog = {
+    requestId,
+    error: {
+      message: err.message,
+      stack: err.stack,
+      code: err.code,
+      name: err.name
+    },
+    userId: req.body?.userId || 'anonymous',
+    path: req.path,
+    method: req.method,
+    timestamp: admin.firestore.FieldValue.serverTimestamp()
+  };
+  
+  admin.firestore()
+    .collection('error_logs')
+    .add(errorLog)
+    .catch(logErr => console.error('Failed to log error:', logErr));
+  
+  // Send user-friendly error response
+  const statusCode = err.statusCode || 500;
+  const userMessage = statusCode < 500 
+    ? err.message 
+    : 'An unexpected error occurred. Please try again.';
+  
+  res.status(statusCode).json({
+    error: true,
+    message: userMessage,
+    requestId, // For support reference
+    timestamp: new Date().toISOString()
+  });
+}

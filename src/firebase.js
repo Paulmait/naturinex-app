@@ -1,0 +1,8 @@
+// Re-export from the centralized config
+import { auth, db } from './config/firebase';
+import { GoogleAuthProvider } from "firebase/auth";
+
+// Initialize Google Auth Provider
+const provider = new GoogleAuthProvider();
+
+export { auth, db, provider };

@@ -1,0 +1,7 @@
+{
+  "expo": {
+    "extra": {
+      "apiUrl": "http://localhost:5000"
+    }
+  }
+}

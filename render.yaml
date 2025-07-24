@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: naturinex-api
+    runtime: node
+    region: oregon
+    plan: free
+    buildCommand: cd server && npm install
+    startCommand: node server/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        value: https://naturinex.com,https://www.naturinex.com,exp://
