@@ -1,0 +1,7 @@
+This folder should contain the following image assets:
+- icon.png (1024x1024) - App icon
+- splash.png (1284x2778) - Splash screen
+- adaptive-icon.png (1024x1024) - Android adaptive icon
+- favicon.png (48x48) - Web favicon
+
+For now, you can copy these from your existing project or create new ones.

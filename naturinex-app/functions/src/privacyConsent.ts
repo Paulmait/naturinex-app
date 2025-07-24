@@ -1,0 +1,458 @@
+import * as admin from 'firebase-admin';
+import { Request, Response } from 'express';
+
+/**
+ * Privacy consent management system with GDPR/CCPA compliance
+ */
+
+export interface ConsentData {
+  userId: string;
+  accepted: boolean;
+  timestamp: Date;
+  version: string;
+  ipAddress: string;
+  userAgent: string;
+  consentTypes: {
+    dataCollection: boolean;
+    analytics: boolean;
+    marketing: boolean;
+    thirdPartySharing: boolean;
+    aiProcessing: boolean;
+  };
+  withdrawalRights: boolean;
+  ageConfirmation: boolean; // Confirms user is 16+ or has parental consent
+}
+
+/**
+ * Record user's privacy consent
+ */
+export async function recordPrivacyConsent(req: Request, res: Response) {
+  try {
+    const {
+      userId,
+      consentTypes,
+      ageConfirmation
+    } = req.body;
+
+    if (!userId || !consentTypes || !ageConfirmation) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        required: ['userId', 'consentTypes', 'ageConfirmation']
+      });
+    }
+
+    // Validate age confirmation
+    if (!ageConfirmation) {
+      return res.status(403).json({
+        error: 'age_requirement_not_met',
+        message: 'You must be 16 or older, or have parental consent to use this app'
+      });
+    }
+
+    const consentData: ConsentData = {
+      userId,
+      accepted: true,
+      timestamp: new Date(),
+      version: '1.0', // Current privacy policy version
+      ipAddress: req.headers['x-forwarded-for'] as string || req.connection.remoteAddress || '',
+      userAgent: req.headers['user-agent'] || '',
+      consentTypes: {
+        dataCollection: consentTypes.dataCollection ?? true,
+        analytics: consentTypes.analytics ?? true,
+        marketing: consentTypes.marketing ?? false,
+        thirdPartySharing: consentTypes.thirdPartySharing ?? false,
+        aiProcessing: consentTypes.aiProcessing ?? true // Required for app functionality
+      },
+      withdrawalRights: true,
+      ageConfirmation
+    };
+
+    // Store consent record (immutable audit trail)
+    await admin.firestore()
+      .collection('privacy_consents')
+      .add({
+        ...consentData,
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+    // Update user document
+    await admin.firestore()
+      .collection('users')
+      .doc(userId)
+      .update({
+        privacyConsent: {
+          accepted: true,
+          timestamp: admin.firestore.FieldValue.serverTimestamp(),
+          version: consentData.version,
+          consentTypes: consentData.consentTypes
+        }
+      });
+
+    // Log consent event
+    await logPrivacyEvent('consent_granted', {
+      userId,
+      version: consentData.version,
+      consentTypes: consentData.consentTypes
+    });
+
+    res.json({
+      success: true,
+      message: 'Privacy consent recorded',
+      consentId: `consent_${userId}_${Date.now()}`,
+      consentTypes: consentData.consentTypes
+    });
+
+  } catch (error) {
+    console.error('Error recording consent:', error);
+    res.status(500).json({
+      error: 'Failed to record consent',
+      message: 'Please try again'
+    });
+  }
+}
+
+/**
+ * Withdraw privacy consent (GDPR right)
+ */
+export async function withdrawPrivacyConsent(req: Request, res: Response) {
+  try {
+    const { userId, reason } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({
+        error: 'User ID required'
+      });
+    }
+
+    // Record withdrawal
+    await admin.firestore()
+      .collection('privacy_withdrawals')
+      .add({
+        userId,
+        reason,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        ipAddress: req.headers['x-forwarded-for'] || req.connection.remoteAddress,
+        consequences: [
+          'Account will be deactivated',
+          'Personal data will be anonymized within 30 days',
+          'You will lose access to all app features',
+          'Subscription will be cancelled'
+        ]
+      });
+
+    // Update user status
+    await admin.firestore()
+      .collection('users')
+      .doc(userId)
+      .update({
+        privacyConsent: {
+          accepted: false,
+          withdrawnAt: admin.firestore.FieldValue.serverTimestamp(),
+          reason
+        },
+        status: 'consent_withdrawn',
+        dataRetentionNotice: 'Data will be anonymized in 30 days per GDPR'
+      });
+
+    // Cancel subscriptions
+    const userDoc = await admin.firestore().collection('users').doc(userId).get();
+    const userData = userDoc.data();
+    
+    if (userData?.stripeSubscriptionId) {
+      // Queue subscription cancellation
+      await admin.firestore()
+        .collection('tasks')
+        .add({
+          type: 'cancel_subscription',
+          userId,
+          subscriptionId: userData.stripeSubscriptionId,
+          reason: 'privacy_consent_withdrawn',
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+    }
+
+    await logPrivacyEvent('consent_withdrawn', {
+      userId,
+      reason
+    });
+
+    res.json({
+      success: true,
+      message: 'Privacy consent withdrawn',
+      consequences: [
+        'Your account has been deactivated',
+        'Your data will be anonymized within 30 days',
+        'Your subscription has been cancelled'
+      ],
+      dataExportLink: `https://app.naturinex.com/export-data?userId=${userId}`
+    });
+
+  } catch (error) {
+    console.error('Error withdrawing consent:', error);
+    res.status(500).json({
+      error: 'Failed to withdraw consent'
+    });
+  }
+}
+
+/**
+ * Get user's current consent status
+ */
+export async function getConsentStatus(req: Request, res: Response) {
+  try {
+    const { userId } = req.params;
+
+    const userDoc = await admin.firestore()
+      .collection('users')
+      .doc(userId)
+      .get();
+
+    const userData = userDoc.data();
+
+    if (!userData) {
+      return res.status(404).json({
+        error: 'User not found'
+      });
+    }
+
+    const consentStatus = {
+      hasConsented: userData.privacyConsent?.accepted || false,
+      consentDate: userData.privacyConsent?.timestamp?.toDate(),
+      version: userData.privacyConsent?.version || 'none',
+      currentVersion: '1.0',
+      needsUpdate: userData.privacyConsent?.version !== '1.0',
+      consentTypes: userData.privacyConsent?.consentTypes || {},
+      dataRights: {
+        access: true,
+        rectification: true,
+        erasure: true,
+        portability: true,
+        restriction: true,
+        objection: true
+      }
+    };
+
+    res.json(consentStatus);
+
+  } catch (error) {
+    console.error('Error getting consent status:', error);
+    res.status(500).json({
+      error: 'Failed to get consent status'
+    });
+  }
+}
+
+/**
+ * Export user data (GDPR right to data portability)
+ */
+export async function exportUserData(req: Request, res: Response) {
+  try {
+    const { userId } = req.params;
+    const { email } = req.body;
+
+    // Verify user identity
+    const userDoc = await admin.firestore()
+      .collection('users')
+      .doc(userId)
+      .get();
+
+    const userData = userDoc.data();
+
+    if (!userData || userData.email !== email) {
+      return res.status(403).json({
+        error: 'Identity verification failed'
+      });
+    }
+
+    // Collect all user data
+    const exportData = {
+      profile: userData,
+      scans: [],
+      payments: [],
+      activity: [],
+      notifications: []
+    };
+
+    // Get scans
+    const scansSnapshot = await admin.firestore()
+      .collection('scans')
+      .where('userId', '==', userId)
+      .get();
+
+    exportData.scans = scansSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      timestamp: doc.data().timestamp?.toDate()
+    }));
+
+    // Get payments
+    const paymentsSnapshot = await admin.firestore()
+      .collection('payments')
+      .where('userId', '==', userId)
+      .get();
+
+    exportData.payments = paymentsSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      timestamp: doc.data().timestamp?.toDate()
+    }));
+
+    // Create export task
+    const exportTask = await admin.firestore()
+      .collection('data_exports')
+      .add({
+        userId,
+        requestedAt: admin.firestore.FieldValue.serverTimestamp(),
+        status: 'processing',
+        email
+      });
+
+    // Queue data export job
+    await admin.firestore()
+      .collection('tasks')
+      .add({
+        type: 'export_user_data',
+        userId,
+        exportId: exportTask.id,
+        data: exportData,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+    await logPrivacyEvent('data_export_requested', {
+      userId,
+      exportId: exportTask.id
+    });
+
+    res.json({
+      success: true,
+      message: 'Data export requested',
+      exportId: exportTask.id,
+      estimatedTime: '24 hours',
+      deliveryMethod: 'email'
+    });
+
+  } catch (error) {
+    console.error('Error exporting user data:', error);
+    res.status(500).json({
+      error: 'Failed to export data'
+    });
+  }
+}
+
+/**
+ * Delete user data (GDPR right to erasure)
+ */
+export async function deleteUserData(req: Request, res: Response) {
+  try {
+    const { userId, email, confirmationCode } = req.body;
+
+    // Verify identity and confirmation
+    const userDoc = await admin.firestore()
+      .collection('users')
+      .doc(userId)
+      .get();
+
+    const userData = userDoc.data();
+
+    if (!userData || userData.email !== email) {
+      return res.status(403).json({
+        error: 'Identity verification failed'
+      });
+    }
+
+    // Verify confirmation code (sent via email)
+    const confirmationDoc = await admin.firestore()
+      .collection('deletion_confirmations')
+      .doc(userId)
+      .get();
+
+    if (!confirmationDoc.exists || confirmationDoc.data()?.code !== confirmationCode) {
+      return res.status(403).json({
+        error: 'Invalid confirmation code'
+      });
+    }
+
+    // Schedule deletion (30-day grace period)
+    await admin.firestore()
+      .collection('scheduled_deletions')
+      .doc(userId)
+      .set({
+        userId,
+        requestedAt: admin.firestore.FieldValue.serverTimestamp(),
+        scheduledFor: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+        email,
+        status: 'scheduled'
+      });
+
+    // Update user status
+    await userDoc.ref.update({
+      status: 'pending_deletion',
+      deletionScheduled: admin.firestore.FieldValue.serverTimestamp()
+    });
+
+    await logPrivacyEvent('deletion_requested', {
+      userId,
+      scheduledFor: '30 days'
+    });
+
+    res.json({
+      success: true,
+      message: 'Account deletion scheduled',
+      details: {
+        gracePeriod: '30 days',
+        cancellationLink: `https://app.naturinex.com/cancel-deletion?userId=${userId}`,
+        finalDeletionDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+      }
+    });
+
+  } catch (error) {
+    console.error('Error deleting user data:', error);
+    res.status(500).json({
+      error: 'Failed to schedule deletion'
+    });
+  }
+}
+
+/**
+ * Log privacy-related events for compliance
+ */
+async function logPrivacyEvent(eventType: string, details: any) {
+  try {
+    await admin.firestore()
+      .collection('privacy_logs')
+      .add({
+        eventType,
+        details,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        compliance: {
+          gdpr: true,
+          ccpa: true,
+          coppa: eventType.includes('age') ? true : false
+        }
+      });
+  } catch (error) {
+    console.error('Failed to log privacy event:', error);
+  }
+}
+
+/**
+ * Get privacy policy and terms
+ */
+export async function getPrivacyPolicy(req: Request, res: Response) {
+  const { lang = 'en' } = req.query;
+  
+  res.json({
+    version: '1.0',
+    lastUpdated: '2025-01-21',
+    languages: ['en', 'es', 'fr'],
+    url: `https://app.naturinex.com/privacy?lang=${lang}`,
+    summary: {
+      dataCollection: 'We collect health scan data, usage analytics, and account information',
+      aiProcessing: 'Your scan images are processed by AI to provide health insights',
+      dataSharing: 'We do not sell your personal data. Limited sharing with service providers only.',
+      retention: 'Data retained while account active. Deleted 30 days after account closure.',
+      rights: 'You have rights to access, correct, export, and delete your data.',
+      contact: 'privacy@naturinex.com'
+    }
+  });
+}

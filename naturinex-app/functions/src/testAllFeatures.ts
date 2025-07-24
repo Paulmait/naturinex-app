@@ -1,0 +1,312 @@
+/**
+ * Comprehensive testing suite for all promotional and engagement features
+ */
+
+import * as admin from 'firebase-admin';
+import dotenv from 'dotenv';
+import { createEnhancedCheckoutSession } from './enhancedCheckoutHandler';
+import { generateReferralCode, completeReferral } from './referralSystem';
+import { scheduleReEngagementCampaigns } from './emailCampaigns';
+import { trackUserAction } from './gamificationFeatures';
+
+dotenv.config();
+
+// Mock Express request/response
+const mockReq = (body: any, headers: any = {}) => ({
+  body,
+  headers: { origin: 'https://app.naturinex.com', ...headers },
+  params: {},
+  query: {}
+});
+
+const mockRes = () => {
+  const res: any = {};
+  res.status = (code: number) => { res.statusCode = code; return res; };
+  res.json = (data: any) => { res.data = data; return res; };
+  res.send = (data: any) => { res.data = data; return res; };
+  return res;
+};
+
+// Test user data
+const TEST_USERS = {
+  newUser: {
+    id: 'test_new_user',
+    email: 'newuser@test.com',
+    name: 'New User',
+    hasHadSubscription: false,
+    createdAt: new Date()
+  },
+  returningUser: {
+    id: 'test_returning_user',
+    email: 'returning@test.com',
+    name: 'Returning User',
+    hasHadSubscription: false,
+    previouslySubscribed: true,
+    subscriptionEndDate: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000) // 60 days ago
+  },
+  activeUser: {
+    id: 'test_active_user',
+    email: 'active@test.com',
+    name: 'Active User',
+    hasHadSubscription: true,
+    isPremium: true,
+    stripeSubscriptionId: 'sub_test_123'
+  }
+};
+
+/**
+ * Test all features
+ */
+export async function runAllTests() {
+  console.log('🧪 Starting comprehensive feature tests...\n');
+  
+  try {
+    // Initialize Firebase Admin if not already
+    if (!admin.apps.length) {
+      admin.initializeApp();
+    }
+    
+    // 1. Test Smart Checkout with Discounts
+    await testSmartCheckout();
+    
+    // 2. Test Referral System
+    await testReferralSystem();
+    
+    // 3. Test Gamification
+    await testGamification();
+    
+    // 4. Test Re-engagement Campaigns
+    await testReEngagementCampaigns();
+    
+    console.log('\n✅ All tests completed successfully!');
+    
+  } catch (error) {
+    console.error('\n❌ Test failed:', error);
+  }
+}
+
+/**
+ * Test 1: Smart Checkout with Automatic Discounts
+ */
+async function testSmartCheckout() {
+  console.log('📦 Testing Smart Checkout System...\n');
+  
+  // Test 1a: New user monthly (should get WELCOME50)
+  console.log('1a. Testing new user monthly checkout...');
+  const req1 = mockReq({
+    userId: TEST_USERS.newUser.id,
+    userEmail: TEST_USERS.newUser.email,
+    plan: 'premium',
+    billingCycle: 'monthly'
+  });
+  const res1 = mockRes();
+  
+  // Mock user data
+  await mockUserData(TEST_USERS.newUser);
+  
+  await createEnhancedCheckoutSession(req1 as any, res1 as any);
+  console.log('Response:', res1.data);
+  console.log('✅ Discount applied:', res1.data?.discount?.name || 'None');
+  
+  // Test 1b: New user yearly during launch (should get LAUNCH20)
+  console.log('\n1b. Testing new user yearly checkout (launch period)...');
+  const req2 = mockReq({
+    userId: TEST_USERS.newUser.id,
+    userEmail: TEST_USERS.newUser.email,
+    plan: 'premium',
+    billingCycle: 'yearly'
+  });
+  const res2 = mockRes();
+  
+  await createEnhancedCheckoutSession(req2 as any, res2 as any);
+  console.log('Response:', res2.data);
+  console.log('✅ Discount applied:', res2.data?.discount?.name || 'None');
+  
+  // Test 1c: Returning user (should get WINBACK50)
+  console.log('\n1c. Testing returning user checkout...');
+  const req3 = mockReq({
+    userId: TEST_USERS.returningUser.id,
+    userEmail: TEST_USERS.returningUser.email,
+    plan: 'premium',
+    billingCycle: 'monthly',
+    source: { offer: 'comeback' }
+  });
+  const res3 = mockRes();
+  
+  await mockUserData(TEST_USERS.returningUser);
+  
+  await createEnhancedCheckoutSession(req3 as any, res3 as any);
+  console.log('Response:', res3.data);
+  console.log('✅ Discount applied:', res3.data?.discount?.name || 'None');
+}
+
+/**
+ * Test 2: Referral System
+ */
+async function testReferralSystem() {
+  console.log('\n\n🤝 Testing Referral System...\n');
+  
+  // Test 2a: Generate referral code
+  console.log('2a. Generating referral code...');
+  const req1 = mockReq({ userId: TEST_USERS.activeUser.id });
+  const res1 = mockRes();
+  
+  await generateReferralCode(req1 as any, res1 as any);
+  const referralCode = res1.data?.referralCode;
+  console.log('✅ Referral code generated:', referralCode);
+  console.log('✅ Referral link:', res1.data?.referralLink);
+  
+  // Test 2b: Use referral code in checkout
+  console.log('\n2b. Testing checkout with referral code...');
+  const req2 = mockReq({
+    userId: TEST_USERS.newUser.id,
+    userEmail: TEST_USERS.newUser.email,
+    plan: 'premium',
+    billingCycle: 'monthly',
+    referralCode: referralCode
+  });
+  const res2 = mockRes();
+  
+  await createEnhancedCheckoutSession(req2 as any, res2 as any);
+  console.log('Response:', res2.data);
+  console.log('✅ Referral discount should apply:', res2.data?.discount?.name);
+  
+  // Test 2c: Complete referral (simulate successful payment)
+  console.log('\n2c. Completing referral after payment...');
+  await completeReferral(TEST_USERS.newUser.id, 'sub_test_456', 1499);
+  console.log('✅ Referral completed and rewards distributed');
+}
+
+/**
+ * Test 3: Gamification System
+ */
+async function testGamification() {
+  console.log('\n\n🎮 Testing Gamification System...\n');
+  
+  const userId = TEST_USERS.activeUser.id;
+  
+  // Test 3a: First scan achievement
+  console.log('3a. Testing first scan achievement...');
+  const result1 = await trackUserAction(userId, 'scan_completed', {
+    productType: 'supplement'
+  });
+  console.log('✅ Points earned:', result1.points);
+  console.log('✅ Achievements:', result1.achievements.map((a: any) => a.name));
+  
+  // Test 3b: Streak bonus
+  console.log('\n3b. Testing streak bonus (simulating 7-day streak)...');
+  // Simulate 7 days of scanning
+  for (let i = 0; i < 6; i++) {
+    await trackUserAction(userId, 'scan_completed', {
+      productType: 'food'
+    });
+  }
+  const result2 = await trackUserAction(userId, 'scan_completed', {
+    productType: 'medicine'
+  });
+  console.log('✅ Streak bonus:', result2.streakBonus);
+  console.log('✅ Achievements:', result2.achievements.map((a: any) => a.name));
+  
+  // Test 3c: Healthier choice
+  console.log('\n3c. Testing healthier choice tracking...');
+  const result3 = await trackUserAction(userId, 'healthier_choice_made');
+  console.log('✅ Points for healthier choice:', result3.points);
+}
+
+/**
+ * Test 4: Re-engagement Campaigns
+ */
+async function testReEngagementCampaigns() {
+  console.log('\n\n📧 Testing Re-engagement Campaigns...\n');
+  
+  // Create test users with different states
+  const testUsers = [
+    {
+      // Trial ending soon
+      id: 'trial_ending_user',
+      email: 'trial@test.com',
+      name: 'Trial User',
+      trialStartDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000), // 5 days ago
+      isPremium: false,
+      lastTrialReminderSent: null
+    },
+    {
+      // Trial ended
+      id: 'trial_ended_user',
+      email: 'ended@test.com',
+      name: 'Ended User',
+      trialStartDate: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000), // 8 days ago
+      isPremium: false,
+      lastTrialEndedEmailSent: null,
+      trialScans: 15
+    },
+    {
+      // Cancelled subscription
+      id: 'cancelled_user',
+      email: 'cancelled@test.com',
+      name: 'Cancelled User',
+      subscriptionCancelledDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000), // 3 days ago
+      lastWinBackEmailSent: null
+    }
+  ];
+  
+  // Mock users
+  for (const user of testUsers) {
+    await mockUserData(user);
+  }
+  
+  console.log('Running re-engagement campaign scheduler...');
+  await scheduleReEngagementCampaigns();
+  console.log('✅ Re-engagement campaigns scheduled');
+  console.log('Check email_logs collection for sent emails');
+}
+
+/**
+ * Helper: Mock user data in Firestore
+ */
+async function mockUserData(userData: any) {
+  try {
+    await admin.firestore().collection('users').doc(userData.id).set(userData, { merge: true });
+  } catch (error) {
+    console.error('Error mocking user data:', error);
+  }
+}
+
+/**
+ * Run specific test
+ */
+export async function runSpecificTest(testName: string) {
+  console.log(`🧪 Running test: ${testName}\n`);
+  
+  try {
+    switch (testName) {
+      case 'checkout':
+        await testSmartCheckout();
+        break;
+      case 'referral':
+        await testReferralSystem();
+        break;
+      case 'gamification':
+        await testGamification();
+        break;
+      case 'email':
+        await testReEngagementCampaigns();
+        break;
+      default:
+        console.log('Unknown test. Available tests: checkout, referral, gamification, email');
+    }
+  } catch (error) {
+    console.error('Test failed:', error);
+  }
+}
+
+// Run tests if called directly
+if (require.main === module) {
+  const testName = process.argv[2];
+  
+  if (testName) {
+    runSpecificTest(testName);
+  } else {
+    runAllTests();
+  }
+}

@@ -1,0 +1,752 @@
+import * as admin from 'firebase-admin';
+import { Request, Response } from 'express';
+
+/**
+ * Beta testing feedback system for rapid iteration
+ */
+
+export interface FeedbackData {
+  feedbackId: string;
+  userId: string;
+  userEmail?: string;
+  timestamp: Date;
+  type: 'bug' | 'feature' | 'performance' | 'accuracy' | 'ui_ux' | 'other';
+  severity: 'low' | 'medium' | 'high' | 'critical';
+  title: string;
+  description: string;
+  category?: string;
+  deviceInfo: {
+    platform: string;
+    version: string;
+    model?: string;
+    os?: string;
+  };
+  appInfo: {
+    version: string;
+    buildNumber?: string;
+    environment: string;
+  };
+  attachments?: Array<{
+    type: 'screenshot' | 'video' | 'log';
+    url: string;
+    size: number;
+  }>;
+  metadata?: {
+    screen?: string;
+    action?: string;
+    scanId?: string;
+    errorId?: string;
+  };
+  status: 'new' | 'reviewing' | 'in_progress' | 'resolved' | 'wont_fix';
+  priority?: number;
+  assignedTo?: string;
+  resolution?: string;
+  publicResponse?: string;
+}
+
+/**
+ * Submit beta feedback
+ */
+export async function submitBetaFeedback(req: Request, res: Response) {
+  try {
+    const feedbackData: FeedbackData = {
+      feedbackId: generateFeedbackId(),
+      userId: req.body.userId,
+      userEmail: req.body.userEmail,
+      timestamp: new Date(),
+      type: req.body.type,
+      severity: req.body.severity || determineSeverity(req.body.type, req.body.description),
+      title: req.body.title,
+      description: req.body.description,
+      category: req.body.category,
+      deviceInfo: req.body.deviceInfo,
+      appInfo: req.body.appInfo,
+      attachments: req.body.attachments || [],
+      metadata: req.body.metadata,
+      status: 'new',
+      priority: calculatePriority(req.body.type, req.body.severity)
+    };
+
+    // Validate required fields
+    if (!feedbackData.userId || !feedbackData.title || !feedbackData.description) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        required: ['userId', 'title', 'description']
+      });
+    }
+
+    // Store feedback
+    await admin.firestore()
+      .collection('beta_feedback')
+      .doc(feedbackData.feedbackId)
+      .set({
+        ...feedbackData,
+        timestamp: admin.firestore.FieldValue.serverTimestamp()
+      });
+
+    // Update user's feedback stats
+    await updateUserFeedbackStats(feedbackData.userId);
+
+    // Alert team for critical issues
+    if (feedbackData.severity === 'critical') {
+      await alertTeamForCriticalFeedback(feedbackData);
+    }
+
+    // Auto-categorize and tag
+    const tags = await autoCategorizeFeedback(feedbackData);
+    if (tags.length > 0) {
+      await admin.firestore()
+        .collection('beta_feedback')
+        .doc(feedbackData.feedbackId)
+        .update({ tags });
+    }
+
+    // Send confirmation to user
+    await sendFeedbackConfirmation(feedbackData);
+
+    res.json({
+      success: true,
+      feedbackId: feedbackData.feedbackId,
+      message: 'Thank you for your feedback!',
+      expectedResponse: getExpectedResponseTime(feedbackData.severity)
+    });
+
+  } catch (error) {
+    console.error('Error submitting feedback:', error);
+    res.status(500).json({
+      error: 'Failed to submit feedback'
+    });
+  }
+}
+
+/**
+ * Get user's feedback history
+ */
+export async function getUserFeedback(req: Request, res: Response) {
+  try {
+    const { userId } = req.params;
+    const { status, type } = req.query;
+
+    let query = admin.firestore()
+      .collection('beta_feedback')
+      .where('userId', '==', userId)
+      .orderBy('timestamp', 'desc');
+
+    if (status) {
+      query = query.where('status', '==', status);
+    }
+
+    if (type) {
+      query = query.where('type', '==', type);
+    }
+
+    const snapshot = await query.limit(50).get();
+
+    const feedback = snapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data(),
+      timestamp: doc.data().timestamp?.toDate()
+    }));
+
+    res.json({
+      feedback,
+      total: feedback.length,
+      stats: await getUserFeedbackStats(userId)
+    });
+
+  } catch (error) {
+    console.error('Error getting user feedback:', error);
+    res.status(500).json({
+      error: 'Failed to get feedback'
+    });
+  }
+}
+
+/**
+ * Get feedback analytics for beta improvement
+ */
+export async function getFeedbackAnalytics(req: Request, res: Response) {
+  try {
+    const { timeframe = '7d' } = req.query;
+    const startTime = getStartTime(timeframe as string);
+
+    const snapshot = await admin.firestore()
+      .collection('beta_feedback')
+      .where('timestamp', '>=', startTime)
+      .get();
+
+    // Analyze feedback
+    const analytics = {
+      total: snapshot.size,
+      byType: {} as Record<string, number>,
+      bySeverity: {} as Record<string, number>,
+      byStatus: {} as Record<string, number>,
+      topIssues: [] as any[],
+      averageResolutionTime: 0,
+      userSatisfaction: 0
+    };
+
+    const resolutionTimes: number[] = [];
+
+    snapshot.docs.forEach(doc => {
+      const data = doc.data();
+      
+      // Count by type
+      analytics.byType[data.type] = (analytics.byType[data.type] || 0) + 1;
+      
+      // Count by severity
+      analytics.bySeverity[data.severity] = (analytics.bySeverity[data.severity] || 0) + 1;
+      
+      // Count by status
+      analytics.byStatus[data.status] = (analytics.byStatus[data.status] || 0) + 1;
+      
+      // Track resolution time
+      if (data.status === 'resolved' && data.resolvedAt) {
+        const resolutionTime = data.resolvedAt.toDate().getTime() - data.timestamp.toDate().getTime();
+        resolutionTimes.push(resolutionTime);
+      }
+    });
+
+    // Calculate average resolution time
+    if (resolutionTimes.length > 0) {
+      analytics.averageResolutionTime = resolutionTimes.reduce((a, b) => a + b, 0) / resolutionTimes.length;
+    }
+
+    // Get top issues
+    const issueFrequency: Record<string, number> = {};
+    snapshot.docs.forEach(doc => {
+      const key = `${doc.data().type}_${doc.data().category || 'general'}`;
+      issueFrequency[key] = (issueFrequency[key] || 0) + 1;
+    });
+
+    analytics.topIssues = Object.entries(issueFrequency)
+      .sort(([, a], [, b]) => b - a)
+      .slice(0, 10)
+      .map(([key, count]) => {
+        const [type, category] = key.split('_');
+        return { type, category, count };
+      });
+
+    res.json(analytics);
+
+  } catch (error) {
+    console.error('Error getting feedback analytics:', error);
+    res.status(500).json({
+      error: 'Failed to get analytics'
+    });
+  }
+}
+
+/**
+ * Update feedback status (for admin)
+ */
+export async function updateFeedbackStatus(req: Request, res: Response) {
+  try {
+    const { feedbackId } = req.params;
+    const { status, resolution, assignedTo, publicResponse } = req.body;
+
+    const updates: any = {
+      status,
+      lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+    };
+
+    if (resolution) updates.resolution = resolution;
+    if (assignedTo) updates.assignedTo = assignedTo;
+    if (publicResponse) updates.publicResponse = publicResponse;
+
+    if (status === 'resolved') {
+      updates.resolvedAt = admin.firestore.FieldValue.serverTimestamp();
+    }
+
+    await admin.firestore()
+      .collection('beta_feedback')
+      .doc(feedbackId)
+      .update(updates);
+
+    // Notify user of status change
+    const feedbackDoc = await admin.firestore()
+      .collection('beta_feedback')
+      .doc(feedbackId)
+      .get();
+
+    if (feedbackDoc.exists) {
+      await notifyUserOfFeedbackUpdate(feedbackDoc.data() as FeedbackData, status);
+    }
+
+    res.json({
+      success: true,
+      message: 'Feedback status updated'
+    });
+
+  } catch (error) {
+    console.error('Error updating feedback:', error);
+    res.status(500).json({
+      error: 'Failed to update feedback'
+    });
+  }
+}
+
+/**
+ * Helper functions
+ */
+
+function generateFeedbackId(): string {
+  return `fb_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+function determineSeverity(type: string, description: string): 'low' | 'medium' | 'high' | 'critical' {
+  const criticalKeywords = ['crash', 'payment', 'security', 'data loss', 'cannot use'];
+  const highKeywords = ['error', 'fail', 'broken', 'stuck', 'freeze'];
+  
+  const lowerDesc = description.toLowerCase();
+  
+  if (criticalKeywords.some(keyword => lowerDesc.includes(keyword))) {
+    return 'critical';
+  }
+  
+  if (highKeywords.some(keyword => lowerDesc.includes(keyword))) {
+    return 'high';
+  }
+  
+  if (type === 'bug') return 'medium';
+  
+  return 'low';
+}
+
+function calculatePriority(type: string, severity: string): number {
+  const typeScores: Record<string, number> = {
+    bug: 3,
+    performance: 2,
+    accuracy: 3,
+    feature: 1,
+    ui_ux: 1,
+    other: 0
+  };
+  
+  const severityScores: Record<string, number> = {
+    critical: 4,
+    high: 3,
+    medium: 2,
+    low: 1
+  };
+  
+  return (typeScores[type] || 0) + (severityScores[severity] || 0);
+}
+
+async function updateUserFeedbackStats(userId: string) {
+  try {
+    await admin.firestore()
+      .collection('users')
+      .doc(userId)
+      .update({
+        'betaStats.feedbackCount': admin.firestore.FieldValue.increment(1),
+        'betaStats.lastFeedback': admin.firestore.FieldValue.serverTimestamp()
+      });
+  } catch (error) {
+    console.error('Error updating user stats:', error);
+  }
+}
+
+async function alertTeamForCriticalFeedback(feedback: FeedbackData) {
+  try {
+    await admin.firestore()
+      .collection('team_alerts')
+      .add({
+        type: 'critical_feedback',
+        feedbackId: feedback.feedbackId,
+        title: feedback.title,
+        description: feedback.description,
+        userId: feedback.userId,
+        timestamp: admin.firestore.FieldValue.serverTimestamp(),
+        acknowledged: false
+      });
+    
+    console.error('🚨 CRITICAL FEEDBACK:', {
+      id: feedback.feedbackId,
+      title: feedback.title,
+      user: feedback.userId
+    });
+  } catch (error) {
+    console.error('Error alerting team:', error);
+  }
+}
+
+async function autoCategorizeFeedback(feedback: FeedbackData): Promise<string[]> {
+  const tags: string[] = [];
+  const desc = feedback.description.toLowerCase();
+  
+  // Auto-tagging rules
+  if (desc.includes('scan') || desc.includes('camera')) tags.push('scanning');
+  if (desc.includes('payment') || desc.includes('subscription')) tags.push('billing');
+  if (desc.includes('slow') || desc.includes('lag')) tags.push('performance');
+  if (desc.includes('crash') || desc.includes('freeze')) tags.push('stability');
+  if (desc.includes('ui') || desc.includes('design')) tags.push('interface');
+  if (desc.includes('accuracy') || desc.includes('wrong')) tags.push('ai_accuracy');
+  
+  return tags;
+}
+
+async function sendFeedbackConfirmation(feedback: FeedbackData) {
+  try {
+    await admin.firestore()
+      .collection('notifications')
+      .add({
+        userId: feedback.userId,
+        type: 'feedback_received',
+        title: 'Thank you for your feedback!',
+        message: `We've received your ${feedback.type} report: "${feedback.title}"`,
+        data: {
+          feedbackId: feedback.feedbackId,
+          expectedResponse: getExpectedResponseTime(feedback.severity)
+        },
+        read: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+  } catch (error) {
+    console.error('Error sending confirmation:', error);
+  }
+}
+
+function getExpectedResponseTime(severity: string): string {
+  const responseTimes: Record<string, string> = {
+    critical: '2-4 hours',
+    high: '24 hours',
+    medium: '2-3 days',
+    low: '1 week'
+  };
+  
+  return responseTimes[severity] || '1 week';
+}
+
+async function getUserFeedbackStats(userId: string) {
+  const snapshot = await admin.firestore()
+    .collection('beta_feedback')
+    .where('userId', '==', userId)
+    .get();
+  
+  const stats = {
+    total: snapshot.size,
+    resolved: 0,
+    pending: 0,
+    contributions: {
+      bugs: 0,
+      features: 0,
+      other: 0
+    }
+  };
+  
+  snapshot.docs.forEach(doc => {
+    const data = doc.data();
+    if (data.status === 'resolved') stats.resolved++;
+    if (data.status === 'new' || data.status === 'reviewing') stats.pending++;
+    
+    if (data.type === 'bug') stats.contributions.bugs++;
+    else if (data.type === 'feature') stats.contributions.features++;
+    else stats.contributions.other++;
+  });
+  
+  return stats;
+}
+
+async function notifyUserOfFeedbackUpdate(feedback: FeedbackData, newStatus: string) {
+  try {
+    let message = `Your feedback "${feedback.title}" has been updated to: ${newStatus}`;
+    
+    if (newStatus === 'resolved' && feedback.publicResponse) {
+      message += `\n\nResponse: ${feedback.publicResponse}`;
+    }
+    
+    await admin.firestore()
+      .collection('notifications')
+      .add({
+        userId: feedback.userId,
+        type: 'feedback_update',
+        title: 'Feedback Update',
+        message,
+        data: {
+          feedbackId: feedback.feedbackId,
+          status: newStatus
+        },
+        read: false,
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      });
+  } catch (error) {
+    console.error('Error notifying user:', error);
+  }
+}
+
+function getStartTime(timeframe: string): Date {
+  const now = new Date();
+  const times: Record<string, number> = {
+    '24h': 24 * 60 * 60 * 1000,
+    '7d': 7 * 24 * 60 * 60 * 1000,
+    '30d': 30 * 24 * 60 * 60 * 1000
+  };
+  
+  return new Date(now.getTime() - (times[timeframe] || times['7d']));
+}
+
+/**
+ * React Native component for feedback
+ */
+export function getBetaFeedbackComponent(): string {
+  return `
+import React, { useState } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  ScrollView,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+  Image
+} from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+
+export const BetaFeedbackForm = ({ userId, onClose }) => {
+  const [type, setType] = useState('bug');
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [screenshot, setScreenshot] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const types = [
+    { id: 'bug', label: 'Bug Report', icon: '🐛' },
+    { id: 'feature', label: 'Feature Request', icon: '💡' },
+    { id: 'accuracy', label: 'Accuracy Issue', icon: '🎯' },
+    { id: 'performance', label: 'Performance', icon: '🚀' },
+    { id: 'ui_ux', label: 'UI/UX', icon: '🎨' },
+    { id: 'other', label: 'Other', icon: '💬' }
+  ];
+
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      quality: 0.5
+    });
+
+    if (!result.cancelled) {
+      setScreenshot(result.uri);
+    }
+  };
+
+  const submitFeedback = async () => {
+    if (!title || !description) {
+      alert('Please fill in all fields');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      // Upload screenshot if exists
+      let attachments = [];
+      if (screenshot) {
+        // Upload logic here
+        attachments.push({
+          type: 'screenshot',
+          url: screenshot,
+          size: 0
+        });
+      }
+
+      const response = await fetch('YOUR_API_URL/beta/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          type,
+          title,
+          description,
+          attachments,
+          deviceInfo: {
+            platform: Platform.OS,
+            version: Platform.Version
+          },
+          appInfo: {
+            version: Constants.manifest.version
+          }
+        })
+      });
+
+      if (response.ok) {
+        alert('Thank you for your feedback!');
+        onClose();
+      }
+    } catch (error) {
+      alert('Failed to submit feedback');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <ScrollView>
+        <Text style={styles.title}>Beta Feedback</Text>
+        
+        <View style={styles.typeSelector}>
+          {types.map(t => (
+            <TouchableOpacity
+              key={t.id}
+              style={[styles.typeButton, type === t.id && styles.typeActive]}
+              onPress={() => setType(t.id)}
+            >
+              <Text style={styles.typeIcon}>{t.icon}</Text>
+              <Text style={[styles.typeLabel, type === t.id && styles.typeLabelActive]}>
+                {t.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <TextInput
+          style={styles.input}
+          placeholder="Brief title"
+          value={title}
+          onChangeText={setTitle}
+          maxLength={100}
+        />
+
+        <TextInput
+          style={[styles.input, styles.textArea]}
+          placeholder="Describe in detail..."
+          value={description}
+          onChangeText={setDescription}
+          multiline
+          numberOfLines={6}
+          maxLength={1000}
+        />
+
+        {screenshot && (
+          <Image source={{ uri: screenshot }} style={styles.screenshot} />
+        )}
+
+        <TouchableOpacity style={styles.attachButton} onPress={pickImage}>
+          <Text style={styles.attachText}>📎 Attach Screenshot</Text>
+        </TouchableOpacity>
+
+        <View style={styles.actions}>
+          <TouchableOpacity 
+            style={[styles.button, styles.cancelButton]} 
+            onPress={onClose}
+          >
+            <Text style={styles.buttonText}>Cancel</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity 
+            style={[styles.button, styles.submitButton]}
+            onPress={submitFeedback}
+            disabled={submitting}
+          >
+            <Text style={[styles.buttonText, styles.submitText]}>
+              {submitting ? 'Sending...' : 'Submit'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: 20,
+    backgroundColor: 'white'
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20
+  },
+  typeSelector: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginBottom: 20
+  },
+  typeButton: {
+    padding: 10,
+    margin: 5,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    alignItems: 'center'
+  },
+  typeActive: {
+    backgroundColor: '#2196F3',
+    borderColor: '#2196F3'
+  },
+  typeIcon: {
+    fontSize: 24
+  },
+  typeLabel: {
+    fontSize: 12,
+    marginTop: 4,
+    color: '#666'
+  },
+  typeLabelActive: {
+    color: 'white'
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
+    fontSize: 16
+  },
+  textArea: {
+    height: 120,
+    textAlignVertical: 'top'
+  },
+  screenshot: {
+    width: '100%',
+    height: 200,
+    borderRadius: 8,
+    marginBottom: 16
+  },
+  attachButton: {
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    marginBottom: 20
+  },
+  attachText: {
+    color: '#666'
+  },
+  actions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between'
+  },
+  button: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    marginHorizontal: 8
+  },
+  cancelButton: {
+    backgroundColor: '#f0f0f0'
+  },
+  submitButton: {
+    backgroundColor: '#2196F3'
+  },
+  buttonText: {
+    fontSize: 16,
+    fontWeight: 'bold'
+  },
+  submitText: {
+    color: 'white'
+  }
+});
+`;
+}

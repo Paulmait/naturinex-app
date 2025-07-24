@@ -1,0 +1,340 @@
+import Stripe from 'stripe';
+import { Request, Response } from 'express';
+import * as admin from 'firebase-admin';
+import { getPriceId, PROMO_CODES, formatPrice } from './priceConfig';
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
+  apiVersion: '2023-10-16',
+});
+
+interface CheckoutRequest {
+  userId: string;
+  userEmail: string;
+  plan: 'basic' | 'premium' | 'professional';
+  billingCycle: 'monthly' | 'yearly';
+  referralCode?: string;
+  source?: {
+    utm_source?: string;
+    utm_medium?: string;
+    utm_campaign?: string;
+    offer?: string;
+  };
+}
+
+interface UserData {
+  hasHadSubscription: boolean;
+  previouslySubscribed: boolean;
+  subscriptionEndDate?: Date;
+  totalSpent: number;
+  referralCount: number;
+  createdAt: Date;
+}
+
+/**
+ * Smart checkout session with automatic discount detection
+ */
+export async function createEnhancedCheckoutSession(req: Request, res: Response) {
+  try {
+    const { 
+      userId, 
+      userEmail, 
+      plan, 
+      billingCycle, 
+      referralCode,
+      source 
+    } = req.body as CheckoutRequest;
+
+    // Validate input
+    if (!userId || !userEmail || !plan || !billingCycle) {
+      return res.status(400).json({ 
+        error: 'Missing required fields',
+        required: ['userId', 'userEmail', 'plan', 'billingCycle']
+      });
+    }
+
+    // Get price ID
+    const priceId = getPriceId(plan, billingCycle);
+    if (!priceId || priceId === 'price_PENDING') {
+      return res.status(400).json({ 
+        error: 'Price not configured yet',
+        plan,
+        billingCycle 
+      });
+    }
+
+    // Get user data for smart discount detection
+    const userData = await getUserData(userId);
+    
+    // Determine best discount to apply
+    const discount = await determineBestDiscount(
+      userData,
+      billingCycle,
+      referralCode,
+      source
+    );
+
+    // Create or retrieve customer
+    let customerId = userData.stripeCustomerId;
+    if (!customerId) {
+      const customer = await stripe.customers.create({
+        email: userEmail,
+        metadata: { userId }
+      });
+      customerId = customer.id;
+      
+      // Save customer ID to user profile
+      await admin.firestore().collection('users').doc(userId).update({
+        stripeCustomerId: customerId
+      });
+    }
+
+    // Build checkout session
+    const sessionParams: Stripe.Checkout.SessionCreateParams = {
+      customer: customerId,
+      payment_method_types: ['card'],
+      line_items: [{
+        price: priceId,
+        quantity: 1,
+      }],
+      mode: 'subscription',
+      success_url: `${req.headers.origin}/success?session_id={CHECKOUT_SESSION_ID}&plan=${plan}`,
+      cancel_url: `${req.headers.origin}/pricing?canceled=true`,
+      metadata: {
+        userId,
+        plan,
+        billingCycle,
+        referralCode: referralCode || '',
+        source: JSON.stringify(source || {}),
+        discountApplied: discount?.couponId || 'none'
+      },
+      subscription_data: {
+        trial_period_days: 7,
+        metadata: {
+          userId,
+          plan,
+          billingCycle,
+        },
+      },
+    };
+
+    // Apply discount if found
+    if (discount) {
+      sessionParams.discounts = [{
+        coupon: discount.couponId
+      }];
+    }
+
+    // Create the session
+    const session = await stripe.checkout.sessions.create(sessionParams);
+
+    // Track checkout initiation
+    await trackAnalytics('checkout_started', {
+      userId,
+      plan,
+      billingCycle,
+      discount: discount?.couponId || 'none',
+      source: source || {}
+    });
+
+    // Process referral if applicable
+    if (referralCode) {
+      await processReferralSignup(referralCode, userId);
+    }
+
+    // Return session with discount info
+    res.json({ 
+      url: session.url, 
+      sessionId: session.id,
+      discount: discount ? {
+        applied: true,
+        name: discount.name,
+        description: discount.description,
+        savings: discount.savings
+      } : null,
+      message: discount ? 
+        `🎉 ${discount.name} applied! ${discount.description}` : 
+        'Redirecting to secure checkout...'
+    });
+
+  } catch (error) {
+    console.error('Error creating checkout session:', error);
+    res.status(500).json({ 
+      error: 'Failed to create checkout session',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+}
+
+/**
+ * Determine the best discount to apply based on user context
+ */
+async function determineBestDiscount(
+  userData: UserData,
+  billingCycle: string,
+  referralCode?: string,
+  source?: any
+): Promise<any> {
+  const discounts = [];
+
+  // 1. Launch period discount (highest priority for annual)
+  if (isLaunchPeriod() && billingCycle === 'yearly') {
+    discounts.push({
+      priority: 1,
+      couponId: 'LAUNCH20',
+      name: 'Launch Special',
+      description: '20% off your first year',
+      savings: 'Save 20%'
+    });
+  }
+
+  // 2. Win-back offer (for returning customers)
+  if (userData.previouslySubscribed && !userData.hasHadSubscription) {
+    const daysSinceEnd = userData.subscriptionEndDate ? 
+      Math.floor((Date.now() - userData.subscriptionEndDate.getTime()) / (1000 * 60 * 60 * 24)) : 0;
+    
+    if (daysSinceEnd > 30 || source?.offer === 'comeback') {
+      discounts.push({
+        priority: 2,
+        couponId: 'WINBACK50',
+        name: 'Welcome Back Offer',
+        description: '50% off for 3 months',
+        savings: 'Save 50% for 3 months'
+      });
+    }
+  }
+
+  // 3. First-time user discount
+  if (!userData.hasHadSubscription && billingCycle === 'monthly') {
+    discounts.push({
+      priority: 3,
+      couponId: 'WELCOME50',
+      name: 'Welcome Offer',
+      description: '50% off your first 3 months',
+      savings: 'Save 50% for 3 months'
+    });
+  }
+
+  // 4. Referral discount (lowest priority, but forever)
+  if (referralCode) {
+    const isValidReferral = await validateReferralCode(referralCode);
+    if (isValidReferral) {
+      discounts.push({
+        priority: 4,
+        couponId: 'FRIEND15',
+        name: 'Friend Discount',
+        description: '15% off forever',
+        savings: 'Save 15% forever'
+      });
+    }
+  }
+
+  // Return highest priority discount
+  return discounts.sort((a, b) => a.priority - b.priority)[0] || null;
+}
+
+/**
+ * Check if we're in launch period
+ */
+function isLaunchPeriod(): boolean {
+  const launchDate = new Date('2025-08-01');
+  const now = new Date();
+  const daysSinceLaunch = Math.floor((now.getTime() - launchDate.getTime()) / (1000 * 60 * 60 * 24));
+  return daysSinceLaunch >= 0 && daysSinceLaunch < 30;
+}
+
+/**
+ * Get user data from Firestore
+ */
+async function getUserData(userId: string): Promise<UserData> {
+  try {
+    const userDoc = await admin.firestore().collection('users').doc(userId).get();
+    const data = userDoc.data() || {};
+    
+    return {
+      hasHadSubscription: data.hasHadSubscription || false,
+      previouslySubscribed: data.previouslySubscribed || false,
+      subscriptionEndDate: data.subscriptionEndDate?.toDate(),
+      totalSpent: data.totalSpent || 0,
+      referralCount: data.referralCount || 0,
+      createdAt: data.createdAt?.toDate() || new Date(),
+      stripeCustomerId: data.stripeCustomerId
+    };
+  } catch (error) {
+    console.error('Error getting user data:', error);
+    return {
+      hasHadSubscription: false,
+      previouslySubscribed: false,
+      totalSpent: 0,
+      referralCount: 0,
+      createdAt: new Date()
+    };
+  }
+}
+
+/**
+ * Validate referral code
+ */
+async function validateReferralCode(code: string): Promise<boolean> {
+  try {
+    const referralDoc = await admin.firestore()
+      .collection('referrals')
+      .doc(code)
+      .get();
+    
+    return referralDoc.exists && referralDoc.data()?.active === true;
+  } catch (error) {
+    console.error('Error validating referral code:', error);
+    return false;
+  }
+}
+
+/**
+ * Process referral signup
+ */
+async function processReferralSignup(referralCode: string, newUserId: string) {
+  try {
+    const referralDoc = await admin.firestore()
+      .collection('referrals')
+      .doc(referralCode)
+      .get();
+    
+    if (!referralDoc.exists) return;
+    
+    const referralData = referralDoc.data();
+    const referrerId = referralData?.userId;
+    
+    if (!referrerId) return;
+    
+    // Record the referral
+    await admin.firestore().collection('referral_signups').add({
+      referralCode,
+      referrerId,
+      referredUserId: newUserId,
+      status: 'pending', // Will be 'completed' after first payment
+      createdAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    
+    // Update referrer's stats
+    await admin.firestore().collection('users').doc(referrerId).update({
+      pendingReferrals: admin.firestore.FieldValue.increment(1)
+    });
+    
+  } catch (error) {
+    console.error('Error processing referral:', error);
+  }
+}
+
+/**
+ * Track analytics events
+ */
+async function trackAnalytics(event: string, data: any) {
+  try {
+    await admin.firestore().collection('analytics').add({
+      event,
+      data,
+      timestamp: admin.firestore.FieldValue.serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error tracking analytics:', error);
+  }
+}

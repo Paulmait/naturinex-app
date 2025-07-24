@@ -1,0 +1,73 @@
+import React, { useState } from 'react';
+import ScanInterface from './ScanInterface';
+import MedicationHistory from './MedicationHistory';
+import MedicationReminders from './MedicationReminders';
+import { useNotifications } from './NotificationSystem';
+import { useUser } from '../hooks/useUser';
+import { Clock, History, Bell, Home, User } from 'lucide-react';
+import './Dashboard.css';
+
+const Dashboard = () => {
+  const notifications = useNotifications();
+  const { user } = useUser();
+  const [activeTab, setActiveTab] = useState('scan');
+
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'scan':
+        return <ScanInterface notifications={notifications} user={user} />;
+      case 'history':
+        return <MedicationHistory />;
+      case 'reminders':
+        return <MedicationReminders />;
+      default:
+        return <ScanInterface notifications={notifications} user={user} />;
+    }
+  };
+
+  return (
+    <div className="dashboard">
+      <div className="dashboard-header">
+        <h1>Naturinex</h1>
+        <div className="header-actions">
+          {user && (
+            <div className="user-info">
+              <User size={20} />
+              <span>{user.email}</span>
+            </div>
+          )}
+        </div>
+      </div>
+      
+      <div className="dashboard-content">
+        {renderContent()}
+      </div>
+
+      <div className="bottom-navigation">
+        <button
+          className={`nav-item ${activeTab === 'scan' ? 'active' : ''}`}
+          onClick={() => setActiveTab('scan')}
+        >
+          <Home size={24} />
+          <span>Scan</span>
+        </button>
+        <button
+          className={`nav-item ${activeTab === 'history' ? 'active' : ''}`}
+          onClick={() => setActiveTab('history')}
+        >
+          <History size={24} />
+          <span>History</span>
+        </button>
+        <button
+          className={`nav-item ${activeTab === 'reminders' ? 'active' : ''}`}
+          onClick={() => setActiveTab('reminders')}
+        >
+          <Bell size={24} />
+          <span>Reminders</span>
+        </button>
+      </div>
+    </div>
+  );
+};
+
+export default Dashboard;

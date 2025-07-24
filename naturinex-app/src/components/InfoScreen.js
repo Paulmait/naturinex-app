@@ -1,0 +1,429 @@
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Linking, Alert } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import PrivacyPolicy from './PrivacyPolicy';
+import TermsOfUse from './TermsOfUse';
+import MedicalDisclaimer from './MedicalDisclaimer';
+
+const InfoScreen = ({ navigation }) => {
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
+  const [showTermsOfUse, setShowTermsOfUse] = useState(false);
+  const [showMedicalDisclaimer, setShowMedicalDisclaimer] = useState(false);
+
+  const openEmail = () => {
+    Linking.openURL('mailto:support@naturinex.com');
+  };
+
+  const openWebsite = () => {
+    Linking.openURL('https://naturinex.com');
+  };
+
+  const openAppStore = () => {
+    Alert.alert(
+      'Rate Naturinex',
+      'Would you like to rate our app?',
+      [
+        {
+          text: 'Rate on App Store',
+          onPress: () => Linking.openURL('https://apps.apple.com/app/naturinex'),
+        },
+        {
+          text: 'Rate on Google Play',
+          onPress: () => Linking.openURL('https://play.google.com/store/apps/details?id=com.naturinex.app'),
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ]
+    );
+  };
+
+  const shareApp = () => {
+    Alert.alert(
+      'Share Naturinex',
+      'Share our app with friends and family!',
+      [
+        {
+          text: 'Share',
+          onPress: () => {
+            // Implement sharing functionality
+            Alert.alert('Share', 'Sharing functionality would be implemented here');
+          },
+        },
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+      ]
+    );
+  };
+
+  if (showPrivacyPolicy) {
+    return <PrivacyPolicy onClose={() => setShowPrivacyPolicy(false)} />;
+  }
+
+  if (showTermsOfUse) {
+    return <TermsOfUse onClose={() => setShowTermsOfUse(false)} />;
+  }
+
+  if (showMedicalDisclaimer) {
+    return (
+      <MedicalDisclaimer
+        onAccept={() => setShowMedicalDisclaimer(false)}
+        onDecline={() => setShowMedicalDisclaimer(false)}
+      />
+    );
+  }
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Text style={styles.backButtonText}>←</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Info & Legal</Text>
+        <View style={styles.placeholder} />
+      </View>
+
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>📱 App Information</Text>
+          
+          <View style={styles.infoItem}>
+            <Text style={styles.infoLabel}>App Name:</Text>
+            <Text style={styles.infoValue}>Naturinex</Text>
+          </View>
+          
+          <View style={styles.infoItem}>
+            <Text style={styles.infoLabel}>Version:</Text>
+            <Text style={styles.infoValue}>1.0.0</Text>
+          </View>
+          
+          <View style={styles.infoItem}>
+            <Text style={styles.infoLabel}>Developer:</Text>
+            <Text style={styles.infoValue}>Cien Rios LLC</Text>
+          </View>
+          
+          <View style={styles.infoItem}>
+            <Text style={styles.infoLabel}>Category:</Text>
+            <Text style={styles.infoValue}>Health & Fitness</Text>
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>🔒 Legal Documents</Text>
+          
+          <TouchableOpacity 
+            style={styles.legalButton} 
+            onPress={() => setShowPrivacyPolicy(true)}
+          >
+            <Text style={styles.legalButtonIcon}>🔒</Text>
+            <View style={styles.legalButtonContent}>
+              <Text style={styles.legalButtonTitle}>Privacy Policy</Text>
+              <Text style={styles.legalButtonSubtitle}>How we handle your data</Text>
+            </View>
+            <Text style={styles.legalButtonArrow}>→</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.legalButton} 
+            onPress={() => setShowTermsOfUse(true)}
+          >
+            <Text style={styles.legalButtonIcon}>📋</Text>
+            <View style={styles.legalButtonContent}>
+              <Text style={styles.legalButtonTitle}>Terms of Use</Text>
+              <Text style={styles.legalButtonSubtitle}>App usage terms and conditions</Text>
+            </View>
+            <Text style={styles.legalButtonArrow}>→</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.legalButton} 
+            onPress={() => setShowMedicalDisclaimer(true)}
+          >
+            <Text style={styles.legalButtonIcon}>⚠️</Text>
+            <View style={styles.legalButtonContent}>
+              <Text style={styles.legalButtonTitle}>Medical Disclaimer</Text>
+              <Text style={styles.legalButtonSubtitle}>Important health information</Text>
+            </View>
+            <Text style={styles.legalButtonArrow}>→</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>📞 Contact & Support</Text>
+          
+          <TouchableOpacity style={styles.contactButton} onPress={openEmail}>
+            <Text style={styles.contactButtonIcon}>✉️</Text>
+            <View style={styles.contactButtonContent}>
+              <Text style={styles.contactButtonTitle}>Email Support</Text>
+              <Text style={styles.contactButtonSubtitle}>support@naturinex.com</Text>
+            </View>
+            <Text style={styles.contactButtonArrow}>→</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.contactButton} onPress={openWebsite}>
+            <Text style={styles.contactButtonIcon}>🌐</Text>
+            <View style={styles.contactButtonContent}>
+              <Text style={styles.contactButtonTitle}>Website</Text>
+              <Text style={styles.contactButtonSubtitle}>naturinex.com</Text>
+            </View>
+            <Text style={styles.contactButtonArrow}>→</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>⭐ Rate & Share</Text>
+          
+          <TouchableOpacity style={styles.actionButton} onPress={openAppStore}>
+            <Text style={styles.actionButtonIcon}>⭐</Text>
+            <View style={styles.actionButtonContent}>
+              <Text style={styles.actionButtonTitle}>Rate Naturinex</Text>
+              <Text style={styles.actionButtonSubtitle}>Help others discover our app</Text>
+            </View>
+            <Text style={styles.actionButtonArrow}>→</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.actionButton} onPress={shareApp}>
+            <Text style={styles.actionButtonIcon}>📤</Text>
+            <View style={styles.actionButtonContent}>
+              <Text style={styles.actionButtonTitle}>Share App</Text>
+              <Text style={styles.actionButtonSubtitle}>Share with friends and family</Text>
+            </View>
+            <Text style={styles.actionButtonArrow}>→</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>ℹ️ About Naturinex</Text>
+          <Text style={styles.aboutText}>
+            Naturinex helps you discover natural alternatives to medications using AI-powered analysis. 
+            Our app provides educational information about natural health options while emphasizing the 
+            importance of consulting healthcare professionals for medical decisions.
+          </Text>
+          
+          <View style={styles.disclaimerBox}>
+            <Text style={styles.disclaimerTitle}>⚠️ Important Notice</Text>
+            <Text style={styles.disclaimerText}>
+              Naturinex provides educational information only and is not a substitute for professional 
+              medical advice. Always consult healthcare providers before making medical decisions.
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>
+            © 2025 Cien Rios LLC. All rights reserved.
+          </Text>
+          <Text style={styles.footerText}>
+            Made with ❤️ for your health journey
+          </Text>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+    backgroundColor: '#10B981',
+  },
+  backButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  backButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#ffffff',
+  },
+  placeholder: {
+    width: 30,
+  },
+  content: {
+    flex: 1,
+    padding: 20,
+  },
+  section: {
+    marginBottom: 30,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333333',
+    marginBottom: 15,
+  },
+  infoItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  infoLabel: {
+    fontSize: 14,
+    color: '#666666',
+    fontWeight: '500',
+  },
+  infoValue: {
+    fontSize: 14,
+    color: '#333333',
+    fontWeight: '600',
+  },
+  legalButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    padding: 15,
+    borderRadius: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  legalButtonIcon: {
+    fontSize: 24,
+    marginRight: 15,
+  },
+  legalButtonContent: {
+    flex: 1,
+  },
+  legalButtonTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333333',
+    marginBottom: 2,
+  },
+  legalButtonSubtitle: {
+    fontSize: 12,
+    color: '#666666',
+  },
+  legalButtonArrow: {
+    fontSize: 16,
+    color: '#10B981',
+    fontWeight: 'bold',
+  },
+  contactButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    padding: 15,
+    borderRadius: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  contactButtonIcon: {
+    fontSize: 24,
+    marginRight: 15,
+  },
+  contactButtonContent: {
+    flex: 1,
+  },
+  contactButtonTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333333',
+    marginBottom: 2,
+  },
+  contactButtonSubtitle: {
+    fontSize: 12,
+    color: '#666666',
+  },
+  contactButtonArrow: {
+    fontSize: 16,
+    color: '#10B981',
+    fontWeight: 'bold',
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa',
+    padding: 15,
+    borderRadius: 8,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  actionButtonIcon: {
+    fontSize: 24,
+    marginRight: 15,
+  },
+  actionButtonContent: {
+    flex: 1,
+  },
+  actionButtonTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333333',
+    marginBottom: 2,
+  },
+  actionButtonSubtitle: {
+    fontSize: 12,
+    color: '#666666',
+  },
+  actionButtonArrow: {
+    fontSize: 16,
+    color: '#10B981',
+    fontWeight: 'bold',
+  },
+  aboutText: {
+    fontSize: 14,
+    color: '#555555',
+    lineHeight: 20,
+    marginBottom: 15,
+  },
+  disclaimerBox: {
+    backgroundColor: '#fff3cd',
+    borderLeftWidth: 4,
+    borderLeftColor: '#ffc107',
+    padding: 15,
+    borderRadius: 5,
+  },
+  disclaimerTitle: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#856404',
+    marginBottom: 5,
+  },
+  disclaimerText: {
+    fontSize: 12,
+    color: '#856404',
+    lineHeight: 16,
+  },
+  footer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+    marginTop: 20,
+  },
+  footerText: {
+    fontSize: 12,
+    color: '#666666',
+    textAlign: 'center',
+    marginBottom: 5,
+  },
+});
+
+export default InfoScreen; 
