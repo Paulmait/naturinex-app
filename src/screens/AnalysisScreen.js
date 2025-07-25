@@ -12,6 +12,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
+import MedicalDisclaimer from '../components/MedicalDisclaimer';
 
 const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-zsga.onrender.com';
 
@@ -20,6 +21,8 @@ export default function AnalysisScreen({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isGuest, setIsGuest] = useState(false);
+  const [showDisclaimer, setShowDisclaimer] = useState(false);
+  const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
 
   useEffect(() => {
     checkUserStatus();
@@ -219,6 +222,20 @@ export default function AnalysisScreen({ route, navigation }) {
     );
   }
 
+  // Show disclaimer before results if not accepted
+  if (!disclaimerAccepted && analysisResult) {
+    return (
+      <>
+        <MedicalDisclaimer
+          visible={true}
+          type="results"
+          onAccept={() => setDisclaimerAccepted(true)}
+          onDecline={() => navigation.goBack()}
+        />
+      </>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -238,6 +255,14 @@ export default function AnalysisScreen({ route, navigation }) {
           </View>
         </View>
 
+        {/* Medical Disclaimer Banner */}
+        <View style={styles.disclaimerBanner}>
+          <MaterialIcons name="info" size={20} color="#DC2626" />
+          <Text style={styles.disclaimerBannerText}>
+            Educational information only. Not medical advice. Always consult your doctor.
+          </Text>
+        </View>
+
         {/* Medication Info */}
         <View style={styles.medicationCard}>
           <Text style={styles.medicationName}>
@@ -248,9 +273,9 @@ export default function AnalysisScreen({ route, navigation }) {
           </Text>
         </View>
 
-        {/* Natural Alternatives */}
+        {/* Wellness Information */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🌿 Natural Alternatives</Text>
+          <Text style={styles.sectionTitle}>🌿 Educational Wellness Information</Text>
           {analysisResult.alternatives && analysisResult.alternatives.length > 0 ? (
             analysisResult.alternatives.map((alternative, index) => (
               <View key={index} style={styles.alternativeItem}>
@@ -334,6 +359,23 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F9FAFB',
+  },
+  disclaimerBanner: {
+    backgroundColor: '#FEE2E2',
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  disclaimerBannerText: {
+    color: '#991B1B',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,

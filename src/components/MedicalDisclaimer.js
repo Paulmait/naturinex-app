@@ -1,7 +1,8 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Modal, ScrollView } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 
-const MedicalDisclaimer = ({ onAccept, onDecline }) => {
+const MedicalDisclaimer = ({ visible = true, onAccept, onDecline, type = 'general' }) => {
   const handleAccept = () => {
     Alert.alert(
       'Medical Disclaimer',

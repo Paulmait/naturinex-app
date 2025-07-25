@@ -463,13 +463,13 @@ app.post('/api/analyze/name', [
     
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     
-    const prompt = `Analyze the medication "${medicationName}" and provide natural alternatives.
+    const prompt = `Analyze the medication "${medicationName}" and provide educational wellness information.
     
     Format the response as a JSON object with the following structure:
     {
       "medicationName": "string",
       "medicationType": "string (e.g., 'Pain Relief', 'Antibiotic', etc.)",
-      "alternatives": [
+      "wellness_info": [
         {
           "name": "string",
           "effectiveness": "string (High/Moderate/Low)",
@@ -542,7 +542,7 @@ app.post('/api/analyze/barcode', [
     {
       "medicationName": "Unknown Medication",
       "medicationType": "General Health",
-      "alternatives": [
+      "wellness_info": [
         {
           "name": "string",
           "effectiveness": "string",
@@ -640,13 +640,13 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         // Use Gemini AI to analyze the detected medication
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
         
-        const prompt = `Analyze the medication "${medicationName}" and provide natural alternatives.
+        const prompt = `Analyze the medication "${medicationName}" and provide educational wellness information.
         
         Format the response as a JSON object with the following structure:
         {
           "medicationName": "string",
           "medicationType": "string",
-          "alternatives": [
+          "wellness_info": [
             {
               "name": "string",
               "effectiveness": "string (High/Moderate/Low)",

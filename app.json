@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Naturinex",
+    "name": "Naturinex Wellness Guide",
     "slug": "naturinex",
     "owner": "pmaitland78",
     "version": "1.0.0",
@@ -28,9 +28,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.naturinex.app",
       "infoPlist": {
-        "NSCameraUsageDescription": "Naturinex needs camera access to scan medication labels and analyze natural health products for safety and interactions",
-        "NSPhotoLibraryUsageDescription": "Naturinex needs photo library access to select images of medications and supplements for analysis",
-        "NSPhotoLibraryAddUsageDescription": "Naturinex can save your analysis results to your photo library for future reference"
+        "NSCameraUsageDescription": "Naturinex Wellness Guide uses the camera to capture text from product labels for educational wellness information lookup",
+        "NSPhotoLibraryUsageDescription": "Naturinex Wellness Guide accesses photos to analyze product labels and provide educational wellness information",
+        "NSPhotoLibraryAddUsageDescription": "Naturinex Wellness Guide can save educational wellness information to your photo library for future reference"
       },
       "config": {
         "usesNonExemptEncryption": false
@@ -61,7 +61,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Naturinex needs camera access to scan medication labels for ingredient analysis"
+          "cameraPermission": "Naturinex Wellness Guide uses the camera to capture product labels for educational wellness information"
         }
       ],
       [
