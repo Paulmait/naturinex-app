@@ -8,7 +8,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 
-const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app.onrender.com';
+const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-zsga.onrender.com';
 
 export default function CameraScreen({ navigation }) {
   const [permission, requestPermission] = useCameraPermissions();
@@ -38,21 +38,6 @@ export default function CameraScreen({ navigation }) {
       }
     })();
     
-    // Show initial notice about camera limitations
-    if (showCameraLimitNotice) {
-      setTimeout(() => {
-        Alert.alert(
-          'Quick Tip',
-          'For fastest results, use the manual entry option (keyboard button) to type medication names directly.',
-          [
-            {
-              text: 'Got it',
-              onPress: () => setShowCameraLimitNotice(false),
-            },
-          ]
-        );
-      }, 1000);
-    }
   }, [permission, showCameraLimitNotice]);
 
   const takePicture = async () => {
@@ -88,57 +73,80 @@ export default function CameraScreen({ navigation }) {
   };
 
   const analyzeImage = async (image) => {
-    // Show alert about camera limitations and suggest manual entry
-    Alert.alert(
-      'Camera Feature Limited',
-      'The camera OCR feature is currently under development. For best results, please use manual entry instead.',
-      [
-        {
-          text: 'Enter Manually',
-          onPress: () => {
-            setCapturedImage(null);
-            setShowManualInput(true);
-          },
+    try {
+      // Check if guest user and update free scans
+      const isGuest = await SecureStore.getItemAsync('is_guest') || 'false';
+      if (isGuest === 'true') {
+        const remainingScans = parseInt(await SecureStore.getItemAsync('free_scans_remaining') || '0');
+        if (remainingScans > 0) {
+          await SecureStore.setItemAsync('free_scans_remaining', String(remainingScans - 1));
+        }
+      }
+      
+      // Update total scan count
+      const scanCount = parseInt(await SecureStore.getItemAsync('scan_count') || '0');
+      await SecureStore.setItemAsync('scan_count', String(scanCount + 1));
+      
+      // Show loading state
+      navigation.navigate('Analysis', { 
+        imageUri: image.uri,
+        imageBase64: image.base64,
+        analyzing: true 
+      });
+
+      // Create FormData for image upload
+      const formData = new FormData();
+      formData.append('image', {
+        uri: image.uri,
+        type: 'image/jpeg',
+        name: 'medication.jpg',
+      } as any);
+
+      console.log('Uploading image to:', `${API_URL}/api/analyze`);
+
+      const response = await fetch(`${API_URL}/api/analyze`, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'Content-Type': 'multipart/form-data',
         },
-        {
-          text: 'Try Anyway',
-          onPress: async () => {
-            try {
-              // Check if guest user and update free scans
-              const isGuest = await SecureStore.getItemAsync('is_guest') || 'false';
-              if (isGuest === 'true') {
-                const remainingScans = parseInt(await SecureStore.getItemAsync('free_scans_remaining') || '0');
-                if (remainingScans > 0) {
-                  await SecureStore.setItemAsync('free_scans_remaining', String(remainingScans - 1));
-                }
-              }
-              
-              // Update total scan count
-              const scanCount = parseInt(await SecureStore.getItemAsync('scan_count') || '0');
-              await SecureStore.setItemAsync('scan_count', String(scanCount + 1));
-              
-              // Since image analysis isn't working, show manual input
-              Alert.alert(
-                'Please Enter Medication Name',
-                'Camera scanning requires additional setup. Please type the medication name you see in the image.',
-                [
-                  {
-                    text: 'OK',
-                    onPress: () => {
-                      setCapturedImage(null);
-                      setShowManualInput(true);
-                    },
-                  },
-                ]
-              );
-            } catch (error) {
-              Alert.alert('Error', 'Please use manual entry instead.');
+      });
+
+      console.log('Response status:', response.status);
+      const result = await response.json();
+      console.log('Analysis result:', result);
+      
+      if (result.error) {
+        throw new Error(result.error);
+      }
+      
+      // Navigate to results
+      navigation.navigate('Analysis', { 
+        imageUri: image.uri,
+        analysisResult: result,
+        analyzing: false 
+      });
+    } catch (error) {
+      console.error('Analysis error:', error);
+      Alert.alert(
+        'Camera Analysis',
+        'Unable to analyze image. Would you like to enter the medication name manually?',
+        [
+          {
+            text: 'Enter Manually',
+            onPress: () => {
               setCapturedImage(null);
-            }
+              setShowManualInput(true);
+            },
           },
-        },
-      ]
-    );
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => navigation.goBack(),
+          },
+        ]
+      );
+    }
   };
 
   const handleBarCodeScanned = ({ type, data }) => {

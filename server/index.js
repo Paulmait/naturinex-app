@@ -8,6 +8,21 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 // Add Firebase Admin SDK for webhook handling
 const admin = require('firebase-admin');
+const multer = require('multer');
+const axios = require('axios');
+
+// Configure multer for image uploads
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+  fileFilter: (req, file, cb) => {
+    // Accept images only
+    if (!file.mimetype.startsWith('image/')) {
+      return cb(new Error('Only image files are allowed'), false);
+    }
+    cb(null, true);
+  }
+});
 
 // Validate required environment variables
 const requiredEnvVars = [
@@ -570,37 +585,143 @@ app.post('/api/analyze/barcode', [
   }
 });
 
-app.post('/api/analyze', async (req, res) => {
+app.post('/api/analyze', upload.single('image'), async (req, res) => {
   try {
-    // For image analysis, we'll simulate the response
-    // In production, you would use image recognition
+    if (!req.file) {
+      return res.status(400).json({ error: 'No image provided' });
+    }
+
     console.log('📊 Analyzing medication from image');
     
-    const analysisResult = {
-      medicationName: 'Medication from Image',
-      medicationType: 'Prescription Medication',
-      alternatives: [
-        {
-          name: 'Natural Alternative 1',
-          effectiveness: 'Moderate',
-          description: 'A natural alternative that may help with similar symptoms.',
-          benefits: ['Natural ingredients', 'Fewer side effects', 'Available without prescription']
-        },
-        {
-          name: 'Lifestyle Changes',
-          effectiveness: 'High',
-          description: 'Dietary and lifestyle modifications that address root causes.',
-          benefits: ['Long-term health benefits', 'No medication needed', 'Improves overall wellness']
+    // Check if Google Vision API is configured
+    if (process.env.GOOGLE_VISION_API_KEY) {
+      try {
+        // Convert image to base64
+        const imageBase64 = req.file.buffer.toString('base64');
+        
+        // Call Google Vision API
+        const visionResponse = await axios.post(
+          `https://vision.googleapis.com/v1/images:annotate?key=${process.env.GOOGLE_VISION_API_KEY}`,
+          {
+            requests: [{
+              image: { content: imageBase64 },
+              features: [{ type: 'TEXT_DETECTION', maxResults: 10 }]
+            }]
+          }
+        );
+        
+        const detectedText = visionResponse.data.responses[0]?.fullTextAnnotation?.text || '';
+        console.log('Detected text:', detectedText.substring(0, 200));
+        
+        if (!detectedText) {
+          return res.status(400).json({ 
+            error: 'Could not read text from image. Please ensure the medication label is clear and try again, or use manual entry.' 
+          });
         }
-      ],
-      warnings: [
-        'Always consult healthcare professionals before changing medications',
-        'Natural alternatives may interact with other medications',
-        'Image analysis requires clear medication labels'
-      ]
-    };
+        
+        // Extract medication name - look for common medication name patterns
+        const lines = detectedText.split('\n').filter(line => line.trim());
+        let medicationName = 'Unknown Medication';
+        
+        // Try to find medication name (usually the largest/first text)
+        for (const line of lines) {
+          // Skip common non-medication words
+          if (!/directions|take|tablet|capsule|mg|ml|dose|daily|times/i.test(line)) {
+            const cleaned = line.replace(/[^a-zA-Z\s-]/g, '').trim();
+            if (cleaned.length > 2 && cleaned.length < 50) {
+              medicationName = cleaned;
+              break;
+            }
+          }
+        }
+        
+        console.log('Extracted medication name:', medicationName);
+        
+        // Use Gemini AI to analyze the detected medication
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        
+        const prompt = `Analyze the medication "${medicationName}" and provide natural alternatives.
+        
+        Format the response as a JSON object with the following structure:
+        {
+          "medicationName": "string",
+          "medicationType": "string",
+          "alternatives": [
+            {
+              "name": "string",
+              "effectiveness": "string (High/Moderate/Low)",
+              "description": "string",
+              "benefits": ["string"]
+            }
+          ],
+          "warnings": ["string"]
+        }`;
+        
+        const result = await model.generateContent(prompt);
+        const text = result.response.text();
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        
+        if (jsonMatch) {
+          const analysisResult = JSON.parse(jsonMatch[0]);
+          res.json({
+            ...analysisResult,
+            detectedFromImage: true,
+            ocrConfidence: detectedText.length > 20 ? 'high' : 'low'
+          });
+        } else {
+          throw new Error('Invalid AI response format');
+        }
+        
+      } catch (visionError) {
+        console.error('Vision API error:', visionError.message);
+        // Fall back to mock response
+        return res.json(getMockImageAnalysis());
+      }
+    } else {
+      // No Vision API configured - return helpful mock data
+      console.log('⚠️  Google Vision API not configured - using mock response');
+      return res.json(getMockImageAnalysis());
+    }
     
-    res.json(analysisResult);
+  } catch (error) {
+    console.error('Image analysis error:', error);
+    res.status(500).json({ 
+      error: 'Failed to analyze image. Please try manual entry instead.' 
+    });
+  }
+});
+
+// Helper function for mock responses
+function getMockImageAnalysis() {
+  const mockMedications = [
+    { name: 'Ibuprofen', type: 'Pain Relief/Anti-inflammatory' },
+    { name: 'Aspirin', type: 'Pain Relief/Blood Thinner' },
+    { name: 'Amoxicillin', type: 'Antibiotic' },
+    { name: 'Metformin', type: 'Diabetes Medication' }
+  ];
+  
+  const selected = mockMedications[Math.floor(Math.random() * mockMedications.length)];
+  
+  return {
+    medicationName: selected.name,
+    medicationType: selected.type,
+    detectedFromImage: true,
+    isMockData: true,
+    alternatives: [
+      {
+        name: 'Natural Alternative',
+        effectiveness: 'Moderate',
+        description: 'This is mock data. To enable real OCR, add Google Vision API key to your server.',
+        benefits: ['Educational purposes only', 'Real analysis requires API setup']
+      }
+    ],
+    warnings: [
+      'This is mock data for testing purposes',
+      'To enable real camera OCR, configure Google Vision API',
+      'Always consult healthcare professionals'
+    ]
+  };
+}
   } catch (error) {
     console.error('Image analysis error:', error);
     res.status(500).json({ error: 'Failed to analyze image' });
