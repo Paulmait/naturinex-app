@@ -18,7 +18,7 @@
       },
       "env": {
         "EXPO_PUBLIC_ENV": "development",
-        "EXPO_PUBLIC_API_URL": "http://localhost:5001/naturinex/us-central1/api"
+        "EXPO_PUBLIC_API_URL": "https://naturinex-app-zsga.onrender.com"
       }
     },
     "preview": {
@@ -34,7 +34,7 @@
       },
       "env": {
         "EXPO_PUBLIC_ENV": "preview",
-        "EXPO_PUBLIC_API_URL": "https://naturinex-preview.cloudfunctions.net/api"
+        "EXPO_PUBLIC_API_URL": "https://naturinex-app-zsga.onrender.com"
       }
     },
     "production": {
@@ -48,7 +48,7 @@
       },
       "env": {
         "EXPO_PUBLIC_ENV": "production",
-        "EXPO_PUBLIC_API_URL": "https://api.naturinex.com"
+        "EXPO_PUBLIC_API_URL": "https://naturinex-app-zsga.onrender.com"
       }
     }
   },
@@ -63,8 +63,7 @@
       "android": {
         "serviceAccountKeyPath": "./secrets/google-play-key.json",
         "track": "beta",
-        "releaseStatus": "draft",
-        "rollout": 0.1
+        "releaseStatus": "draft"
       }
     }
   }
