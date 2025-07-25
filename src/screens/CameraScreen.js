@@ -17,6 +17,7 @@ export default function CameraScreen({ navigation }) {
   const [isScanning, setIsScanning] = useState(false);
   const [showManualInput, setShowManualInput] = useState(false);
   const [medicationName, setMedicationName] = useState('');
+  const [showCameraLimitNotice, setShowCameraLimitNotice] = useState(true);
   const cameraRef = useRef(null);
 
   useEffect(() => {
@@ -36,7 +37,23 @@ export default function CameraScreen({ navigation }) {
         );
       }
     })();
-  }, [permission]);
+    
+    // Show initial notice about camera limitations
+    if (showCameraLimitNotice) {
+      setTimeout(() => {
+        Alert.alert(
+          'Quick Tip',
+          'For fastest results, use the manual entry option (keyboard button) to type medication names directly.',
+          [
+            {
+              text: 'Got it',
+              onPress: () => setShowCameraLimitNotice(false),
+            },
+          ]
+        );
+      }, 1000);
+    }
+  }, [permission, showCameraLimitNotice]);
 
   const takePicture = async () => {
     if (cameraRef.current) {
@@ -71,55 +88,57 @@ export default function CameraScreen({ navigation }) {
   };
 
   const analyzeImage = async (image) => {
-    try {
-      // Check if guest user and update free scans
-      const isGuest = await SecureStore.getItemAsync('is_guest') || 'false';
-      if (isGuest === 'true') {
-        const remainingScans = parseInt(await SecureStore.getItemAsync('free_scans_remaining') || '0');
-        if (remainingScans > 0) {
-          await SecureStore.setItemAsync('free_scans_remaining', String(remainingScans - 1));
-        }
-      }
-      
-      // Update total scan count
-      const scanCount = parseInt(await SecureStore.getItemAsync('scan_count') || '0');
-      await SecureStore.setItemAsync('scan_count', String(scanCount + 1));
-      
-      // Show loading state
-      navigation.navigate('Analysis', { 
-        imageUri: image.uri,
-        imageBase64: image.base64,
-        analyzing: true 
-      });
-
-      // Send to backend for analysis
-      const formData = new FormData();
-      formData.append('image', {
-        uri: image.uri,
-        type: 'image/jpeg',
-        name: 'medication.jpg',
-      });
-
-      const response = await fetch(`${API_URL}/api/analyze`, {
-        method: 'POST',
-        body: formData,
-        headers: {
-          'Content-Type': 'multipart/form-data',
+    // Show alert about camera limitations and suggest manual entry
+    Alert.alert(
+      'Camera Feature Limited',
+      'The camera OCR feature is currently under development. For best results, please use manual entry instead.',
+      [
+        {
+          text: 'Enter Manually',
+          onPress: () => {
+            setCapturedImage(null);
+            setShowManualInput(true);
+          },
         },
-      });
-
-      const result = await response.json();
-      
-      // Navigate to results
-      navigation.navigate('Analysis', { 
-        imageUri: image.uri,
-        analysisResult: result,
-        analyzing: false 
-      });
-    } catch (error) {
-      Alert.alert('Analysis Error', 'Failed to analyze medication');
-      navigation.goBack();
-    }
+        {
+          text: 'Try Anyway',
+          onPress: async () => {
+            try {
+              // Check if guest user and update free scans
+              const isGuest = await SecureStore.getItemAsync('is_guest') || 'false';
+              if (isGuest === 'true') {
+                const remainingScans = parseInt(await SecureStore.getItemAsync('free_scans_remaining') || '0');
+                if (remainingScans > 0) {
+                  await SecureStore.setItemAsync('free_scans_remaining', String(remainingScans - 1));
+                }
+              }
+              
+              // Update total scan count
+              const scanCount = parseInt(await SecureStore.getItemAsync('scan_count') || '0');
+              await SecureStore.setItemAsync('scan_count', String(scanCount + 1));
+              
+              // Since image analysis isn't working, show manual input
+              Alert.alert(
+                'Please Enter Medication Name',
+                'Camera scanning requires additional setup. Please type the medication name you see in the image.',
+                [
+                  {
+                    text: 'OK',
+                    onPress: () => {
+                      setCapturedImage(null);
+                      setShowManualInput(true);
+                    },
+                  },
+                ]
+              );
+            } catch (error) {
+              Alert.alert('Error', 'Please use manual entry instead.');
+              setCapturedImage(null);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleBarCodeScanned = ({ type, data }) => {
@@ -217,10 +236,29 @@ export default function CameraScreen({ navigation }) {
             }}
           >
             <View style={styles.overlay}>
+              {/* Manual Entry Banner */}
+              <TouchableOpacity 
+                style={styles.manualEntryBanner} 
+                onPress={() => setShowManualInput(true)}
+              >
+                <MaterialIcons name="keyboard" size={20} color="#10B981" />
+                <Text style={styles.bannerText}>Tap here to enter medication name manually</Text>
+                <MaterialIcons name="arrow-forward" size={20} color="#10B981" />
+              </TouchableOpacity>
+              
               <View style={styles.scanFrame} />
+              
               <Text style={styles.instructionText}>
                 {isScanning ? 'Scanning for barcode...' : 'Position medication label within frame'}
               </Text>
+              
+              {/* Camera Tips */}
+              <View style={styles.tipsContainer}>
+                <Text style={styles.tipText}>• Good lighting improves scanning</Text>
+                <Text style={styles.tipText}>• Hold steady for clear capture</Text>
+                <Text style={styles.tipText}>• Or type medication name manually</Text>
+              </View>
+              
               <TouchableOpacity 
                 style={styles.scanModeButton} 
                 onPress={() => setIsScanning(!isScanning)}
@@ -241,6 +279,7 @@ export default function CameraScreen({ navigation }) {
             </TouchableOpacity>
             <TouchableOpacity style={styles.keyboardButton} onPress={() => setShowManualInput(true)}>
               <MaterialIcons name="keyboard" size={30} color="white" />
+              <Text style={styles.manualEntryLabel}>Manual</Text>
             </TouchableOpacity>
           </View>
         </>
@@ -359,12 +398,59 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   keyboardButton: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
     backgroundColor: '#6366F1',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#818CF8',
+  },
+  manualEntryLabel: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginTop: 2,
+  },
+  manualEntryBanner: {
+    position: 'absolute',
+    top: 50,
+    backgroundColor: 'rgba(16, 185, 129, 0.95)',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderRadius: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#10B981',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  bannerText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginHorizontal: 8,
+    flex: 1,
+  },
+  tipsContainer: {
+    position: 'absolute',
+    bottom: 100,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderRadius: 10,
+    maxWidth: '80%',
+  },
+  tipText: {
+    color: 'white',
+    fontSize: 12,
+    marginBottom: 4,
+    lineHeight: 16,
   },
   preview: {
     flex: 1,
