@@ -722,11 +722,6 @@ function getMockImageAnalysis() {
     ]
   };
 }
-  } catch (error) {
-    console.error('Image analysis error:', error);
-    res.status(500).json({ error: 'Failed to analyze image' });
-  }
-});
 
 // Stripe payment endpoints
 app.post('/create-checkout-session', async (req, res) => {
