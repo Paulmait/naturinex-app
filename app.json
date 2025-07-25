@@ -2,7 +2,7 @@
   "expo": {
     "name": "Naturinex",
     "slug": "naturinex",
-    "owner": "guampaul",
+    "owner": "pmaitland78",
     "version": "1.0.0",
     "sdkVersion": "53.0.0",
     "platforms": [
@@ -75,17 +75,18 @@
       "expo-web-browser"
     ],
     "extra": {
-      "apiUrl": "https://naturinex-app.onrender.com",
+      "apiUrl": "https://naturinex-app-zsga.onrender.com",
       "stripePublishableKey": "pk_live_51QTj9RRqEPLAinmJX0Jgqr8GJZQKziNhHDMhHCRpNQbwfWJRKrPz7ZY48mJzV1rP1bDYJhRNJy1z5VXJ0e5G8t9K00lAC53L05",
       "googleExpoClientId": "YOUR_GOOGLE_EXPO_CLIENT_ID",
       "googleIosClientId": "YOUR_GOOGLE_IOS_CLIENT_ID",
       "googleAndroidClientId": "YOUR_GOOGLE_ANDROID_CLIENT_ID",
-      "firebaseApiKey": "YOUR_FIREBASE_API_KEY",
-      "firebaseAuthDomain": "YOUR_FIREBASE_AUTH_DOMAIN",
-      "firebaseProjectId": "YOUR_FIREBASE_PROJECT_ID",
-      "firebaseStorageBucket": "YOUR_FIREBASE_STORAGE_BUCKET",
-      "firebaseMessagingSenderId": "YOUR_FIREBASE_MESSAGING_SENDER_ID",
-      "firebaseAppId": "YOUR_FIREBASE_APP_ID",
+      "firebaseApiKey": "AIzaSyDjyig8VkzsaaoGLl2tg702FE-VRWenM0w",
+      "firebaseAuthDomain": "naturinex-app.firebaseapp.com",
+      "firebaseProjectId": "naturinex-app",
+      "firebaseStorageBucket": "naturinex-app.firebasestorage.app",
+      "firebaseMessagingSenderId": "398613963385",
+      "firebaseAppId": "1:398613963385:web:91b3c8e67976c252f0aaa8",
+      "firebaseMeasurementId": "G-04VE09YVEC",
       "eas": {
         "projectId": "209a36db-b288-4ad5-80b2-a518c1a33f1a"
       }

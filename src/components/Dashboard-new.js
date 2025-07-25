@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { auth, db } from '../firebase';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
+import Constants from 'expo-constants';
+
+const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app.onrender.com';
 
 function Dashboard({ user }) {
   const [suggestions, setSuggestions] = useState("");
@@ -61,7 +64,7 @@ function Dashboard({ user }) {
 
       setScanCount(scans + 1);
 
-      const res = await fetch('http://localhost:5000/suggest', {
+      const res = await fetch(`${API_URL}/suggest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ medicationName: medicationName.trim() })

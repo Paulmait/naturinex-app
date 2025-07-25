@@ -1,0 +1,15 @@
+{
+  "name": "naturinex-app-monorepo",
+  "version": "1.0.0",
+  "description": "Naturinex fullstack application",
+  "scripts": {
+    "start": "cd server && npm install && node index.js",
+    "install-server": "cd server && npm install",
+    "start-server": "cd server && node index.js",
+    "install-client": "npm install",
+    "build": "npm run install-server"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
