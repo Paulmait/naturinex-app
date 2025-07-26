@@ -77,9 +77,9 @@
     "extra": {
       "apiUrl": "https://naturinex-app-zsga.onrender.com",
       "stripePublishableKey": "pk_live_51QTj9RRqEPLAinmJX0Jgqr8GJZQKziNhHDMhHCRpNQbwfWJRKrPz7ZY48mJzV1rP1bDYJhRNJy1z5VXJ0e5G8t9K00lAC53L05",
-      "googleExpoClientId": "YOUR_GOOGLE_EXPO_CLIENT_ID",
-      "googleIosClientId": "YOUR_GOOGLE_IOS_CLIENT_ID",
-      "googleAndroidClientId": "YOUR_GOOGLE_ANDROID_CLIENT_ID",
+      "googleExpoClientId": "890126739800-52rneepkjkec2audauvoqkqp7d9i4jo5.apps.googleusercontent.com",
+      "googleIosClientId": "890126739800-09cqdk41biemj8fmo0p6053sf07v030j.apps.googleusercontent.com",
+      "googleAndroidClientId": "890126739800-52rneepkjkec2audauvoqkqp7d9i4jo5.apps.googleusercontent.com",
       "firebaseApiKey": "AIzaSyDjyig8VkzsaaoGLl2tg702FE-VRWenM0w",
       "firebaseAuthDomain": "naturinex-app.firebaseapp.com",
       "firebaseProjectId": "naturinex-app",
