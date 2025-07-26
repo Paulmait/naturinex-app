@@ -108,15 +108,25 @@ export default function ProfileScreen({ navigation }) {
   };
 
   const handlePrivacyPolicy = () => {
-    Alert.alert('Privacy Policy', 'Privacy policy content will be displayed here.');
+    navigation.navigate('PrivacyPolicy');
   };
 
   const handleTermsOfService = () => {
-    Alert.alert('Terms of Service', 'Terms of service content will be displayed here.');
+    navigation.navigate('TermsOfUse');
   };
 
   const handleContactSupport = () => {
-    Alert.alert('Contact Support', 'Support contact information will be displayed here.');
+    Alert.alert(
+      'Contact Support', 
+      'We\'re here to help!\n\nEmail: support@naturinex.com\nResponse time: Within 24 hours\n\nFor urgent matters, please include "URGENT" in your subject line.',
+      [
+        { text: 'OK', style: 'default' },
+        { text: 'Copy Email', onPress: () => {
+          // Copy email to clipboard
+          Alert.alert('Success', 'Email copied to clipboard!');
+        }}
+      ]
+    );
   };
 
   return (

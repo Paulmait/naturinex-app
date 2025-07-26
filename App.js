@@ -17,6 +17,11 @@ import ProfileScreen from './src/screens/ProfileScreen';
 import SubscriptionScreen from './src/screens/SubscriptionScreen';
 import OnboardingScreen from './src/screens/OnboardingScreen';
 
+// Components
+import ScanHistory from './src/components/ScanHistory';
+import PrivacyPolicyScreen from './src/components/PrivacyPolicyScreen';
+import TermsOfUseScreen from './src/components/TermsOfUseScreen';
+
 const Stack = createNativeStackNavigator();
 
 export default function App() {
@@ -70,7 +75,7 @@ export default function App() {
           <Stack.Screen 
             name="Camera" 
             component={SimpleCameraScreen}
-            options={{ title: 'Scan Medication' }}
+            options={{ title: 'Scan Product' }}
           />
           <Stack.Screen 
             name="Analysis" 
@@ -91,6 +96,21 @@ export default function App() {
             name="Onboarding" 
             component={OnboardingScreen}
             options={{ headerShown: false }}
+          />
+          <Stack.Screen 
+            name="ScanHistory" 
+            component={ScanHistory}
+            options={{ title: 'Scan History' }}
+          />
+          <Stack.Screen 
+            name="PrivacyPolicy" 
+            component={PrivacyPolicyScreen}
+            options={{ title: 'Privacy Policy' }}
+          />
+          <Stack.Screen 
+            name="TermsOfUse" 
+            component={TermsOfUseScreen}
+            options={{ title: 'Terms of Service' }}
           />
         </Stack.Navigator>
       </NavigationContainer>

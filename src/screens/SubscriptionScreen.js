@@ -35,20 +35,40 @@ export default function SubscriptionScreen({ navigation }) {
   const handleSubscribe = async (plan) => {
     setLoading(true);
     try {
-      // TODO: Implement actual Stripe subscription
-      // For now, simulate subscription
+      // In a real app, this would create a Stripe checkout session
+      const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-zsga.onrender.com';
+      
+      // For demo purposes, we'll simulate the subscription
+      // In production, uncomment this code:
+      /*
+      const response = await fetch(`${API_URL}/api/create-checkout-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          priceId: plan === 'monthly' ? 'price_monthly_id' : 'price_yearly_id',
+          userId: await SecureStore.getItemAsync('user_id'),
+        }),
+      });
+      
+      const { sessionUrl } = await response.json();
+      // Open Stripe checkout
+      */
+      
+      // Simulate successful subscription for demo
       await new Promise(resolve => setTimeout(resolve, 2000));
       
       await SecureStore.setItemAsync('is_premium', 'true');
       setIsPremium(true);
       
       Alert.alert(
-        'Subscription Successful!',
-        'Welcome to Naturinex Premium! You now have unlimited scans and access to all features.',
+        '🎉 Welcome to Premium!',
+        'You now have unlimited scans and access to all premium features!\n\n✨ Start discovering natural wellness alternatives today!',
         [
           {
-            text: 'Continue',
-            onPress: () => navigation.goBack(),
+            text: 'Start Exploring 🚀',
+            onPress: () => navigation.navigate('Home'),
           },
         ]
       );
@@ -94,7 +114,7 @@ export default function SubscriptionScreen({ navigation }) {
       price: '$9.99',
       period: 'per month',
       features: [
-        'Unlimited medication scans',
+        'Unlimited product scans',
         'Advanced AI analysis',
         'Priority support',
         'No ads',
@@ -137,7 +157,7 @@ export default function SubscriptionScreen({ navigation }) {
             <Text style={styles.sectionTitle}>Your Premium Benefits</Text>
             <View style={styles.featureItem}>
               <MaterialIcons name="check-circle" size={20} color="#10B981" />
-              <Text style={styles.featureText}>Unlimited medication scans</Text>
+              <Text style={styles.featureText}>Unlimited product scans</Text>
             </View>
             <View style={styles.featureItem}>
               <MaterialIcons name="check-circle" size={20} color="#10B981" />
@@ -248,7 +268,7 @@ export default function SubscriptionScreen({ navigation }) {
           <Text style={styles.freeTierTitle}>Free Tier Includes:</Text>
           <View style={styles.featureItem}>
             <MaterialIcons name="check" size={16} color="#6B7280" />
-            <Text style={styles.freeFeatureText}>3 scans per day</Text>
+            <Text style={styles.freeFeatureText}>3 free scans total</Text>
           </View>
           <View style={styles.featureItem}>
             <MaterialIcons name="check" size={16} color="#6B7280" />
@@ -263,8 +283,21 @@ export default function SubscriptionScreen({ navigation }) {
         {/* Terms */}
         <View style={styles.termsContainer}>
           <Text style={styles.termsText}>
-            By subscribing, you agree to our Terms of Service and Privacy Policy.
-            Subscriptions auto-renew unless cancelled.
+            By subscribing, you agree to our{' '}
+            <Text 
+              style={styles.termsLink} 
+              onPress={() => navigation.navigate('TermsOfUse')}
+            >
+              Terms of Service
+            </Text>
+            {' '}and{' '}
+            <Text 
+              style={styles.termsLink} 
+              onPress={() => navigation.navigate('PrivacyPolicy')}
+            >
+              Privacy Policy
+            </Text>
+            . Subscriptions auto-renew unless cancelled.
           </Text>
         </View>
       </ScrollView>
@@ -438,6 +471,10 @@ const styles = StyleSheet.create({
     color: '#92400E',
     lineHeight: 16,
     textAlign: 'center',
+  },
+  termsLink: {
+    textDecorationLine: 'underline',
+    fontWeight: 'bold',
   },
   section: {
     backgroundColor: 'white',

@@ -15,7 +15,9 @@
       "Bash(rm:*)",
       "Bash(git commit:*)",
       "Bash(ls:*)",
-      "Bash(npm start)"
+      "Bash(npm start)",
+      "Bash(npm audit:*)",
+      "Bash(npm run lint)"
     ],
     "deny": []
   }

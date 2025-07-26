@@ -13,6 +13,9 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
 import MedicalDisclaimer from '../components/MedicalDisclaimer';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library';
 
 const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-zsga.onrender.com';
 
@@ -21,6 +24,7 @@ export default function AnalysisScreen({ route, navigation }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isGuest, setIsGuest] = useState(false);
+  const [isPremium, setIsPremium] = useState(false);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
 
@@ -46,7 +50,9 @@ export default function AnalysisScreen({ route, navigation }) {
 
   const checkUserStatus = async () => {
     const guestStatus = await SecureStore.getItemAsync('is_guest') || 'false';
+    const premiumStatus = await SecureStore.getItemAsync('is_premium') || 'false';
     setIsGuest(guestStatus === 'true');
+    setIsPremium(premiumStatus === 'true');
   };
 
   const analyzeMedicationByName = async (medicationName) => {
@@ -103,7 +109,7 @@ export default function AnalysisScreen({ route, navigation }) {
       
     } catch (error) {
       console.error('Analysis error:', error);
-      setError('Failed to find medication by barcode. Please try scanning the medication label instead.');
+      setError('Failed to find product by barcode. Please try scanning the product label instead.');
     } finally {
       setLoading(false);
     }
@@ -143,7 +149,7 @@ export default function AnalysisScreen({ route, navigation }) {
       
     } catch (error) {
       console.error('Analysis error:', error);
-      setError('Failed to analyze medication. Please try again.');
+      setError('Failed to analyze product. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -158,43 +164,70 @@ export default function AnalysisScreen({ route, navigation }) {
     }
   };
 
-  const handleShare = () => {
-    if (isGuest) {
+  const handleShare = async () => {
+    if (isGuest || !isPremium) {
       Alert.alert(
-        'Premium Feature',
-        'Sharing analysis results is available for registered users. Sign up to unlock this feature!',
+        '🌟 Premium Feature',
+        'Share your wellness discoveries with friends and family!\n\nUpgrade to Premium to:\n✓ Share analysis results\n✓ Download reports\n✓ Access full history\n✓ Unlimited scans',
         [
-          { text: 'Later', style: 'cancel' },
-          { text: 'Sign Up', onPress: () => navigation.replace('Login') }
+          { text: 'Maybe Later', style: 'cancel' },
+          { text: 'Upgrade Now 🚀', onPress: () => navigation.navigate('Subscription') }
         ]
       );
       return;
     }
-    // TODO: Implement share functionality for registered users
-    Alert.alert('Coming Soon', 'Share feature will be available soon!');
+    
+    try {
+      const shareText = `🌿 Natural Wellness Discovery\n\nProduct: ${analysisResult.medicationName || analysisResult.productName}\n\nNatural Alternatives Found:\n${analysisResult.alternatives?.map(alt => `• ${alt.name}`).join('\n') || 'No alternatives found'}\n\nDiscovered with Naturinex - Your Natural Wellness Guide\n\n⚠️ Educational information only. Consult healthcare professionals.`;
+      
+      await Sharing.shareAsync(shareText, {
+        dialogTitle: 'Share Wellness Discovery',
+      });
+    } catch (error) {
+      Alert.alert('Error', 'Unable to share. Please try again.');
+    }
   };
 
-  const handleDownload = () => {
-    if (isGuest) {
+  const handleDownload = async () => {
+    if (isGuest || !isPremium) {
       Alert.alert(
-        'Premium Feature',
-        'Downloading analysis results is available for registered users. Sign up to unlock this feature!',
+        '📥 Premium Feature',
+        'Download and save your wellness reports!\n\nUpgrade to Premium to:\n✓ Download PDF reports\n✓ Export wellness history\n✓ Build your wellness library\n✓ Access offline',
         [
-          { text: 'Later', style: 'cancel' },
-          { text: 'Sign Up', onPress: () => navigation.replace('Login') }
+          { text: 'Maybe Later', style: 'cancel' },
+          { text: 'Upgrade Now 🚀', onPress: () => navigation.navigate('Subscription') }
         ]
       );
       return;
     }
-    // TODO: Implement download functionality for registered users
-    Alert.alert('Coming Soon', 'Download feature will be available soon!');
+    
+    try {
+      const reportContent = `NATURINEX WELLNESS REPORT\n\nDate: ${new Date().toLocaleDateString()}\n\nProduct Analyzed: ${analysisResult.medicationName || analysisResult.productName}\nType: ${analysisResult.medicationType || analysisResult.productType || 'Health Product'}\n\nNATURAL ALTERNATIVES:\n${analysisResult.alternatives?.map(alt => `\n${alt.name}\n- ${alt.description}\n- Effectiveness: ${alt.effectiveness}\n${alt.benefits?.map(b => `  • ${b}`).join('\n') || ''}`).join('\n') || 'No alternatives found'}\n\n${analysisResult.warnings?.length ? `\nWARNINGS:\n${analysisResult.warnings.map(w => `• ${w}`).join('\n')}` : ''}\n\n${analysisResult.recommendations?.length ? `\nRECOMMENDATIONS:\n${analysisResult.recommendations.map(r => `• ${r}`).join('\n')}` : ''}\n\nDISCLAIMER:\nThis information is for educational purposes only. Always consult healthcare professionals before making changes to your wellness routine.\n\nGenerated by Naturinex - Your Natural Wellness Guide`;
+      
+      const filename = `naturinex-report-${Date.now()}.txt`;
+      const fileUri = FileSystem.documentDirectory + filename;
+      
+      await FileSystem.writeAsStringAsync(fileUri, reportContent);
+      
+      if (Platform.OS === 'ios') {
+        await Sharing.shareAsync(fileUri);
+      } else {
+        const permission = await MediaLibrary.requestPermissionsAsync();
+        if (permission.granted) {
+          const asset = await MediaLibrary.createAssetAsync(fileUri);
+          Alert.alert('Success', 'Report saved to your device!');
+        }
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Unable to download report. Please try again.');
+    }
   };
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#10B981" />
-        <Text style={styles.loadingText}>Analyzing medication...</Text>
+        <Text style={styles.loadingText}>Analyzing product...</Text>
       </View>
     );
   }
@@ -259,17 +292,17 @@ export default function AnalysisScreen({ route, navigation }) {
         <View style={styles.disclaimerBanner}>
           <MaterialIcons name="info" size={20} color="#DC2626" />
           <Text style={styles.disclaimerBannerText}>
-            Educational information only. Not medical advice. Always consult your doctor.
+            Educational information only. Not medical advice. Always consult healthcare professionals.
           </Text>
         </View>
 
-        {/* Medication Info */}
+        {/* Product Info */}
         <View style={styles.medicationCard}>
           <Text style={styles.medicationName}>
-            {analysisResult.medicationName || 'Unknown Medication'}
+            {analysisResult.medicationName || analysisResult.productName || 'Unknown Product'}
           </Text>
           <Text style={styles.medicationType}>
-            {analysisResult.medicationType || 'Prescription Medication'}
+            {analysisResult.medicationType || analysisResult.productType || 'Health & Wellness Product'}
           </Text>
         </View>
 
@@ -337,7 +370,7 @@ export default function AnalysisScreen({ route, navigation }) {
         {/* Disclaimer */}
         <View style={styles.disclaimerContainer}>
           <Text style={styles.disclaimerText}>
-            ⚠️ This information is for educational purposes only. Always consult with your healthcare provider before making any changes to your medication regimen.
+            ⚠️ This information is for educational purposes only. Always consult with healthcare professionals before making any changes to your wellness routine.
           </Text>
         </View>
       </ScrollView>

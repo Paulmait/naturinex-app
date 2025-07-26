@@ -56,8 +56,8 @@
     "production": {
       "ios": {
         "appleId": "your-apple-id@email.com",
-        "ascAppId": "your-app-store-connect-app-id",
-        "appleTeamId": "your-apple-team-id",
+        "ascAppId": "PASTE-YOUR-APP-ID-HERE",
+        "appleTeamId": "LFB9Z5Q3Y9",
         "ascApiKeyPath": "./secrets/appstore-connect-key.json"
       },
       "android": {

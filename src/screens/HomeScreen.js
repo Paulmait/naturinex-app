@@ -42,11 +42,11 @@ export default function HomeScreen({ navigation }) {
   const handleScan = async () => {
     if (isGuest && freeScansRemaining <= 0) {
       Alert.alert(
-        'Free Scans Used',
-        'You\'ve used all your free scans. Sign up for unlimited access!',
+        '🎯 Unlock Unlimited Wellness',
+        'You\'ve discovered the power of natural alternatives! Sign up now to:\n\n✓ Unlimited product scans\n✓ Save & share your discoveries\n✓ Access complete wellness history\n✓ Export your personal wellness guide\n\n🎁 Special offer: Start your wellness journey today!',
         [
-          { text: 'Later', style: 'cancel' },
-          { text: 'Sign Up', onPress: () => navigation.replace('Login') }
+          { text: 'Maybe Later', style: 'cancel' },
+          { text: 'Start Free Trial 🚀', onPress: () => navigation.replace('Login'), style: 'default' }
         ]
       );
       return;
@@ -55,8 +55,18 @@ export default function HomeScreen({ navigation }) {
   };
 
   const handleHistory = () => {
-    // TODO: Implement history screen
-    Alert.alert('Coming Soon', 'Scan history feature will be available soon!');
+    if (isGuest) {
+      Alert.alert(
+        '📊 Premium Feature',
+        'Access your complete wellness history!\\n\\nSign up to:\\n✓ View all past scans\\n✓ Download reports\\n✓ Share discoveries\\n✓ Track your wellness journey',
+        [
+          { text: 'Maybe Later', style: 'cancel' },
+          { text: 'Sign Up Now 🚀', onPress: () => navigation.replace('Login') }
+        ]
+      );
+      return;
+    }
+    navigation.navigate('ScanHistory');
   };
 
   const handleProfile = () => {
@@ -112,17 +122,25 @@ export default function HomeScreen({ navigation }) {
         {/* Guest Banner */}
         {isGuest && (
           <View style={styles.guestBanner}>
-            <Text style={styles.guestBannerText}>
-              {freeScansRemaining > 0 
-                ? `${freeScansRemaining} free scans remaining` 
-                : 'No free scans left'}
-            </Text>
-            <TouchableOpacity 
-              style={styles.upgradeButton} 
-              onPress={() => navigation.replace('Login')}
-            >
-              <Text style={styles.upgradeButtonText}>Sign Up</Text>
-            </TouchableOpacity>
+            <View style={styles.scanCounterContainer}>
+              <Text style={styles.scanCounterNumber}>{freeScansRemaining}</Text>
+              <Text style={styles.scanCounterLabel}>Free Scans Left</Text>
+            </View>
+            <View style={styles.bannerTextContainer}>
+              <Text style={styles.guestBannerText}>
+                {freeScansRemaining > 0 
+                  ? `Try ${freeScansRemaining} more ${freeScansRemaining === 1 ? 'scan' : 'scans'} free!` 
+                  : '🎯 Time to unlock unlimited scans!'}
+              </Text>
+              <TouchableOpacity 
+                style={[styles.upgradeButton, freeScansRemaining === 0 && styles.upgradeButtonPulse]} 
+                onPress={() => navigation.replace('Login')}
+              >
+                <Text style={styles.upgradeButtonText}>
+                  {freeScansRemaining > 0 ? 'Sign Up' : 'Unlock Now 🚀'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
 
@@ -145,9 +163,9 @@ export default function HomeScreen({ navigation }) {
             <View style={styles.actionIcon}>
               <MaterialIcons name="camera-alt" size={32} color="white" />
             </View>
-            <Text style={styles.actionTitle}>Scan Medication</Text>
+            <Text style={styles.actionTitle}>Scan Product</Text>
             <Text style={styles.actionSubtitle}>
-              Analyze medications for natural alternatives
+              Discover natural wellness alternatives
             </Text>
           </TouchableOpacity>
 
@@ -169,7 +187,7 @@ export default function HomeScreen({ navigation }) {
           <Text style={styles.tipsTitle}>💡 Quick Tips</Text>
           <View style={styles.tipItem}>
             <Text style={styles.tipText}>
-              • Hold medication label steady for best results
+              • Hold product label steady for best results
             </Text>
           </View>
           <View style={styles.tipItem}>
@@ -245,23 +263,47 @@ const styles = StyleSheet.create({
   },
   guestBanner: {
     backgroundColor: '#FEF3C7',
-    borderRadius: 10,
-    padding: 15,
+    borderRadius: 15,
+    padding: 20,
     marginBottom: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    borderWidth: 2,
+    borderColor: '#F59E0B',
+  },
+  scanCounterContainer: {
+    alignItems: 'center',
+    marginRight: 20,
+  },
+  scanCounterNumber: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: '#F59E0B',
+  },
+  scanCounterLabel: {
+    fontSize: 12,
+    color: '#92400E',
+    fontWeight: '600',
+  },
+  bannerTextContainer: {
+    flex: 1,
   },
   guestBannerText: {
     color: '#92400E',
     fontSize: 14,
     fontWeight: '600',
+    marginBottom: 10,
   },
   upgradeButton: {
     backgroundColor: '#F59E0B',
     paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingVertical: 10,
+    borderRadius: 25,
+    alignSelf: 'flex-start',
+  },
+  upgradeButtonPulse: {
+    backgroundColor: '#DC2626',
   },
   upgradeButtonText: {
     color: 'white',

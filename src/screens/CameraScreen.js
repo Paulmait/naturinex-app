@@ -16,7 +16,7 @@ export default function CameraScreen({ navigation }) {
   const [capturedImage, setCapturedImage] = useState(null);
   const [isScanning, setIsScanning] = useState(false);
   const [showManualInput, setShowManualInput] = useState(false);
-  const [medicationName, setMedicationName] = useState('');
+  const [productName, setProductName] = useState('');
   const [showCameraLimitNotice, setShowCameraLimitNotice] = useState(true);
   const cameraRef = useRef(null);
 
@@ -29,7 +29,7 @@ export default function CameraScreen({ navigation }) {
       if (!permission.granted) {
         Alert.alert(
           'Camera Permission Required',
-          'Please allow camera access to scan medications.',
+          'Please allow camera access to scan products.',
           [
             { text: 'Cancel', style: 'cancel', onPress: () => navigation.goBack() },
             { text: 'Allow', onPress: () => requestPermission() }
@@ -99,7 +99,7 @@ export default function CameraScreen({ navigation }) {
       formData.append('image', {
         uri: image.uri,
         type: 'image/jpeg',
-        name: 'medication.jpg',
+        name: 'product.jpg',
       } as any);
 
       console.log('Uploading image to:', `${API_URL}/api/analyze`);
@@ -172,8 +172,8 @@ export default function CameraScreen({ navigation }) {
   };
 
   const handleManualInput = async () => {
-    if (!medicationName.trim()) {
-      Alert.alert('Error', 'Please enter a medication name');
+    if (!productName.trim()) {
+      Alert.alert('Error', 'Please enter a product name');
       return;
     }
 
@@ -201,15 +201,15 @@ export default function CameraScreen({ navigation }) {
     const scanCount = parseInt(await SecureStore.getItemAsync('scan_count') || '0');
     await SecureStore.setItemAsync('scan_count', String(scanCount + 1));
 
-    // Navigate to analysis with medication name
+    // Navigate to analysis with product name
     navigation.navigate('Analysis', { 
-      medicationName: medicationName.trim(),
+      medicationName: productName.trim(),
       isManualEntry: true,
       analyzing: true 
     });
 
     // Clear the input for next time
-    setMedicationName('');
+    setProductName('');
   };
 
   if (!permission) {
@@ -250,21 +250,21 @@ export default function CameraScreen({ navigation }) {
                 onPress={() => setShowManualInput(true)}
               >
                 <MaterialIcons name="keyboard" size={20} color="#10B981" />
-                <Text style={styles.bannerText}>Tap here to enter medication name manually</Text>
+                <Text style={styles.bannerText}>Tap here to enter product name manually</Text>
                 <MaterialIcons name="arrow-forward" size={20} color="#10B981" />
               </TouchableOpacity>
               
               <View style={styles.scanFrame} />
               
               <Text style={styles.instructionText}>
-                {isScanning ? 'Scanning for barcode...' : 'Position medication label within frame'}
+                {isScanning ? 'Scanning for barcode...' : 'Position product label within frame'}
               </Text>
               
               {/* Camera Tips */}
               <View style={styles.tipsContainer}>
                 <Text style={styles.tipText}>• Good lighting improves scanning</Text>
                 <Text style={styles.tipText}>• Hold steady for clear capture</Text>
-                <Text style={styles.tipText}>• Or type medication name manually</Text>
+                <Text style={styles.tipText}>• Or type product name manually</Text>
               </View>
               
               <TouchableOpacity 
@@ -310,16 +310,16 @@ export default function CameraScreen({ navigation }) {
           style={styles.modalContainer}
         >
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Enter Medication Name</Text>
+            <Text style={styles.modalTitle}>Enter Product Name</Text>
             <Text style={styles.modalSubtitle}>
-              Type the name of the medication you want to analyze
+              Type the name of the product you want to analyze
             </Text>
             
             <TextInput
               style={styles.modalInput}
-              placeholder="e.g., Ibuprofen, Aspirin, Tylenol"
-              value={medicationName}
-              onChangeText={setMedicationName}
+              placeholder="e.g., Ibuprofen, Vitamin C, Omega-3"
+              value={productName}
+              onChangeText={setProductName}
               autoFocus
               autoCapitalize="words"
               returnKeyType="search"
@@ -331,7 +331,7 @@ export default function CameraScreen({ navigation }) {
                 style={[styles.modalButton, styles.cancelButton]} 
                 onPress={() => {
                   setShowManualInput(false);
-                  setMedicationName('');
+                  setProductName('');
                 }}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>

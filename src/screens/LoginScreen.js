@@ -137,9 +137,9 @@ export default function LoginScreen({ navigation }) {
         keyboardShouldPersistTaps="handled"
       >
         <View style={styles.logoContainer}>
-          <Text style={styles.logo}>💊</Text>
+          <Text style={styles.logo}>🌿</Text>
           <Text style={styles.appName}>Naturinex</Text>
-          <Text style={styles.tagline}>Natural medication alternatives</Text>
+          <Text style={styles.tagline}>Your Natural Wellness Guide</Text>
         </View>
 
         <View style={styles.formContainer}>
@@ -200,7 +200,7 @@ export default function LoginScreen({ navigation }) {
             onPress={handleSkip}
             disabled={loading}
           >
-            <Text style={styles.skipButtonText}>Skip for Now (3 Free Scans)</Text>
+            <Text style={styles.skipButtonText}>Try Free (3 Scans) 🎁</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -214,8 +214,8 @@ export default function LoginScreen({ navigation }) {
         <View style={styles.footer}>
           <Text style={styles.footerText}>
             By signing in, you agree to our{' '}
-            <Text style={styles.link}>Terms of Service</Text> and{' '}
-            <Text style={styles.link}>Privacy Policy</Text>
+            <Text style={styles.link} onPress={() => navigation.navigate('TermsOfUse')}>Terms of Service</Text> and{' '}
+            <Text style={styles.link} onPress={() => navigation.navigate('PrivacyPolicy')}>Privacy Policy</Text>
           </Text>
         </View>
       </ScrollView>
