@@ -17,6 +17,8 @@ const { saveScanToHistory, checkPremiumStatus } = require('./services/scanTracki
 const { getUserPricingGroup, getAllPricingTiers, getPromotionalOffer, trackPricingEvent, validCoupons } = require('./services/pricingAB');
 const { checkStudentStatus, verifyStudent, getStudentBenefits } = require('./services/studentVerification');
 const { getApplicableCoupons, trackCouponUsage } = require('./services/couponTracking');
+const { IntegratedNaturalAPI } = require('./services/externalAPIs');
+const adminRoutes = require('./routes/adminRoutes');
 
 // Configure multer for image uploads
 const upload = multer({ 
@@ -281,16 +283,108 @@ const validateMedicationInput = (req, res, next) => {
   next();
 };
 
+// Initialize integrated natural APIs
+const integratedAPI = new IntegratedNaturalAPI();
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ 
     status: 'Server is running', 
     timestamp: new Date().toISOString(),
     version: '2.0.0',
-    features: ['AI Analysis', 'Premium Tiers', 'Rate Limiting', 'Security Headers'],
+    features: ['AI Analysis', 'Premium Tiers', 'Rate Limiting', 'Security Headers', 'External APIs'],
     environment: process.env.NODE_ENV || 'development'
   });
 });
+
+// Admin routes (protected)
+app.use('/api/admin', adminRoutes);
+
+// Enhanced alternatives endpoint with external APIs
+app.get('/api/alternatives/:medication', apiLimiter, async (req, res) => {
+  try {
+    const { medication } = req.params;
+    
+    // Get data from all sources
+    const [localAlternatives, externalData] = await Promise.all([
+      getWellnessAlternatives(medication),
+      integratedAPI.getComprehensiveAlternatives(medication)
+    ]);
+    
+    // Combine and enhance the results
+    const combinedAlternatives = {
+      medication,
+      localDatabase: localAlternatives,
+      pubchem: externalData?.chemicalData,
+      traditionalMedicine: externalData?.traditionalMedicine,
+      herbsSupplements: externalData?.herbsSupplements,
+      naturalSources: externalData?.naturalSources,
+      recommendations: generateSmartRecommendations(
+        localAlternatives,
+        externalData
+      )
+    };
+    
+    res.json(combinedAlternatives);
+  } catch (error) {
+    console.error('Alternatives API error:', error);
+    res.status(500).json({ error: 'Failed to fetch alternatives' });
+  }
+});
+
+// Search alternatives by condition
+app.get('/api/alternatives/condition/:condition', apiLimiter, async (req, res) => {
+  try {
+    const { condition } = req.params;
+    const results = await integratedAPI.searchByCondition(condition);
+    res.json(results);
+  } catch (error) {
+    console.error('Condition search error:', error);
+    res.status(500).json({ error: 'Failed to search by condition' });
+  }
+});
+
+// Helper function to generate smart recommendations
+function generateSmartRecommendations(local, external) {
+  const recommendations = [];
+  
+  // Combine all sources
+  if (local?.alternatives) {
+    recommendations.push(...local.alternatives.map(alt => ({
+      ...alt,
+      source: 'Naturinex Database',
+      confidence: 'High'
+    })));
+  }
+  
+  if (external?.traditionalMedicine?.length > 0) {
+    recommendations.push(...external.traditionalMedicine.map(tm => ({
+      name: tm.name,
+      effectiveness: 'Traditional',
+      description: tm.traditionalUse,
+      dosage: tm.dosage,
+      source: 'WHO Traditional Medicine',
+      confidence: 'Established'
+    })));
+  }
+  
+  if (external?.herbsSupplements?.length > 0) {
+    recommendations.push(...external.herbsSupplements.map(herb => ({
+      name: herb.name,
+      effectiveness: herb.clinicalEvidence,
+      description: herb.mechanism,
+      dosage: herb.dosage,
+      source: 'MSKCC Database',
+      confidence: herb.clinicalEvidence
+    })));
+  }
+  
+  // Sort by confidence/effectiveness
+  return recommendations.sort((a, b) => {
+    const rank = { 'High': 4, 'Established': 3, 'Good': 3, 'Moderate': 2, 'Traditional': 1 };
+    return (rank[b.confidence] || 0) - (rank[a.confidence] || 0);
+  });
+}
 
 app.post('/suggest', [
   body('medicationName')

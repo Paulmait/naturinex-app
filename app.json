@@ -14,7 +14,7 @@
     "userInterfaceStyle": "light",
     "scheme": "naturinex",
     "splash": {
-      "image": "./assets/icon.png",
+      "image": "./assets/naturinex-splash.png",
       "resizeMode": "contain",
       "backgroundColor": "#10B981"
     },
