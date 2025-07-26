@@ -10,6 +10,8 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const admin = require('firebase-admin');
 const multer = require('multer');
 const axios = require('axios');
+const { extractProductInfo } = require('./utils/productExtraction');
+const { getDeviceId, checkScanLimit, recordScan } = require('./utils/deviceTracking');
 
 // Configure multer for image uploads
 const upload = multer({ 
@@ -591,7 +593,24 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'No image provided' });
     }
 
-    console.log('📊 Analyzing medication from image');
+    // Get device ID and IP for tracking
+    const deviceId = getDeviceId(req);
+    const ipAddress = req.ip || req.connection.remoteAddress;
+    console.log(`📊 Analyzing medication from image - IP: ${ipAddress}`);
+    
+    // Check scan limits (TODO: get user info from auth header if available)
+    const userId = null; // TODO: Extract from JWT token if authenticated
+    const isPremium = false; // TODO: Check user's premium status
+    
+    const scanCheck = checkScanLimit(deviceId, userId, isPremium);
+    if (!scanCheck.allowed) {
+      return res.status(429).json({
+        error: 'Scan limit reached',
+        message: scanCheck.message,
+        remaining: scanCheck.remaining,
+        resetTime: scanCheck.resetTime
+      });
+    }
     
     // Check if Google Vision API is configured
     if (process.env.GOOGLE_VISION_API_KEY) {
@@ -619,23 +638,11 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
           });
         }
         
-        // Extract medication name - look for common medication name patterns
-        const lines = detectedText.split('\n').filter(line => line.trim());
-        let medicationName = 'Unknown Medication';
+        // Use enhanced extraction logic
+        const productInfo = extractProductInfo(detectedText);
+        console.log('Extracted product info:', productInfo);
         
-        // Try to find medication name (usually the largest/first text)
-        for (const line of lines) {
-          // Skip common non-medication words
-          if (!/directions|take|tablet|capsule|mg|ml|dose|daily|times/i.test(line)) {
-            const cleaned = line.replace(/[^a-zA-Z\s-]/g, '').trim();
-            if (cleaned.length > 2 && cleaned.length < 50) {
-              medicationName = cleaned;
-              break;
-            }
-          }
-        }
-        
-        console.log('Extracted medication name:', medicationName);
+        const medicationName = productInfo.productName;
         
         // Use Gemini AI to analyze the detected medication
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
@@ -663,10 +670,16 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         
         if (jsonMatch) {
           const analysisResult = JSON.parse(jsonMatch[0]);
+          
+          // Record successful scan
+          const scanResult = recordScan(deviceId, userId);
+          
           res.json({
             ...analysisResult,
             detectedFromImage: true,
-            ocrConfidence: detectedText.length > 20 ? 'high' : 'low'
+            ocrConfidence: detectedText.length > 20 ? 'high' : 'low',
+            productInfo: productInfo,
+            scansRemaining: scanResult.remaining
           });
         } else {
           throw new Error('Invalid AI response format');
@@ -675,12 +688,22 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
       } catch (visionError) {
         console.error('Vision API error:', visionError.message);
         // Fall back to mock response
-        return res.json(getMockImageAnalysis());
+        const scanResult = recordScan(deviceId, userId);
+        const mockResponse = getMockImageAnalysis();
+        return res.json({
+          ...mockResponse,
+          scansRemaining: scanResult.remaining
+        });
       }
     } else {
       // No Vision API configured - return helpful mock data
       console.log('⚠️  Google Vision API not configured - using mock response');
-      return res.json(getMockImageAnalysis());
+      const scanResult = recordScan(deviceId, userId);
+      const mockResponse = getMockImageAnalysis();
+      return res.json({
+        ...mockResponse,
+        scansRemaining: scanResult.remaining
+      });
     }
     
   } catch (error) {

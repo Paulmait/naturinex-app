@@ -7,6 +7,7 @@ import * as FileSystem from 'expo-file-system';
 import { MaterialIcons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
+import { getDeviceId } from '../utils/deviceId';
 
 const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-zsga.onrender.com';
 
@@ -104,11 +105,15 @@ export default function CameraScreen({ navigation }) {
 
       console.log('Uploading image to:', `${API_URL}/api/analyze`);
 
+      // Get device ID for tracking
+      const deviceId = await getDeviceId();
+
       const response = await fetch(`${API_URL}/api/analyze`, {
         method: 'POST',
         body: formData,
         headers: {
           'Content-Type': 'multipart/form-data',
+          'X-Device-Id': deviceId,
         },
       });
 
