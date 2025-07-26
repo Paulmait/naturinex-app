@@ -19,6 +19,9 @@ const { checkStudentStatus, verifyStudent, getStudentBenefits } = require('./ser
 const { getApplicableCoupons, trackCouponUsage } = require('./services/couponTracking');
 const { IntegratedNaturalAPI } = require('./services/externalAPIs');
 const adminRoutes = require('./routes/adminRoutes');
+const optimizedSearch = require('./services/optimizedSearch');
+const { scheduledIngestion, manualIngestion } = require('./functions/dataIngestion');
+const { handleIngestionTask, handleBatchIngestion } = require('./functions/cloudTasks');
 
 // Configure multer for image uploads
 const upload = multer({ 
@@ -300,12 +303,28 @@ app.get('/health', (req, res) => {
 // Admin routes (protected)
 app.use('/api/admin', adminRoutes);
 
-// Enhanced alternatives endpoint with external APIs
+// Enhanced alternatives endpoint - now using pre-ingested data for speed
 app.get('/api/alternatives/:medication', apiLimiter, async (req, res) => {
   try {
     const { medication } = req.params;
+    const { useCache = true } = req.query; // Allow forcing real-time API calls
     
-    // Get data from all sources
+    // Use optimized search by default (pre-ingested data)
+    if (useCache) {
+      const cachedResults = await optimizedSearch.searchByMedication(medication);
+      
+      if (cachedResults.alternatives.length > 0) {
+        return res.json({
+          medication,
+          alternatives: cachedResults.alternatives,
+          searchTime: cachedResults.searchTime,
+          dataSource: 'optimized-cache',
+          lastUpdated: cachedResults.lastUpdated
+        });
+      }
+    }
+    
+    // Fallback to real-time API calls if needed
     const [localAlternatives, externalData] = await Promise.all([
       getWellnessAlternatives(medication),
       integratedAPI.getComprehensiveAlternatives(medication)
@@ -322,7 +341,8 @@ app.get('/api/alternatives/:medication', apiLimiter, async (req, res) => {
       recommendations: generateSmartRecommendations(
         localAlternatives,
         externalData
-      )
+      ),
+      dataSource: 'real-time-api'
     };
     
     res.json(combinedAlternatives);
@@ -1772,6 +1792,57 @@ app.get('/api/admin/analytics', async (req, res) => {
   } catch (error) {
     console.error('Admin analytics error:', error);
     res.status(500).json({ error: 'Failed to fetch analytics' });
+  }
+});
+
+// Data ingestion endpoints
+app.post('/api/functions/scheduled-ingestion', scheduledIngestion);
+app.post('/api/functions/manual-ingestion', authenticateUser, manualIngestion);
+app.post('/api/functions/ingest-substance', handleIngestionTask);
+app.post('/api/functions/batch-ingest', handleBatchIngestion);
+
+// Optimized search endpoints
+app.get('/api/search/substances', apiLimiter, async (req, res) => {
+  try {
+    const { query, type, safetyLevel, effectiveness, limit } = req.query;
+    
+    const results = await optimizedSearch.advancedSearch({
+      query,
+      type,
+      safetyLevel,
+      effectiveness,
+      limit: parseInt(limit) || 20
+    });
+    
+    res.json({ results, count: results.length });
+  } catch (error) {
+    console.error('Search error:', error);
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+app.get('/api/search/suggestions', async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || q.length < 2) {
+      return res.json({ suggestions: [] });
+    }
+    
+    const suggestions = await optimizedSearch.getSuggestions(q);
+    res.json({ suggestions });
+  } catch (error) {
+    console.error('Suggestions error:', error);
+    res.json({ suggestions: [] });
+  }
+});
+
+app.get('/api/database/stats', async (req, res) => {
+  try {
+    const stats = await optimizedSearch.getDatabaseStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Stats error:', error);
+    res.status(500).json({ error: 'Failed to get stats' });
   }
 });
 
