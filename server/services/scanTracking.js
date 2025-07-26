@@ -20,18 +20,29 @@ async function saveScanToHistory(userId, scanData) {
         name: scanData.productInfo.productName,
         brand: scanData.productInfo.brandName || null,
         activeIngredient: scanData.productInfo.activeIngredient || null,
+        dosage: scanData.productInfo.dosage || null,
         category: scanData.productInfo.category || 'unknown',
-        ocrConfidence: scanData.ocrConfidence || 'low'
+        ocrConfidence: scanData.ocrConfidence || 'low',
+        fullOcrText: scanData.productInfo.fullText || null
       },
       imageUrl: scanData.imageUrl || null,
       analysisResult: {
         alternatives: scanData.alternatives || [],
-        warnings: scanData.warnings || []
+        warnings: scanData.warnings || [],
+        medicationType: scanData.medicationType || null
       },
       location: {
         ip: scanData.ipAddress,
         country: scanData.country || null,
         city: scanData.city || null
+      },
+      // AI training data
+      aiTrainingData: {
+        ocrRawText: scanData.ocrRawText || null,
+        userFeedback: null, // To be updated if user provides feedback
+        scanMethod: scanData.scanMethod || 'camera', // camera, barcode, manual
+        processingTime: scanData.processingTime || null,
+        modelVersion: 'v1.0'
       }
     };
     

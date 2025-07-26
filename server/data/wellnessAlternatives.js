@@ -1,3 +1,6 @@
+// Import the comprehensive natural alternatives database
+const { getNaturalAlternatives, searchByCondition } = require('./naturalAlternativesDB');
+
 // Wellness alternatives database for common products
 const wellnessAlternatives = {
   // Pain Relief

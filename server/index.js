@@ -14,6 +14,9 @@ const { extractProductInfo } = require('./utils/productExtraction');
 const { getDeviceId, checkScanLimit, recordScan } = require('./utils/deviceTracking');
 const { getWellnessAlternatives } = require('./data/wellnessAlternatives');
 const { saveScanToHistory, checkPremiumStatus } = require('./services/scanTracking');
+const { getUserPricingGroup, getAllPricingTiers, getPromotionalOffer, trackPricingEvent, validCoupons } = require('./services/pricingAB');
+const { checkStudentStatus, verifyStudent, getStudentBenefits } = require('./services/studentVerification');
+const { getApplicableCoupons, trackCouponUsage } = require('./services/couponTracking');
 
 // Configure multer for image uploads
 const upload = multer({ 
@@ -642,7 +645,8 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         
         // Use enhanced extraction logic
         const productInfo = extractProductInfo(detectedText);
-        console.log('Extracted product info:', productInfo);
+        console.log('OCR detected text:', detectedText);
+        console.log('Extracted product info:', JSON.stringify(productInfo, null, 2));
         
         const medicationName = productInfo.productName;
         
@@ -684,20 +688,23 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
           // Record successful scan
           const scanResult = recordScan(deviceId, userId);
           
-          // Save to scan history if user is authenticated
-          if (userId) {
-            try {
-              await saveScanToHistory(userId, {
-                deviceId,
-                productInfo,
-                ocrConfidence: detectedText.length > 20 ? 'high' : 'low',
-                alternatives: curatedAlternatives || analysisResult.wellness_info,
-                warnings: analysisResult.warnings,
-                ipAddress,
-              });
-            } catch (historyError) {
-              console.error('Failed to save scan history:', historyError);
-            }
+          // Save to scan history (always save for AI training, even without userId)
+          const startTime = Date.now();
+          try {
+            await saveScanToHistory(userId || 'anonymous', {
+              deviceId,
+              productInfo,
+              ocrRawText: detectedText,
+              ocrConfidence: detectedText.length > 20 ? 'high' : 'low',
+              alternatives: curatedAlternatives || analysisResult.wellness_info,
+              warnings: analysisResult.warnings,
+              medicationType: analysisResult.medicationType,
+              ipAddress,
+              scanMethod: 'camera',
+              processingTime: Date.now() - startTime
+            });
+          } catch (historyError) {
+            console.error('Failed to save scan history:', historyError);
           }
           
           res.json({
@@ -772,34 +779,7 @@ function getMockImageAnalysis() {
   };
 }
 
-// Stripe payment endpoints
-app.post('/create-checkout-session', async (req, res) => {
-  try {
-    const { userId, userEmail } = req.body;
-    
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: [
-        {
-          price: process.env.STRIPE_PREMIUM_PRICE_ID || 'price_1234567890', // Fallback test price
-          quantity: 1,
-        },
-      ],
-      mode: 'subscription',
-      customer_email: userEmail,
-      metadata: {
-        userId: userId,
-      },
-      success_url: `${req.headers.origin || 'https://naturinex-app.web.app'}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${req.headers.origin || 'https://naturinex-app.web.app'}/cancel`,
-    });
-
-    res.json({ sessionId: session.id });
-  } catch (error) {
-    console.error('Stripe session creation error:', error);
-    res.status(500).json({ error: 'Failed to create checkout session' });
-  }
-});
+// Stripe payment endpoints - moved to authenticated endpoint below
 
 // Get Stripe public key
 app.get('/stripe-config', (req, res) => {
@@ -852,6 +832,287 @@ app.post('/test-premium-upgrade', async (req, res) => {
   }
 });
 
+// 🔗 STRIPE CHECKOUT SESSION CREATION
+app.post('/api/create-checkout-session', authenticateUser, async (req, res) => {
+  try {
+    const { priceId, userId, userEmail, couponCode, trialDays } = req.body;
+    
+    if (!priceId || !userId || !userEmail) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    
+    // Create checkout session with dynamic pricing
+    const sessionConfig = {
+      payment_method_types: ['card'],
+      line_items: [{
+        price: priceId,
+        quantity: 1,
+      }],
+      mode: 'subscription',
+      success_url: `${req.headers.origin || 'https://naturinex-app.web.app'}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${req.headers.origin || 'https://naturinex-app.web.app'}/subscription`,
+      customer_email: userEmail,
+      metadata: {
+        userId: userId
+      },
+      subscription_data: {
+        metadata: {
+          userId: userId
+        }
+      },
+      allow_promotion_codes: true // Enable promo code input in Stripe checkout
+    };
+    
+    // Add trial period - default to 7 days, or 14 days for students
+    const defaultTrialDays = 7;
+    const studentTrialDays = 14;
+    
+    // Check if user is a verified student for extended trial
+    let finalTrialDays = trialDays || defaultTrialDays;
+    
+    try {
+      const userDoc = await admin.firestore().collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        if (userData.studentVerification?.verified) {
+          finalTrialDays = studentTrialDays; // Students get 14-day trial
+        }
+      }
+    } catch (error) {
+      console.log('Could not check student status for trial period');
+    }
+    
+    // Always add trial period
+    sessionConfig.subscription_data.trial_period_days = finalTrialDays;
+    
+    // Apply coupon if provided
+    if (couponCode) {
+      sessionConfig.discounts = [{
+        coupon: couponCode
+      }];
+    }
+    
+    const session = await stripe.checkout.sessions.create(sessionConfig);
+    
+    res.json({ sessionUrl: session.url });
+  } catch (error) {
+    console.error('Checkout session error:', error);
+    res.status(500).json({ error: 'Failed to create checkout session' });
+  }
+});
+
+// 🚫 CANCEL SUBSCRIPTION
+app.post('/api/cancel-subscription', authenticateUser, async (req, res) => {
+  try {
+    const { subscriptionId, userId } = req.body;
+    
+    if (!subscriptionId) {
+      return res.status(400).json({ error: 'Subscription ID is required' });
+    }
+    
+    // Cancel the subscription in Stripe
+    const subscription = await stripe.subscriptions.update(subscriptionId, {
+      cancel_at_period_end: true
+    });
+    
+    // Update user's subscription status in Firestore
+    await admin.firestore().collection('users').doc(userId).update({
+      subscriptionStatus: 'canceling',
+      cancelAtPeriodEnd: true,
+      cancelDate: admin.firestore.FieldValue.serverTimestamp()
+    });
+    
+    res.json({ 
+      success: true, 
+      message: 'Subscription will be canceled at the end of the current billing period',
+      cancelAt: subscription.cancel_at
+    });
+  } catch (error) {
+    console.error('Cancel subscription error:', error);
+    res.status(500).json({ error: error.message || 'Failed to cancel subscription' });
+  }
+});
+
+// 💰 PRICING ENDPOINTS FOR A/B TESTING
+app.get('/api/pricing/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Get user context for intelligent coupon selection
+    const userDoc = await admin.firestore().collection('users').doc(userId).get();
+    const userData = userDoc.exists ? userDoc.data() : {};
+    
+    // Build user context
+    const userContext = {
+      isStudent: false,
+      isNewUser: true,
+      daysSinceSignup: 0,
+      daysSinceLastActive: 0,
+      totalScans: userData.totalScans || 0,
+      referredBy: userData.referredBy || null
+    };
+    
+    // Calculate days since signup
+    if (userData.metadata?.createdAt) {
+      const createdAt = userData.metadata.createdAt.toDate();
+      userContext.daysSinceSignup = Math.floor((Date.now() - createdAt) / (1000 * 60 * 60 * 24));
+      userContext.isNewUser = userContext.daysSinceSignup <= 7;
+    }
+    
+    // Calculate days since last active
+    if (userData.metadata?.lastActiveDate) {
+      const lastActive = userData.metadata.lastActiveDate.toDate();
+      userContext.daysSinceLastActive = Math.floor((Date.now() - lastActive) / (1000 * 60 * 60 * 24));
+    }
+    
+    // Check student status
+    const studentStatus = await checkStudentStatus(userId);
+    userContext.isStudent = studentStatus.isStudent;
+    
+    // Get all pricing tiers with A/B test for Basic
+    const tiers = getAllPricingTiers(userId);
+    
+    // Get all applicable coupons
+    const { bestCoupon, allCoupons } = await getApplicableCoupons(userId, userContext);
+    
+    // Get student benefits if applicable
+    const studentBenefits = userContext.isStudent ? await getStudentBenefits(userId) : null;
+    
+    // Track pricing view event
+    await trackPricingEvent({
+      userId,
+      event: 'viewed_pricing',
+      pricingGroup: tiers.basic.name,
+      hasOffer: !!bestCoupon,
+      offerCode: bestCoupon?.code,
+      isStudent: userContext.isStudent
+    }, admin.firestore());
+    
+    res.json({ 
+      tiers, // All three tiers
+      offer: bestCoupon, // Best applicable offer
+      allOffers: allCoupons, // All available offers
+      validCoupons, // List of valid manual coupon codes
+      studentBenefits, // Student-specific benefits
+      userContext: {
+        isNewUser: userContext.isNewUser,
+        isStudent: userContext.isStudent,
+        hasReferral: !!userContext.referredBy
+      }
+    });
+  } catch (error) {
+    console.error('Pricing API error:', error);
+    res.status(500).json({ error: 'Failed to get pricing' });
+  }
+});
+
+app.post('/api/pricing/track-conversion', async (req, res) => {
+  try {
+    const { userId, pricingGroup, planType, amount, promoCode } = req.body;
+    
+    await trackPricingEvent({
+      userId,
+      event: 'converted',
+      pricingGroup,
+      planType,
+      amount,
+      promoCode,
+      timestamp: new Date()
+    }, admin.firestore());
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Conversion tracking error:', error);
+    res.status(500).json({ error: 'Failed to track conversion' });
+  }
+});
+
+// 🎓 STUDENT VERIFICATION ENDPOINT
+app.post('/api/verify-student', authenticateUser, async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    const { email, verificationMethod, additionalData } = req.body;
+    
+    // Verify student status
+    const result = await verifyStudent(userId, email || req.user.email, {
+      useThirdParty: verificationMethod === 'sheerid',
+      ...additionalData
+    });
+    
+    if (result.verified) {
+      res.json({
+        success: true,
+        verified: true,
+        discountCode: result.discountCode || 'STUDENT40',
+        benefits: await getStudentBenefits(userId)
+      });
+    } else {
+      res.json({
+        success: false,
+        verified: false,
+        message: 'Could not verify student status. Please try another method.'
+      });
+    }
+  } catch (error) {
+    console.error('Student verification error:', error);
+    res.status(500).json({ error: 'Failed to verify student status' });
+  }
+});
+
+// 🔗 REFERRAL TRACKING ENDPOINT
+app.post('/api/track-referral', async (req, res) => {
+  try {
+    const { referredUserId, referralCode } = req.body;
+    
+    // Decode referral code to get referrer user ID
+    const referrerUserId = referralCode; // In production, this should be decoded
+    
+    if (!referredUserId || !referrerUserId) {
+      return res.status(400).json({ error: 'Invalid referral data' });
+    }
+    
+    // Track the referral
+    const { trackReferral } = require('./services/couponTracking');
+    const success = await trackReferral(referredUserId, referrerUserId);
+    
+    res.json({ success });
+  } catch (error) {
+    console.error('Referral tracking error:', error);
+    res.status(500).json({ error: 'Failed to track referral' });
+  }
+});
+
+// 🔗 STRIPE CUSTOMER PORTAL SESSION
+app.post('/api/subscription/portal', authenticateUser, async (req, res) => {
+  try {
+    const userId = req.user.uid;
+    
+    // Get user's Stripe customer ID from Firestore
+    const userDoc = await admin.firestore().collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const userData = userDoc.data();
+    const stripeCustomerId = userData.stripeCustomerId;
+    
+    if (!stripeCustomerId) {
+      return res.status(400).json({ error: 'No active subscription found' });
+    }
+    
+    // Create customer portal session
+    const session = await stripe.billingPortal.sessions.create({
+      customer: stripeCustomerId,
+      return_url: `${req.headers.origin || 'https://naturinex-app.web.app'}/profile`
+    });
+    
+    res.json({ portalUrl: session.url });
+  } catch (error) {
+    console.error('Customer portal error:', error);
+    res.status(500).json({ error: 'Failed to create portal session' });
+  }
+});
+
 // 🔗 STRIPE WEBHOOK HANDLER FOR AUTOMATIC MONTHLY BILLING
 // Support both webhook paths for backward compatibility
 app.post('/webhook', verifyStripeWebhook, async (req, res) => {
@@ -897,6 +1158,10 @@ async function handleStripeWebhook(req, res) {
       
       case 'customer.subscription.updated':
         await handleSubscriptionUpdated(event.data.object);
+        break;
+      
+      case 'customer.subscription.trial_will_end':
+        await handleTrialWillEnd(event.data.object);
         break;
       
       case 'customer.subscription.deleted':
@@ -1015,8 +1280,34 @@ async function handleInvoicePaymentFailed(invoice) {
 async function handleSubscriptionCreated(subscription) {
   console.log('🆕 Subscription created:', subscription.id);
   
-  // This is handled by checkout.session.completed, but we can add additional logic here
-  console.log(`📅 Subscription ${subscription.id} created for customer ${subscription.customer}`);
+  const userId = subscription.metadata?.userId;
+  if (!userId) {
+    console.log('No userId in metadata, checking by customer ID');
+    return;
+  }
+  
+  try {
+    const updateData = {
+      subscriptionStatus: subscription.status,
+      subscriptionId: subscription.id,
+      stripeCustomerId: subscription.customer
+    };
+    
+    // Track trial status
+    if (subscription.status === 'trialing' && subscription.trial_end) {
+      updateData.trialStart = new Date(subscription.trial_start * 1000);
+      updateData.trialEnd = new Date(subscription.trial_end * 1000);
+      updateData.isTrialing = true;
+      
+      console.log(`🎉 Free trial started for user ${userId}, ends ${updateData.trialEnd}`);
+    }
+    
+    await admin.firestore().collection('users').doc(userId).update(updateData);
+    
+    console.log(`📅 Subscription ${subscription.id} created for user ${userId}`);
+  } catch (error) {
+    console.error('❌ Error handling subscription creation:', error);
+  }
 }
 
 async function handleSubscriptionUpdated(subscription) {
@@ -1032,16 +1323,44 @@ async function handleSubscriptionUpdated(subscription) {
       return;
     }
     
-    // Update user's subscription status
     const userDoc = snapshot.docs[0];
-    await userDoc.ref.update({
+    const userData = userDoc.data();
+    const previousStatus = userData.subscriptionStatus;
+    
+    // Update user's subscription status
+    const updateData = {
       subscriptionStatus: subscription.status,
       currentPeriodStart: new Date(subscription.current_period_start * 1000),
       currentPeriodEnd: new Date(subscription.current_period_end * 1000),
       lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-    });
+    };
     
-    console.log(`🔄 Subscription updated for user ${userDoc.id}: ${subscription.status}`);
+    // Track trial conversion
+    if (previousStatus === 'trialing' && subscription.status === 'active') {
+      updateData.trialConverted = true;
+      updateData.trialConvertedAt = admin.firestore.FieldValue.serverTimestamp();
+      updateData.isTrialing = false;
+      updateData.isPremium = true;
+      
+      console.log(`🎉 Trial converted to paid subscription for user ${userDoc.id}`);
+      
+      // Process referral reward if this is their first paid subscription
+      const { processReferralReward } = require('./services/couponTracking');
+      await processReferralReward(userDoc.id);
+      
+      // Track conversion analytics
+      await trackPricingEvent({
+        userId: userDoc.id,
+        event: 'trial_converted',
+        subscriptionId: subscription.id,
+        planId: subscription.items.data[0].price.id,
+        timestamp: new Date()
+      }, admin.firestore());
+    }
+    
+    await userDoc.ref.update(updateData);
+    
+    console.log(`🔄 Subscription updated for user ${userDoc.id}: ${previousStatus} → ${subscription.status}`);
   } catch (error) {
     console.error('❌ Error updating subscription:', error);
   }
@@ -1075,6 +1394,51 @@ async function handleSubscriptionDeleted(subscription) {
     console.log(`⬇️ User ${userDoc.id} downgraded to free tier`);
   } catch (error) {
     console.error('❌ Error handling subscription deletion:', error);
+  }
+}
+
+// Handle trial ending webhook
+async function handleTrialWillEnd(subscription) {
+  console.log('⏰ Trial will end soon:', subscription.id);
+  
+  const userId = subscription.metadata?.userId;
+  if (!userId) {
+    // Try to find user by subscription ID
+    const usersRef = admin.firestore().collection('users');
+    const snapshot = await usersRef.where('subscriptionId', '==', subscription.id).get();
+    
+    if (!snapshot.empty) {
+      const userDoc = snapshot.docs[0];
+      await handleTrialEndingForUser(userDoc.id, subscription);
+    }
+    return;
+  }
+  
+  await handleTrialEndingForUser(userId, subscription);
+}
+
+async function handleTrialEndingForUser(userId, subscription) {
+  try {
+    // Create a notification
+    await admin.firestore().collection('notifications').add({
+      userId,
+      type: 'trial_ending',
+      title: '⏰ Your free trial ends in 3 days!',
+      message: 'Don\'t lose access to premium features. Your payment method will be charged after the trial ends.',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      read: false,
+      subscriptionId: subscription.id
+    });
+    
+    // Update user record
+    await admin.firestore().collection('users').doc(userId).update({
+      trialEndingSoon: true,
+      trialEndDate: new Date(subscription.trial_end * 1000)
+    });
+    
+    console.log(`📧 Trial ending notification created for user ${userId}`);
+  } catch (error) {
+    console.error('❌ Error handling trial end warning:', error);
   }
 }
 
@@ -1223,10 +1587,9 @@ app.post('/api/subscription/cancel', async (req, res) => {
     // Update user record in Firestore
     await userDoc.ref.update({
       'subscription.status': 'canceling',
-        autoRenewalEnabled: false,
-        canceledAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-    }
+      'subscription.autoRenewalEnabled': false,
+      'subscription.canceledAt': admin.firestore.FieldValue.serverTimestamp()
+    });
     
     console.log(`❌ Subscription ${subscriptionId} set to cancel at period end`);
     
@@ -1240,6 +1603,8 @@ app.post('/api/subscription/cancel', async (req, res) => {
     res.status(500).json({ error: 'Failed to cancel subscription' });
   }
 });
+
+// Remove duplicate endpoints - already defined above
 
 // Admin endpoints (require authentication)
 app.get('/api/admin/analytics', async (req, res) => {

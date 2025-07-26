@@ -259,17 +259,28 @@ export default function CameraScreen({ navigation }) {
                 <MaterialIcons name="arrow-forward" size={20} color="#10B981" />
               </TouchableOpacity>
               
-              <View style={styles.scanFrame} />
+              <View style={styles.scanFrame}>
+                {/* Corner guides for better framing */}
+                <View style={[styles.cornerGuide, styles.topLeft]} />
+                <View style={[styles.cornerGuide, styles.topRight]} />
+                <View style={[styles.cornerGuide, styles.bottomLeft]} />
+                <View style={[styles.cornerGuide, styles.bottomRight]} />
+                
+                {/* Center focus indicator */}
+                <View style={styles.centerFocus}>
+                  <MaterialIcons name="center-focus-strong" size={40} color="#10B981" opacity={0.6} />
+                </View>
+              </View>
               
               <Text style={styles.instructionText}>
-                {isScanning ? 'Scanning for barcode...' : 'Position product label within frame'}
+                {isScanning ? 'Scanning for barcode...' : 'Center the product name in the frame'}
               </Text>
               
               {/* Camera Tips */}
               <View style={styles.tipsContainer}>
-                <Text style={styles.tipText}>• Good lighting improves scanning</Text>
-                <Text style={styles.tipText}>• Hold steady for clear capture</Text>
-                <Text style={styles.tipText}>• Or type product name manually</Text>
+                <Text style={styles.tipText}>• Focus on the main product name</Text>
+                <Text style={styles.tipText}>• Include dosage info (mg, ml)</Text>
+                <Text style={styles.tipText}>• Good lighting helps</Text>
               </View>
               
               <TouchableOpacity 
@@ -371,12 +382,54 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   scanFrame: {
-    width: 250,
-    height: 250,
+    width: 280,
+    height: 280,
     borderWidth: 2,
     borderColor: '#10B981',
-    borderRadius: 10,
+    borderRadius: 15,
     backgroundColor: 'transparent',
+    position: 'relative',
+  },
+  cornerGuide: {
+    position: 'absolute',
+    width: 30,
+    height: 30,
+    borderColor: '#10B981',
+    borderWidth: 3,
+  },
+  topLeft: {
+    top: -1,
+    left: -1,
+    borderRightWidth: 0,
+    borderBottomWidth: 0,
+    borderTopLeftRadius: 15,
+  },
+  topRight: {
+    top: -1,
+    right: -1,
+    borderLeftWidth: 0,
+    borderBottomWidth: 0,
+    borderTopRightRadius: 15,
+  },
+  bottomLeft: {
+    bottom: -1,
+    left: -1,
+    borderRightWidth: 0,
+    borderTopWidth: 0,
+    borderBottomLeftRadius: 15,
+  },
+  bottomRight: {
+    bottom: -1,
+    right: -1,
+    borderLeftWidth: 0,
+    borderTopWidth: 0,
+    borderBottomRightRadius: 15,
+  },
+  centerFocus: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -20 }, { translateY: -20 }],
   },
   instructionText: {
     color: 'white',

@@ -15,6 +15,13 @@ class EngagementTracker {
   async trackScan(productName, scanResult) {
     try {
       const user = getAuth().currentUser;
+      
+      // Skip tracking if user is not authenticated
+      if (!user) {
+        console.log('Skipping scan tracking - user not authenticated');
+        return;
+      }
+      
       const isPremium = await SecureStore.getItemAsync('is_premium') === 'true';
       
       const event = {
@@ -23,21 +30,30 @@ class EngagementTracker {
         isPremium,
         timestamp: new Date(),
         hasAlternatives: scanResult?.alternatives?.length > 0,
-        userId: user?.uid || 'anonymous'
+        userId: user.uid
       };
       
       this.sessionEvents.push(event);
       
       // Save to Firestore for premium users
-      if (user && isPremium) {
-        await addDoc(collection(db, 'engagement'), event);
-        
-        // Update user stats
-        await updateDoc(doc(db, 'users', user.uid), {
-          'stats.totalScans': increment(1),
-          'stats.lastScanDate': new Date(),
-          'stats.mostScannedCategory': scanResult?.category || 'unknown'
-        });
+      if (isPremium) {
+        try {
+          await addDoc(collection(db, 'engagement'), event);
+          
+          // Update user stats
+          await updateDoc(doc(db, 'users', user.uid), {
+            'stats.totalScans': increment(1),
+            'stats.lastScanDate': new Date(),
+            'stats.mostScannedCategory': scanResult?.category || 'unknown'
+          });
+        } catch (firestoreError) {
+          // Handle permission errors gracefully
+          if (firestoreError.code === 'permission-denied') {
+            console.log('Firestore permission denied - check security rules');
+          } else {
+            console.error('Firestore error:', firestoreError.message);
+          }
+        }
       }
       
       // Check for milestones
@@ -117,12 +133,20 @@ class EngagementTracker {
     if (!user) return;
     
     try {
-      const userDoc = await doc(db, 'users', user.uid).get();
+      const { getDoc } = require('firebase/firestore');
+      const userDocRef = doc(db, 'users', user.uid);
+      const userDoc = await getDoc(userDocRef);
+      
+      if (!userDoc.exists()) {
+        console.log('User document not found');
+        return;
+      }
+      
       const stats = userDoc.data()?.stats || {};
       
       const milestones = [
         { count: 10, message: '🎉 10 scans completed!', reward: 'scan_streak_10' },
-        { count: 50, message: '🌟 50 scans - You're a wellness pro!', reward: 'scan_streak_50' },
+        { count: 50, message: '🌟 50 scans - You are a wellness pro!', reward: 'scan_streak_50' },
         { count: 100, message: '💯 100 scans - Wellness master!', reward: 'scan_streak_100' },
       ];
       
@@ -132,10 +156,14 @@ class EngagementTracker {
           this.celebrateMilestone(milestone);
           
           // Save achievement
-          await updateDoc(doc(db, 'users', user.uid), {
-            [`achievements.${milestone.reward}`]: true,
-            [`achievements.${milestone.reward}_date`]: new Date()
-          });
+          try {
+            await updateDoc(doc(db, 'users', user.uid), {
+              [`achievements.${milestone.reward}`]: true,
+              [`achievements.${milestone.reward}_date`]: new Date()
+            });
+          } catch (updateError) {
+            console.log('Could not update achievement:', updateError.message);
+          }
         }
       }
       

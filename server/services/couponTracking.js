@@ -1,0 +1,364 @@
+// Intelligent Coupon Auto-Application System
+const admin = require('firebase-admin');
+
+// Coupon priority system (highest to lowest)
+const COUPON_PRIORITY = {
+  STUDENT: 100,      // Student discounts always win
+  REFERRAL: 90,      // Referral rewards
+  WINBACK: 80,       // Win-back offers
+  WELCOME: 70,       // New user offers
+  SEASONAL: 60,      // Time-limited offers
+  LOYALTY: 50,       // Loyalty rewards
+  GENERAL: 40        // General promotions
+};
+
+// Track coupon application
+async function trackCouponUsage(userId, couponCode, context) {
+  try {
+    await admin.firestore().collection('couponTracking').add({
+      userId,
+      couponCode,
+      context,
+      appliedAt: admin.firestore.FieldValue.serverTimestamp(),
+      source: context.source || 'manual'
+    });
+  } catch (error) {
+    console.error('Error tracking coupon:', error);
+  }
+}
+
+// Get user's coupon history
+async function getUserCouponHistory(userId) {
+  try {
+    const history = await admin.firestore()
+      .collection('couponTracking')
+      .where('userId', '==', userId)
+      .orderBy('appliedAt', 'desc')
+      .limit(10)
+      .get();
+    
+    return history.docs.map(doc => ({
+      ...doc.data(),
+      id: doc.id
+    }));
+  } catch (error) {
+    console.error('Error getting coupon history:', error);
+    return [];
+  }
+}
+
+// Check if user has used a specific coupon type
+async function hasUsedCouponType(userId, couponType) {
+  try {
+    const usage = await admin.firestore()
+      .collection('couponTracking')
+      .where('userId', '==', userId)
+      .where('context.type', '==', couponType)
+      .limit(1)
+      .get();
+    
+    return !usage.empty;
+  } catch (error) {
+    console.error('Error checking coupon usage:', error);
+    return false;
+  }
+}
+
+// Smart coupon selection based on user context
+async function selectBestCoupon(userId, availableCoupons) {
+  // Sort by priority
+  const sortedCoupons = availableCoupons.sort((a, b) => {
+    const priorityA = COUPON_PRIORITY[a.type] || COUPON_PRIORITY.GENERAL;
+    const priorityB = COUPON_PRIORITY[b.type] || COUPON_PRIORITY.GENERAL;
+    return priorityB - priorityA;
+  });
+  
+  // Return highest priority coupon
+  return sortedCoupons[0];
+}
+
+// Get all applicable coupons for a user
+async function getApplicableCoupons(userId, userContext) {
+  const coupons = [];
+  
+  try {
+    // 1. Check student status
+    if (userContext.isStudent) {
+      coupons.push({
+        code: 'STUDENT40',
+        type: 'STUDENT',
+        description: 'Student discount: 40% off forever!',
+        percentOff: 40,
+        duration: 'forever',
+        autoApply: true
+      });
+    }
+    
+    // 2. Check referral status
+    if (userContext.referredBy) {
+      const hasUsedReferral = await hasUsedCouponType(userId, 'REFERRAL');
+      if (!hasUsedReferral) {
+        coupons.push({
+          code: 'FRIEND15',
+          type: 'REFERRAL',
+          description: 'Friend referral: 15% off forever!',
+          percentOff: 15,
+          duration: 'forever',
+          autoApply: true
+        });
+      }
+    }
+    
+    // 3. Check for win-back eligibility
+    if (userContext.daysSinceLastActive > 30) {
+      coupons.push({
+        code: 'WINBACK50',
+        type: 'WINBACK',
+        description: 'Welcome back! 50% off for 3 months',
+        percentOff: 50,
+        duration: 'repeating',
+        durationInMonths: 3,
+        autoApply: true
+      });
+    }
+    
+    // 4. New user offer
+    if (userContext.isNewUser && userContext.daysSinceSignup <= 7) {
+      coupons.push({
+        code: 'WELCOME50',
+        type: 'WELCOME',
+        description: 'Welcome! 50% off your first 3 months',
+        percentOff: 50,
+        duration: 'repeating',
+        durationInMonths: 3,
+        autoApply: true
+      });
+    }
+    
+    // 5. Seasonal/promotional offers
+    const currentMonth = new Date().getMonth();
+    const currentDate = new Date().getDate();
+    
+    // January - New Year
+    if (currentMonth === 0) {
+      coupons.push({
+        code: 'NEWYEAR25',
+        type: 'SEASONAL',
+        description: 'New Year Special: 25% off!',
+        percentOff: 25,
+        duration: 'once',
+        autoApply: false
+      });
+    }
+    
+    // February - Valentine's Day
+    if (currentMonth === 1 && currentDate >= 10 && currentDate <= 20) {
+      coupons.push({
+        code: 'LOVE20',
+        type: 'SEASONAL',
+        description: 'Share the Love: 20% off!',
+        percentOff: 20,
+        duration: 'once',
+        autoApply: false
+      });
+    }
+    
+    // March/April - Spring
+    if (currentMonth === 2 || currentMonth === 3) {
+      coupons.push({
+        code: 'SPRING25',
+        type: 'SEASONAL',
+        description: 'Spring Wellness: 25% off!',
+        percentOff: 25,
+        duration: 'once',
+        autoApply: false
+      });
+    }
+    
+    // June/July/August - Summer
+    if (currentMonth >= 5 && currentMonth <= 7) {
+      coupons.push({
+        code: 'SUMMER30',
+        type: 'SEASONAL',
+        description: 'Summer Special: 30% off!',
+        percentOff: 30,
+        duration: 'once',
+        autoApply: false
+      });
+    }
+    
+    // September - Back to School
+    if (currentMonth === 8) {
+      coupons.push({
+        code: 'BACKTOSCHOOL25',
+        type: 'SEASONAL',
+        description: 'Back to School: 25% off!',
+        percentOff: 25,
+        duration: 'once',
+        autoApply: false
+      });
+    }
+    
+    // October - Halloween
+    if (currentMonth === 9 && currentDate >= 20) {
+      coupons.push({
+        code: 'SPOOKY20',
+        type: 'SEASONAL',
+        description: 'Halloween Treat: 20% off!',
+        percentOff: 20,
+        duration: 'once',
+        autoApply: false
+      });
+    }
+    
+    // November - Black Friday / Cyber Monday
+    if (currentMonth === 10) {
+      if (currentDate >= 20 && currentDate <= 30) {
+        coupons.push({
+          code: 'BLACKFRIDAY30',
+          type: 'SEASONAL',
+          description: 'Black Friday: 30% off!',
+          percentOff: 30,
+          duration: 'once',
+          autoApply: false
+        });
+      }
+    }
+    
+    // December - Holiday Season
+    if (currentMonth === 11) {
+      coupons.push({
+        code: 'HOLIDAY25',
+        type: 'SEASONAL',
+        description: 'Holiday Special: 25% off!',
+        percentOff: 25,
+        duration: 'once',
+        autoApply: false
+      });
+    }
+    
+    // 6. Loyalty rewards
+    if (userContext.totalScans > 100) {
+      coupons.push({
+        code: 'LOYAL20',
+        type: 'LOYALTY',
+        description: 'Loyalty reward: 20% off!',
+        percentOff: 20,
+        duration: 'once',
+        autoApply: true
+      });
+    }
+    
+    // Select best coupon if multiple available
+    if (coupons.length > 0) {
+      const bestCoupon = await selectBestCoupon(userId, coupons);
+      return {
+        bestCoupon,
+        allCoupons: coupons
+      };
+    }
+    
+    return { bestCoupon: null, allCoupons: [] };
+    
+  } catch (error) {
+    console.error('Error getting applicable coupons:', error);
+    return { bestCoupon: null, allCoupons: [] };
+  }
+}
+
+// Create personalized coupon URL
+function createCouponUrl(baseUrl, couponCode, userId) {
+  const params = new URLSearchParams({
+    coupon: couponCode,
+    ref: userId,
+    utm_source: 'auto_coupon',
+    utm_medium: 'app',
+    utm_campaign: couponCode.toLowerCase()
+  });
+  
+  return `${baseUrl}?${params.toString()}`;
+}
+
+// Track referral
+async function trackReferral(referredUserId, referrerUserId) {
+  try {
+    // Save referral relationship
+    await admin.firestore().collection('referrals').add({
+      referredUser: referredUserId,
+      referrerUser: referrerUserId,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      status: 'pending'
+    });
+    
+    // Update referred user's profile
+    await admin.firestore().collection('users').doc(referredUserId).update({
+      referredBy: referrerUserId,
+      referralDate: admin.firestore.FieldValue.serverTimestamp()
+    });
+    
+    // Give referrer a reward when referred user subscribes
+    // This will be handled in the subscription webhook
+    
+    return true;
+  } catch (error) {
+    console.error('Error tracking referral:', error);
+    return false;
+  }
+}
+
+// Process referral reward
+async function processReferralReward(referredUserId) {
+  try {
+    // Get referral info
+    const referral = await admin.firestore()
+      .collection('referrals')
+      .where('referredUser', '==', referredUserId)
+      .where('status', '==', 'pending')
+      .limit(1)
+      .get();
+    
+    if (referral.empty) return;
+    
+    const referralDoc = referral.docs[0];
+    const referralData = referralDoc.data();
+    const referrerUserId = referralData.referrerUser;
+    
+    // Update referral status
+    await referralDoc.ref.update({
+      status: 'completed',
+      completedAt: admin.firestore.FieldValue.serverTimestamp()
+    });
+    
+    // Give referrer a reward (e.g., free month, credit, or special coupon)
+    await admin.firestore().collection('users').doc(referrerUserId).update({
+      referralCredits: admin.firestore.FieldValue.increment(1),
+      lastReferralReward: admin.firestore.FieldValue.serverTimestamp()
+    });
+    
+    // Create notification for referrer
+    await admin.firestore().collection('notifications').add({
+      userId: referrerUserId,
+      type: 'referral_reward',
+      title: '🎉 Referral Reward Earned!',
+      message: 'Your friend just subscribed! You\'ve earned a free month.',
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      read: false
+    });
+    
+    return true;
+  } catch (error) {
+    console.error('Error processing referral reward:', error);
+    return false;
+  }
+}
+
+module.exports = {
+  trackCouponUsage,
+  getUserCouponHistory,
+  hasUsedCouponType,
+  getApplicableCoupons,
+  createCouponUrl,
+  trackReferral,
+  processReferralReward,
+  COUPON_PRIORITY
+};
