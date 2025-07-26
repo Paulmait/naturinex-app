@@ -1,0 +1,244 @@
+const admin = require('firebase-admin');
+
+// Initialize Firestore
+const db = admin.firestore();
+
+/**
+ * Save scan to user's history
+ */
+async function saveScanToHistory(userId, scanData) {
+  try {
+    const scanRef = db.collection('scanHistory').doc();
+    const scanId = scanRef.id;
+    
+    const scanRecord = {
+      scanId,
+      userId,
+      deviceId: scanData.deviceId,
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      productInfo: {
+        name: scanData.productInfo.productName,
+        brand: scanData.productInfo.brandName || null,
+        activeIngredient: scanData.productInfo.activeIngredient || null,
+        category: scanData.productInfo.category || 'unknown',
+        ocrConfidence: scanData.ocrConfidence || 'low'
+      },
+      imageUrl: scanData.imageUrl || null,
+      analysisResult: {
+        alternatives: scanData.alternatives || [],
+        warnings: scanData.warnings || []
+      },
+      location: {
+        ip: scanData.ipAddress,
+        country: scanData.country || null,
+        city: scanData.city || null
+      }
+    };
+    
+    await scanRef.set(scanRecord);
+    
+    // Update user's scan count
+    const userRef = db.collection('users').doc(userId);
+    await userRef.update({
+      'metadata.totalScans': admin.firestore.FieldValue.increment(1),
+      'metadata.lastScanDate': admin.firestore.FieldValue.serverTimestamp()
+    });
+    
+    // Update daily analytics
+    await updateDailyAnalytics(scanData.productInfo.name);
+    
+    return scanId;
+  } catch (error) {
+    console.error('Error saving scan to history:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get user's scan history
+ */
+async function getUserScanHistory(userId, limit = 50, startAfter = null) {
+  try {
+    let query = db.collection('scanHistory')
+      .where('userId', '==', userId)
+      .orderBy('timestamp', 'desc')
+      .limit(limit);
+    
+    if (startAfter) {
+      query = query.startAfter(startAfter);
+    }
+    
+    const snapshot = await query.get();
+    const scans = [];
+    
+    snapshot.forEach(doc => {
+      scans.push({
+        id: doc.id,
+        ...doc.data()
+      });
+    });
+    
+    return scans;
+  } catch (error) {
+    console.error('Error fetching scan history:', error);
+    throw error;
+  }
+}
+
+/**
+ * Update user subscription status
+ */
+async function updateUserSubscription(userId, subscriptionData) {
+  try {
+    const userRef = db.collection('users').doc(userId);
+    
+    await userRef.update({
+      subscription: {
+        status: subscriptionData.status,
+        plan: subscriptionData.plan,
+        startDate: subscriptionData.startDate,
+        endDate: subscriptionData.endDate,
+        stripeCustomerId: subscriptionData.stripeCustomerId,
+        stripeSubscriptionId: subscriptionData.stripeSubscriptionId,
+        amount: subscriptionData.amount,
+        currency: subscriptionData.currency || 'USD'
+      },
+      'metadata.updatedAt': admin.firestore.FieldValue.serverTimestamp()
+    });
+    
+    // Log subscription event
+    await db.collection('subscriptionEvents').add({
+      userId,
+      type: subscriptionData.eventType || 'updated',
+      plan: subscriptionData.plan,
+      amount: subscriptionData.amount,
+      timestamp: admin.firestore.FieldValue.serverTimestamp(),
+      stripeEventId: subscriptionData.stripeEventId || null,
+      metadata: subscriptionData.metadata || {}
+    });
+    
+  } catch (error) {
+    console.error('Error updating subscription:', error);
+    throw error;
+  }
+}
+
+/**
+ * Check if user has premium subscription
+ */
+async function checkPremiumStatus(userId) {
+  try {
+    const userDoc = await db.collection('users').doc(userId).get();
+    
+    if (!userDoc.exists) {
+      return false;
+    }
+    
+    const userData = userDoc.data();
+    const subscription = userData.subscription;
+    
+    if (!subscription || subscription.status !== 'premium') {
+      return false;
+    }
+    
+    // Check if subscription is still valid
+    const endDate = subscription.endDate.toDate();
+    return endDate > new Date();
+    
+  } catch (error) {
+    console.error('Error checking premium status:', error);
+    return false;
+  }
+}
+
+/**
+ * Update daily analytics
+ */
+async function updateDailyAnalytics(productName) {
+  try {
+    const today = new Date().toISOString().split('T')[0];
+    const analyticsRef = db.collection('analytics').doc(today);
+    
+    await db.runTransaction(async (transaction) => {
+      const doc = await transaction.get(analyticsRef);
+      
+      if (!doc.exists) {
+        // Create new daily record
+        transaction.set(analyticsRef, {
+          date: today,
+          metrics: {
+            totalScans: 1,
+            popularProducts: [{
+              name: productName,
+              scanCount: 1
+            }]
+          }
+        });
+      } else {
+        // Update existing record
+        const data = doc.data();
+        const popularProducts = data.metrics.popularProducts || [];
+        
+        // Update product count
+        const productIndex = popularProducts.findIndex(p => p.name === productName);
+        if (productIndex >= 0) {
+          popularProducts[productIndex].scanCount++;
+        } else {
+          popularProducts.push({
+            name: productName,
+            scanCount: 1
+          });
+        }
+        
+        // Sort by scan count and keep top 20
+        popularProducts.sort((a, b) => b.scanCount - a.scanCount);
+        const topProducts = popularProducts.slice(0, 20);
+        
+        transaction.update(analyticsRef, {
+          'metrics.totalScans': admin.firestore.FieldValue.increment(1),
+          'metrics.popularProducts': topProducts
+        });
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error updating analytics:', error);
+  }
+}
+
+/**
+ * Get admin analytics
+ */
+async function getAdminAnalytics(startDate, endDate) {
+  try {
+    const analytics = await db.collection('analytics')
+      .where('date', '>=', startDate)
+      .where('date', '<=', endDate)
+      .orderBy('date', 'desc')
+      .get();
+    
+    const users = await db.collection('users').get();
+    const premiumUsers = users.docs.filter(doc => 
+      doc.data().subscription?.status === 'premium'
+    ).length;
+    
+    return {
+      totalUsers: users.size,
+      premiumUsers,
+      dailyMetrics: analytics.docs.map(doc => doc.data())
+    };
+    
+  } catch (error) {
+    console.error('Error fetching analytics:', error);
+    throw error;
+  }
+}
+
+module.exports = {
+  saveScanToHistory,
+  getUserScanHistory,
+  updateUserSubscription,
+  checkPremiumStatus,
+  updateDailyAnalytics,
+  getAdminAnalytics
+};

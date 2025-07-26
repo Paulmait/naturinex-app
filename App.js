@@ -21,6 +21,7 @@ import OnboardingScreen from './src/screens/OnboardingScreen';
 import ScanHistory from './src/components/ScanHistory';
 import PrivacyPolicyScreen from './src/components/PrivacyPolicyScreen';
 import TermsOfUseScreen from './src/components/TermsOfUseScreen';
+import AdminDashboard from './src/screens/AdminDashboard';
 
 const Stack = createNativeStackNavigator();
 
@@ -111,6 +112,11 @@ export default function App() {
             name="TermsOfUse" 
             component={TermsOfUseScreen}
             options={{ title: 'Terms of Service' }}
+          />
+          <Stack.Screen 
+            name="AdminDashboard" 
+            component={AdminDashboard}
+            options={{ title: 'Admin Dashboard' }}
           />
         </Stack.Navigator>
       </NavigationContainer>

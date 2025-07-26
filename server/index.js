@@ -13,6 +13,7 @@ const axios = require('axios');
 const { extractProductInfo } = require('./utils/productExtraction');
 const { getDeviceId, checkScanLimit, recordScan } = require('./utils/deviceTracking');
 const { getWellnessAlternatives } = require('./data/wellnessAlternatives');
+const { saveScanToHistory, checkPremiumStatus } = require('./services/scanTracking');
 
 // Configure multer for image uploads
 const upload = multer({ 
@@ -683,6 +684,22 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
           // Record successful scan
           const scanResult = recordScan(deviceId, userId);
           
+          // Save to scan history if user is authenticated
+          if (userId) {
+            try {
+              await saveScanToHistory(userId, {
+                deviceId,
+                productInfo,
+                ocrConfidence: detectedText.length > 20 ? 'high' : 'low',
+                alternatives: curatedAlternatives || analysisResult.wellness_info,
+                warnings: analysisResult.warnings,
+                ipAddress,
+              });
+            } catch (historyError) {
+              console.error('Failed to save scan history:', historyError);
+            }
+          }
+          
           res.json({
             ...analysisResult,
             detectedFromImage: true,
@@ -1208,6 +1225,42 @@ app.post('/api/subscription/cancel', async (req, res) => {
   } catch (error) {
     console.error('❌ Error canceling subscription:', error);
     res.status(500).json({ error: 'Failed to cancel subscription' });
+  }
+});
+
+// Admin endpoints (require authentication)
+app.get('/api/admin/analytics', async (req, res) => {
+  try {
+    // Verify admin token
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    // Verify the token with Firebase Admin
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    const userId = decodedToken.uid;
+
+    // Check if user is admin (you'll need to implement this check)
+    // For now, we'll return mock data
+    const today = new Date().toISOString().split('T')[0];
+    
+    res.json({
+      totalUsers: 1250,
+      premiumUsers: 89,
+      todayScans: 342,
+      monthlyRevenue: 890.11, // $9.99 * 89 users
+      popularProducts: [
+        { name: 'MiraLAX', scanCount: 45 },
+        { name: 'Aspirin', scanCount: 38 },
+        { name: 'Omeprazole', scanCount: 32 },
+        { name: 'Pepto-Bismol', scanCount: 28 },
+        { name: 'Claritin', scanCount: 24 }
+      ]
+    });
+  } catch (error) {
+    console.error('Admin analytics error:', error);
+    res.status(500).json({ error: 'Failed to fetch analytics' });
   }
 });
 
