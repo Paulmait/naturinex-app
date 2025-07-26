@@ -11,7 +11,7 @@ import {
   ScrollView,
   Image,
 } from 'react-native';
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInAnonymously, GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInAnonymously, GoogleAuthProvider, signInWithCredential, sendPasswordResetEmail } from 'firebase/auth';
 import * as Google from 'expo-auth-session/providers/google';
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
@@ -126,6 +126,43 @@ export default function LoginScreen({ navigation }) {
     promptAsync();
   };
 
+  const handleForgotPassword = () => {
+    if (!email) {
+      Alert.alert('Email Required', 'Please enter your email address first.');
+      return;
+    }
+
+    Alert.alert(
+      'Reset Password',
+      `Send password reset instructions to ${email}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Send',
+          onPress: async () => {
+            try {
+              await sendPasswordResetEmail(auth, email);
+              Alert.alert(
+                'Email Sent! ✅',
+                'Check your email for password reset instructions. Please also check your spam folder.',
+                [{ text: 'OK' }]
+              );
+            } catch (error) {
+              console.error('Password reset error:', error);
+              if (error.code === 'auth/user-not-found') {
+                Alert.alert('Error', 'No account found with this email address.');
+              } else if (error.code === 'auth/invalid-email') {
+                Alert.alert('Error', 'Please enter a valid email address.');
+              } else {
+                Alert.alert('Error', 'Failed to send reset email. Please try again.');
+              }
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -205,7 +242,7 @@ export default function LoginScreen({ navigation }) {
 
           <TouchableOpacity
             style={styles.forgotPassword}
-            onPress={() => Alert.alert('Info', 'Password reset feature coming soon!')}
+            onPress={() => handleForgotPassword()}
           >
             <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
           </TouchableOpacity>
