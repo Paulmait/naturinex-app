@@ -12,6 +12,7 @@ const multer = require('multer');
 const axios = require('axios');
 const { extractProductInfo } = require('./utils/productExtraction');
 const { getDeviceId, checkScanLimit, recordScan } = require('./utils/deviceTracking');
+const { getWellnessAlternatives } = require('./data/wellnessAlternatives');
 
 // Configure multer for image uploads
 const upload = multer({ 
@@ -670,6 +671,14 @@ app.post('/api/analyze', upload.single('image'), async (req, res) => {
         
         if (jsonMatch) {
           const analysisResult = JSON.parse(jsonMatch[0]);
+          
+          // Get curated wellness alternatives
+          const curatedAlternatives = getWellnessAlternatives(productInfo.activeIngredient || productInfo.productName);
+          
+          // Merge AI suggestions with curated database
+          if (curatedAlternatives && curatedAlternatives.length > 0) {
+            analysisResult.wellness_info = curatedAlternatives;
+          }
           
           // Record successful scan
           const scanResult = recordScan(deviceId, userId);

@@ -101,7 +101,7 @@ export default function CameraScreen({ navigation }) {
         uri: image.uri,
         type: 'image/jpeg',
         name: 'product.jpg',
-      } as any);
+      });
 
       console.log('Uploading image to:', `${API_URL}/api/analyze`);
 

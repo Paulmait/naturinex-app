@@ -17,6 +17,7 @@ import MedicalDisclaimer from '../components/MedicalDisclaimer';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
+import { getDeviceId } from '../utils/deviceId';
 
 const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-zsga.onrender.com';
 
@@ -128,20 +129,43 @@ export default function AnalysisScreen({ route, navigation }) {
         name: 'medication.jpg',
       });
 
+      // Get device ID for tracking
+      const deviceId = await getDeviceId();
+
       const response = await fetch(`${API_URL}/api/analyze`, {
         method: 'POST',
         body: formData,
         headers: {
           'Content-Type': 'multipart/form-data',
+          'X-Device-Id': deviceId,
         },
       });
 
       if (!response.ok) {
-        throw new Error('Analysis failed');
+        const errorData = await response.json();
+        if (response.status === 429) {
+          // Scan limit reached
+          Alert.alert(
+            '🌟 Upgrade to Premium',
+            errorData.message || 'You\'ve reached your free scan limit. Upgrade to premium for unlimited scans!',
+            [
+              { text: 'Later', style: 'cancel' },
+              { text: 'Upgrade Now', onPress: () => navigation.navigate('Profile') }
+            ]
+          );
+          navigation.goBack();
+          return;
+        }
+        throw new Error(errorData.error || 'Analysis failed');
       }
 
       const result = await response.json();
       setAnalysisResult(result);
+      
+      // Update remaining scans if provided
+      if (result.scansRemaining !== undefined) {
+        await SecureStore.setItemAsync('free_scans_remaining', result.scansRemaining.toString());
+      }
       
       // Save scan count
       const currentCount = await SecureStore.getItemAsync('scan_count') || '0';
