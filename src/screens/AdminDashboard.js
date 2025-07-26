@@ -13,6 +13,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import Constants from 'expo-constants';
+import { useAdminTimeout } from '../hooks/useAdminTimeout';
 
 const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-zsga.onrender.com';
 
@@ -28,9 +29,13 @@ export default function AdminDashboard({ navigation }) {
     recentScans: []
   });
   const [selectedTab, setSelectedTab] = useState('overview');
+  const [isAdmin, setIsAdmin] = useState(false);
   
   const auth = getAuth();
   const db = getFirestore();
+  
+  // Use admin timeout for security
+  const { resetTimeout } = useAdminTimeout(navigation, isAdmin);
 
   useEffect(() => {
     checkAdminAccess();
@@ -55,6 +60,8 @@ export default function AdminDashboard({ navigation }) {
       if (userDoc.empty || !userDoc.docs[0].data()?.metadata?.isAdmin) {
         Alert.alert('Access Denied', 'You do not have admin privileges.');
         navigation.goBack();
+      } else {
+        setIsAdmin(true);
       }
     } catch (error) {
       console.error('Admin check error:', error);
@@ -213,6 +220,8 @@ export default function AdminDashboard({ navigation }) {
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
+      onScroll={resetTimeout}
+      scrollEventThrottle={1000}
     >
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
