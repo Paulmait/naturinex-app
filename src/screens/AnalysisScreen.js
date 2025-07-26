@@ -8,6 +8,7 @@ import {
   Alert,
   ActivityIndicator,
   Image,
+  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
@@ -180,9 +181,11 @@ export default function AnalysisScreen({ route, navigation }) {
     try {
       const shareText = `🌿 Natural Wellness Discovery\n\nProduct: ${analysisResult.medicationName || analysisResult.productName}\n\nNatural Alternatives Found:\n${analysisResult.alternatives?.map(alt => `• ${alt.name}`).join('\n') || 'No alternatives found'}\n\nDiscovered with Naturinex - Your Natural Wellness Guide\n\n⚠️ Educational information only. Consult healthcare professionals.`;
       
-      await Sharing.shareAsync(shareText, {
-        dialogTitle: 'Share Wellness Discovery',
-      });
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(shareText);
+      } else {
+        Alert.alert('Sharing not available', 'Sharing is not available on this device.')
+      }
     } catch (error) {
       Alert.alert('Error', 'Unable to share. Please try again.');
     }
