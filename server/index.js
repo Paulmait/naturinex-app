@@ -20,8 +20,9 @@ const { getApplicableCoupons, trackCouponUsage } = require('./services/couponTra
 const { IntegratedNaturalAPI } = require('./services/externalAPIs');
 const adminRoutes = require('./routes/adminRoutes');
 const optimizedSearch = require('./services/optimizedSearch');
-const { scheduledIngestion, manualIngestion } = require('./functions/dataIngestion');
-const { handleIngestionTask, handleBatchIngestion } = require('./functions/cloudTasks');
+// Cloud functions - these will be deployed separately
+// const { scheduledIngestion, manualIngestion } = require('./functions/dataIngestion');
+// const { handleIngestionTask, handleBatchIngestion } = require('./functions/cloudTasks');
 
 // Configure multer for image uploads
 const upload = multer({ 
@@ -1795,11 +1796,11 @@ app.get('/api/admin/analytics', async (req, res) => {
   }
 });
 
-// Data ingestion endpoints
-app.post('/api/functions/scheduled-ingestion', scheduledIngestion);
-app.post('/api/functions/manual-ingestion', authenticateUser, manualIngestion);
-app.post('/api/functions/ingest-substance', handleIngestionTask);
-app.post('/api/functions/batch-ingest', handleBatchIngestion);
+// Data ingestion endpoints - These should be deployed as separate Cloud Functions
+// app.post('/api/functions/scheduled-ingestion', scheduledIngestion);
+// app.post('/api/functions/manual-ingestion', authenticateUser, manualIngestion);
+// app.post('/api/functions/ingest-substance', handleIngestionTask);
+// app.post('/api/functions/batch-ingest', handleBatchIngestion);
 
 // Optimized search endpoints
 app.get('/api/search/substances', apiLimiter, async (req, res) => {
