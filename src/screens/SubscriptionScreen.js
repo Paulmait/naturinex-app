@@ -64,6 +64,27 @@ export default function SubscriptionScreen({ navigation }) {
     try {
       const premium = await SecureStore.getItemAsync('is_premium') || 'false';
       setIsPremium(premium === 'true');
+      
+      // Load subscription data from server if premium
+      if (premium === 'true') {
+        const userId = await SecureStore.getItemAsync('user_id');
+        const authToken = await SecureStore.getItemAsync('auth_token');
+        
+        if (userId && authToken) {
+          const response = await fetch(`${API_URL}/api/user/${userId}/subscription`, {
+            headers: {
+              'Authorization': `Bearer ${authToken}`
+            }
+          });
+          
+          if (response.ok) {
+            const subData = await response.json();
+            if (subData.subscriptionId) {
+              await SecureStore.setItemAsync('subscription_id', subData.subscriptionId);
+            }
+          }
+        }
+      }
     } catch (error) {
       console.error('Error loading subscription status:', error);
     }

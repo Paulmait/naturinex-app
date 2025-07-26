@@ -995,6 +995,37 @@ app.post('/api/create-checkout-session', authenticateUser, async (req, res) => {
   }
 });
 
+// 📋 GET USER SUBSCRIPTION DATA
+app.get('/api/user/:userId/subscription', authenticateUser, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Verify the user is requesting their own data
+    if (req.user.uid !== userId) {
+      return res.status(403).json({ error: 'Unauthorized access' });
+    }
+    
+    const userDoc = await admin.firestore().collection('users').doc(userId).get();
+    
+    if (!userDoc.exists) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    const userData = userDoc.data();
+    
+    res.json({
+      isPremium: userData.isPremium || false,
+      subscriptionId: userData.subscriptionId || null,
+      subscriptionStatus: userData.subscriptionStatus || 'none',
+      subscriptionStartDate: userData.subscriptionStartDate,
+      customerEmail: userData.customerEmail
+    });
+  } catch (error) {
+    console.error('Get subscription error:', error);
+    res.status(500).json({ error: 'Failed to get subscription data' });
+  }
+});
+
 // 🚫 CANCEL SUBSCRIPTION
 app.post('/api/cancel-subscription', authenticateUser, async (req, res) => {
   try {
@@ -1032,9 +1063,15 @@ app.get('/api/pricing/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     
-    // Get user context for intelligent coupon selection
-    const userDoc = await admin.firestore().collection('users').doc(userId).get();
-    const userData = userDoc.exists ? userDoc.data() : {};
+    // Handle guest users
+    const isGuest = userId.startsWith('guest_');
+    let userData = {};
+    
+    if (!isGuest) {
+      // Get user context for intelligent coupon selection
+      const userDoc = await admin.firestore().collection('users').doc(userId).get();
+      userData = userDoc.exists ? userDoc.data() : {};
+    }
     
     // Build user context
     const userContext = {
@@ -1059,9 +1096,11 @@ app.get('/api/pricing/:userId', async (req, res) => {
       userContext.daysSinceLastActive = Math.floor((Date.now() - lastActive) / (1000 * 60 * 60 * 24));
     }
     
-    // Check student status
-    const studentStatus = await checkStudentStatus(userId);
-    userContext.isStudent = studentStatus.isStudent;
+    // Check student status (only for non-guest users)
+    if (!isGuest) {
+      const studentStatus = await checkStudentStatus(userId);
+      userContext.isStudent = studentStatus.isStudent;
+    }
     
     // Get all pricing tiers with A/B test for Basic
     const tiers = getAllPricingTiers(userId);
