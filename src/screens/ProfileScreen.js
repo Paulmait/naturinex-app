@@ -11,6 +11,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
 import { getAuth, signOut } from 'firebase/auth';
+import { getFirestore, doc, getDoc } from 'firebase/firestore';
 
 export default function ProfileScreen({ navigation }) {
   const [userEmail, setUserEmail] = useState('');
@@ -18,6 +19,7 @@ export default function ProfileScreen({ navigation }) {
   const [isPremium, setIsPremium] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [autoLogoutEnabled, setAutoLogoutEnabled] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
   const auth = getAuth();
 
   useEffect(() => {
@@ -37,6 +39,17 @@ export default function ProfileScreen({ navigation }) {
       setIsPremium(premium === 'true');
       setNotificationsEnabled(notifications === 'true');
       setAutoLogoutEnabled(autoLogout === 'true');
+      
+      // Check admin status
+      const user = auth.currentUser;
+      if (user) {
+        const db = getFirestore();
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          setIsAdmin(userData?.metadata?.isAdmin === true);
+        }
+      }
     } catch (error) {
       console.error('Error loading user data:', error);
     }
@@ -203,6 +216,28 @@ export default function ProfileScreen({ navigation }) {
             </Text>
             <MaterialIcons name="chevron-right" size={24} color="#6B7280" />
           </TouchableOpacity>
+
+          {isAdmin && (
+            <>
+              <TouchableOpacity 
+                style={[styles.actionItem, styles.adminItem]} 
+                onPress={() => navigation.navigate('AdminDashboard')}
+              >
+                <MaterialIcons name="dashboard" size={24} color="#7C3AED" />
+                <Text style={[styles.actionText, styles.adminText]}>Admin Dashboard</Text>
+                <MaterialIcons name="chevron-right" size={24} color="#6B7280" />
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.actionItem, styles.adminItem]} 
+                onPress={() => navigation.navigate('AdminSettings')}
+              >
+                <MaterialIcons name="admin-panel-settings" size={24} color="#7C3AED" />
+                <Text style={[styles.actionText, styles.adminText]}>Admin Settings</Text>
+                <MaterialIcons name="chevron-right" size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </>
+          )}
 
           <TouchableOpacity style={styles.actionItem} onPress={handleClearHistory}>
             <MaterialIcons name="delete" size={24} color="#EF4444" />
@@ -379,5 +414,14 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#EF4444',
     marginLeft: 8,
+  },
+  adminItem: {
+    backgroundColor: '#F3E8FF',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  adminText: {
+    color: '#7C3AED',
+    fontWeight: '600',
   },
 }); 

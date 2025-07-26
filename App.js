@@ -22,6 +22,7 @@ import ScanHistory from './src/components/ScanHistory';
 import PrivacyPolicyScreen from './src/components/PrivacyPolicyScreen';
 import TermsOfUseScreen from './src/components/TermsOfUseScreen';
 import AdminDashboard from './src/screens/AdminDashboard';
+import AdminSettings from './src/screens/AdminSettings';
 
 const Stack = createNativeStackNavigator();
 
@@ -117,6 +118,11 @@ export default function App() {
             name="AdminDashboard" 
             component={AdminDashboard}
             options={{ title: 'Admin Dashboard' }}
+          />
+          <Stack.Screen 
+            name="AdminSettings" 
+            component={AdminSettings}
+            options={{ title: 'Admin Settings' }}
           />
         </Stack.Navigator>
       </NavigationContainer>

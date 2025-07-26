@@ -790,8 +790,8 @@ app.post('/create-checkout-session', async (req, res) => {
       metadata: {
         userId: userId,
       },
-      success_url: `${req.headers.origin}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${req.headers.origin}/cancel`,
+      success_url: `${req.headers.origin || 'https://naturinex-app.web.app'}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${req.headers.origin || 'https://naturinex-app.web.app'}/cancel`,
     });
 
     res.json({ sessionId: session.id });
