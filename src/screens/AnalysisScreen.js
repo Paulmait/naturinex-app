@@ -18,6 +18,8 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import * as MediaLibrary from 'expo-media-library';
 import { getDeviceId } from '../utils/deviceId';
+import engagementTracker from '../services/engagementTracking';
+import { notificationManager } from '../components/NotificationBanner';
 
 const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-zsga.onrender.com';
 
@@ -165,12 +167,29 @@ export default function AnalysisScreen({ route, navigation }) {
       // Update remaining scans if provided
       if (result.scansRemaining !== undefined) {
         await SecureStore.setItemAsync('free_scans_remaining', result.scansRemaining.toString());
+        
+        // Show warning if running low on scans
+        if (!isPremium && result.scansRemaining === 1) {
+          notificationManager.showWarning(
+            '1 free scan remaining!',
+            {
+              text: 'Upgrade',
+              onPress: () => navigation.navigate('Subscription')
+            }
+          );
+        }
       }
       
       // Save scan count
       const currentCount = await SecureStore.getItemAsync('scan_count') || '0';
       const newCount = parseInt(currentCount) + 1;
       await SecureStore.setItemAsync('scan_count', newCount.toString());
+      
+      // Track engagement
+      await engagementTracker.trackScan(
+        result.productInfo?.productName || result.medicationName,
+        result
+      );
       
     } catch (error) {
       console.error('Analysis error:', error);
@@ -207,6 +226,9 @@ export default function AnalysisScreen({ route, navigation }) {
       
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(shareText);
+        
+        // Track feature usage
+        await engagementTracker.trackShare();
       } else {
         Alert.alert('Sharing not available', 'Sharing is not available on this device.')
       }
@@ -245,6 +267,9 @@ export default function AnalysisScreen({ route, navigation }) {
           Alert.alert('Success', 'Report saved to your device!');
         }
       }
+      
+      // Track feature usage
+      await engagementTracker.trackPDFExport();
     } catch (error) {
       Alert.alert('Error', 'Unable to download report. Please try again.');
     }

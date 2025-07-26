@@ -1,0 +1,200 @@
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Animated,
+  TouchableOpacity,
+  Dimensions,
+} from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+const { width } = Dimensions.get('window');
+
+export default function NotificationBanner({ 
+  message, 
+  type = 'info', 
+  action,
+  duration = 5000,
+  onDismiss 
+}) {
+  const slideAnim = useRef(new Animated.Value(-150)).current;
+  const insets = useSafeAreaInsets();
+  const [isVisible, setIsVisible] = useState(true);
+
+  useEffect(() => {
+    // Slide in
+    Animated.timing(slideAnim, {
+      toValue: 0,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+
+    // Auto-hide after duration
+    const timer = setTimeout(() => {
+      dismiss();
+    }, duration);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  const dismiss = () => {
+    Animated.timing(slideAnim, {
+      toValue: -150,
+      duration: 300,
+      useNativeDriver: true,
+    }).start(() => {
+      setIsVisible(false);
+      onDismiss?.();
+    });
+  };
+
+  if (!isVisible) return null;
+
+  const getIcon = () => {
+    switch (type) {
+      case 'success':
+        return 'check-circle';
+      case 'warning':
+        return 'warning';
+      case 'error':
+        return 'error';
+      case 'premium':
+        return 'star';
+      default:
+        return 'info';
+    }
+  };
+
+  const getColors = () => {
+    switch (type) {
+      case 'success':
+        return { bg: '#10B981', text: 'white', icon: 'white' };
+      case 'warning':
+        return { bg: '#F59E0B', text: 'white', icon: 'white' };
+      case 'error':
+        return { bg: '#EF4444', text: 'white', icon: 'white' };
+      case 'premium':
+        return { bg: '#7C3AED', text: 'white', icon: '#FDE047' };
+      default:
+        return { bg: '#3B82F6', text: 'white', icon: 'white' };
+    }
+  };
+
+  const colors = getColors();
+
+  return (
+    <Animated.View
+      style={[
+        styles.container,
+        {
+          transform: [{ translateY: slideAnim }],
+          backgroundColor: colors.bg,
+          paddingTop: insets.top + 10,
+        },
+      ]}
+    >
+      <View style={styles.content}>
+        <MaterialIcons name={getIcon()} size={24} color={colors.icon} />
+        <Text style={[styles.message, { color: colors.text }]}>{message}</Text>
+        
+        {action && (
+          <TouchableOpacity onPress={action.onPress} style={styles.actionButton}>
+            <Text style={[styles.actionText, { color: colors.text }]}>
+              {action.text}
+            </Text>
+          </TouchableOpacity>
+        )}
+        
+        <TouchableOpacity onPress={dismiss} style={styles.closeButton}>
+          <MaterialIcons name="close" size={20} color={colors.text} />
+        </TouchableOpacity>
+      </View>
+    </Animated.View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 1000,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  content: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 15,
+  },
+  message: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '500',
+    marginLeft: 12,
+    marginRight: 8,
+  },
+  actionButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 15,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  actionText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  closeButton: {
+    padding: 4,
+    marginLeft: 8,
+  },
+});
+
+// Notification Manager to handle global notifications
+class NotificationManager {
+  constructor() {
+    this.currentNotification = null;
+    this.listeners = [];
+  }
+
+  subscribe(listener) {
+    this.listeners.push(listener);
+    return () => {
+      this.listeners = this.listeners.filter(l => l !== listener);
+    };
+  }
+
+  show(notification) {
+    this.currentNotification = notification;
+    this.listeners.forEach(listener => listener(notification));
+  }
+
+  showSuccess(message, action) {
+    this.show({ message, type: 'success', action });
+  }
+
+  showWarning(message, action) {
+    this.show({ message, type: 'warning', action });
+  }
+
+  showError(message) {
+    this.show({ message, type: 'error' });
+  }
+
+  showPremium(message, action) {
+    this.show({ message, type: 'premium', action });
+  }
+
+  showInfo(message, action) {
+    this.show({ message, type: 'info', action });
+  }
+}
+
+export const notificationManager = new NotificationManager();

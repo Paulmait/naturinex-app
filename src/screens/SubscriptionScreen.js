@@ -86,20 +86,57 @@ export default function SubscriptionScreen({ navigation }) {
 
   const handleCancelSubscription = () => {
     Alert.alert(
-      'Cancel Subscription',
-      'Are you sure you want to cancel your premium subscription?',
+      '⚠️ Cancel Premium Subscription',
+      'You will lose access to:\n• Unlimited scans\n• PDF exports & sharing\n• Scan history\n\nYour subscription will remain active until the end of the billing period.',
       [
-        { text: 'Keep Subscription', style: 'cancel' },
+        { text: 'Keep Premium ✨', style: 'cancel' },
         {
           text: 'Cancel Subscription',
           style: 'destructive',
           onPress: async () => {
             try {
-              await SecureStore.setItemAsync('is_premium', 'false');
-              setIsPremium(false);
-              Alert.alert('Subscription Cancelled', 'Your premium subscription has been cancelled.');
+              setLoading(true);
+              
+              // Get auth token
+              const authToken = await SecureStore.getItemAsync('auth_token');
+              if (!authToken) {
+                throw new Error('Authentication required');
+              }
+              
+              // Call server endpoint
+              const response = await fetch(`${API_URL}/api/subscription/cancel`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${authToken}`,
+                  'Content-Type': 'application/json',
+                },
+              });
+              
+              if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Cancellation failed');
+              }
+              
+              const result = await response.json();
+              const endDate = new Date(result.current_period_end * 1000);
+              
+              Alert.alert(
+                '✅ Subscription Cancelled',
+                `Your premium access will continue until ${endDate.toLocaleDateString()}\n\nWe're sorry to see you go! You can resubscribe anytime.`,
+                [{ text: 'OK' }]
+              );
+              
+              // Update local state
+              await SecureStore.setItemAsync('subscription_end_date', endDate.toISOString());
+              await SecureStore.setItemAsync('subscription_cancelling', 'true');
+              
+              // Don't set is_premium to false yet - they still have access until end date
+              
             } catch (error) {
-              Alert.alert('Error', 'Failed to cancel subscription.');
+              console.error('Cancellation error:', error);
+              Alert.alert('Error', error.message || 'Failed to cancel subscription. Please try again.');
+            } finally {
+              setLoading(false);
             }
           },
         },

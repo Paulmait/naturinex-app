@@ -23,11 +23,23 @@ import PrivacyPolicyScreen from './src/components/PrivacyPolicyScreen';
 import TermsOfUseScreen from './src/components/TermsOfUseScreen';
 import AdminDashboard from './src/screens/AdminDashboard';
 import AdminSettings from './src/screens/AdminSettings';
+import NotificationProvider from './src/components/NotificationProvider';
+import { startSession, endSession } from './src/services/engagementTracking';
 
 const Stack = createNativeStackNavigator();
 
 export default function App() {
   const [isReady, setIsReady] = useState(false);
+  
+  useEffect(() => {
+    // Start engagement session
+    startSession();
+    
+    // End session when app closes
+    return () => {
+      endSession();
+    };
+  }, []);
 
   useEffect(() => {
     // Give Firebase a moment to initialize
@@ -48,8 +60,9 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar style="auto" />
-      <NavigationContainer>
-        <Stack.Navigator
+      <NotificationProvider>
+        <NavigationContainer>
+          <Stack.Navigator
           initialRouteName="Login"
           screenOptions={{
             headerStyle: {
@@ -126,6 +139,7 @@ export default function App() {
           />
         </Stack.Navigator>
       </NavigationContainer>
+      </NotificationProvider>
     </SafeAreaProvider>
   );
 }

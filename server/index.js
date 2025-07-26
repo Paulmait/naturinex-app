@@ -1191,25 +1191,38 @@ app.post('/api/subscription/renew-now', async (req, res) => {
 
 app.post('/api/subscription/cancel', async (req, res) => {
   try {
-    const { subscriptionId } = req.body;
-    
-    if (!subscriptionId) {
-      return res.status(400).json({ error: 'Subscription ID is required' });
+    // Get user from auth token for security
+    const authHeader = req.headers.authorization;
+    if (!authHeader) {
+      return res.status(401).json({ error: 'Unauthorized' });
     }
+    
+    const token = authHeader.split(' ')[1];
+    const decodedToken = await admin.auth().verifyIdToken(token);
+    const userId = decodedToken.uid;
+    
+    // Get user's subscription from Firestore
+    const userDoc = await admin.firestore().collection('users').doc(userId).get();
+    const userData = userDoc.data();
+    
+    if (!userData?.subscription?.stripeSubscriptionId) {
+      return res.status(404).json({ error: 'No active subscription found' });
+    }
+    
+    const subscriptionId = userData.subscription.stripeSubscriptionId;
     
     // Cancel at period end (don't immediately cancel)
     const subscription = await stripe.subscriptions.update(subscriptionId, {
-      cancel_at_period_end: true
+      cancel_at_period_end: true,
+      metadata: {
+        cancelledBy: userId,
+        cancelledAt: new Date().toISOString()
+      }
     });
     
     // Update user record in Firestore
-    const usersRef = admin.firestore().collection('users');
-    const snapshot = await usersRef.where('subscriptionId', '==', subscriptionId).get();
-    
-    if (!snapshot.empty) {
-      const userDoc = snapshot.docs[0];
-      await userDoc.ref.update({
-        subscriptionStatus: 'canceling',
+    await userDoc.ref.update({
+      'subscription.status': 'canceling',
         autoRenewalEnabled: false,
         canceledAt: admin.firestore.FieldValue.serverTimestamp()
       });

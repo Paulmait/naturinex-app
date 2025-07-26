@@ -19,7 +19,8 @@
       "Bash(npm audit:*)",
       "Bash(npm run lint)",
       "Bash(git push:*)",
-      "Bash(PowerShell.exe:*)"
+      "Bash(PowerShell.exe:*)",
+      "Bash(grep:*)"
     ],
     "deny": []
   }
