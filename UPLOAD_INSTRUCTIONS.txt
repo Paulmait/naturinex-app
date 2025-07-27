@@ -1,0 +1,40 @@
+QUICK UPLOAD INSTRUCTIONS FOR LEGAL DOCUMENTS
+=============================================
+
+METHOD 1: RUN THE BATCH SCRIPT (EASIEST!)
+1. Double-click: upload_legal_to_github.bat
+2. Wait for "SUCCESS!" message
+3. Done! Your files are uploaded
+
+METHOD 2: DRAG & DROP IN BROWSER
+1. Open Windows Explorer to: C:\Users\maito\mediscan-app\naturinex-app\legal\
+2. Select both files:
+   - privacy-policy-enhanced.html
+   - terms-of-service-enhanced.html
+3. Open browser to: https://github.com/Paulmait/naturinex-legal
+4. Drag both files onto the GitHub page
+5. Add commit message: "Update legal docs with compliance"
+6. Click "Commit changes"
+
+METHOD 3: MANUAL GITHUB EDIT
+1. Go to: https://github.com/Paulmait/naturinex-legal
+2. Click "privacy-policy-enhanced.html"
+3. Click pencil icon (Edit)
+4. Delete all content
+5. Open your local file in Notepad
+6. Copy all (Ctrl+A, Ctrl+C)
+7. Paste in GitHub
+8. Commit changes
+9. Repeat for terms-of-service-enhanced.html
+
+VERIFY AFTER UPLOAD:
+Wait 2-5 minutes, then check:
+- https://paulmait.github.io/naturinex-legal/privacy-policy-enhanced.html
+- https://paulmait.github.io/naturinex-legal/terms-of-service-enhanced.html
+
+Look for:
+✅ Medical disclaimer box (yellow)
+✅ AI technology notice (blue)
+✅ Data source table with PubChem, WHO, MSKCC
+✅ GDPR/CCPA sections
+✅ Professional formatting
