@@ -1830,6 +1830,7 @@ app.post('/api/subscription/cancel', async (req, res) => {
 app.post('/api/test-data-ingestion-setup', async (req, res) => {
   try {
     console.log('Test ingestion endpoint called');
+    console.log('MongoDB URI exists:', !!process.env.MONGODB_URI);
     
     // Initialize MongoDB connection if needed
     const mongoose = require('mongoose');
