@@ -20,7 +20,8 @@
       "Bash(npm run lint)",
       "Bash(git push:*)",
       "Bash(PowerShell.exe:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(mkdir:*)"
     ],
     "deny": []
   }
