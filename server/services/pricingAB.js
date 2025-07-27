@@ -238,8 +238,31 @@ const validCoupons = [
   'WINBACK50',
   'FRIEND15',
   'LAUNCH20',
-  'WELCOME50'
+  'WELCOME50',
+  // Beta testing coupons - 100% discount
+  'BETA2024',
+  'NATURINEXBETA',
+  'TESTFLIGHT'
 ];
+
+// Beta coupon configuration
+const betaCoupons = {
+  'BETA2024': { discount: 1.00, expiresAt: new Date('2025-03-31'), description: 'Beta tester access' },
+  'NATURINEXBETA': { discount: 1.00, expiresAt: new Date('2025-03-31'), description: 'Beta program' },
+  'TESTFLIGHT': { discount: 1.00, expiresAt: new Date('2025-03-31'), description: 'TestFlight beta' }
+};
+
+// Check if user has beta access
+function isBetaTester(couponCode) {
+  if (!couponCode) return false;
+  return Object.keys(betaCoupons).includes(couponCode.toUpperCase());
+}
+
+// Apply beta discount
+function applyBetaDiscount(originalPrice, couponCode) {
+  if (!isBetaTester(couponCode)) return originalPrice;
+  return 0; // Free for beta testers
+}
 
 module.exports = {
   pricingGroups,
@@ -249,5 +272,8 @@ module.exports = {
   getPromotionalOffer,
   trackPricingEvent,
   getPricingMetrics,
-  validCoupons
+  validCoupons,
+  betaCoupons,
+  isBetaTester,
+  applyBetaDiscount
 };

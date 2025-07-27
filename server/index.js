@@ -20,6 +20,7 @@ const { getApplicableCoupons, trackCouponUsage } = require('./services/couponTra
 const { IntegratedNaturalAPI } = require('./services/externalAPIs');
 const adminRoutes = require('./routes/adminRoutes');
 const optimizedSearch = require('./services/optimizedSearch');
+const DataIngestionOrchestrator = require('./services/dataIngestion/dataIngestionOrchestrator');
 // Cloud functions - these will be deployed separately
 // const { scheduledIngestion, manualIngestion } = require('./functions/dataIngestion');
 // const { handleIngestionTask, handleBatchIngestion } = require('./functions/cloudTasks');
@@ -1850,10 +1851,19 @@ app.get('/api/database/stats', async (req, res) => {
 // Apply error handler middleware
 app.use(errorHandler);
 
+// Initialize data ingestion orchestrator
+const dataIngestion = new DataIngestionOrchestrator();
+if (process.env.ENABLE_DATA_INGESTION === 'true') {
+  dataIngestion.initializeScheduledIngestion();
+  console.log('📅 Data ingestion scheduled for nightly updates');
+}
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Health check available at http://localhost:${PORT}/health`);
   console.log(`💳 Stripe integration ready for testing`);
   console.log(`🔒 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`📅 Data ingestion: ${process.env.ENABLE_DATA_INGESTION === 'true' ? 'Enabled' : 'Disabled'}`);
+  console.log(`🌍 Data sources: PubChem, WHO, MSKCC with AI validation`);
 });
