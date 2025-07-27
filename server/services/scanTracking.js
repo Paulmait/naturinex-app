@@ -66,12 +66,30 @@ async function saveScanToHistory(userId, scanData) {
     
     await scanRef.set(scanRecord);
     
-    // Update user's scan count
+    // Update user's scan count - create document if it doesn't exist
     const userRef = firestore.collection('users').doc(userId);
-    await userRef.update({
-      'metadata.totalScans': admin.firestore.FieldValue.increment(1),
-      'metadata.lastScanDate': admin.firestore.FieldValue.serverTimestamp()
-    });
+    
+    try {
+      await userRef.update({
+        'metadata.totalScans': admin.firestore.FieldValue.increment(1),
+        'metadata.lastScanDate': admin.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (updateError) {
+      // If user document doesn't exist, create it
+      if (updateError.code === 5) { // NOT_FOUND
+        await userRef.set({
+          userId,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          metadata: {
+            totalScans: 1,
+            lastScanDate: admin.firestore.FieldValue.serverTimestamp(),
+            accountType: 'anonymous'
+          }
+        });
+      } else {
+        throw updateError;
+      }
+    }
     
     // Update daily analytics
     await updateDailyAnalytics(scanData.productInfo.name);

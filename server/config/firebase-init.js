@@ -5,6 +5,12 @@ const admin = require('firebase-admin');
  * This handles both production (with service account) and development environments
  */
 function initializeFirebase() {
+  // Check if Firebase is disabled
+  if (process.env.DISABLE_FIREBASE === 'true') {
+    console.log('⚠️  Firebase is disabled via DISABLE_FIREBASE environment variable');
+    return null;
+  }
+  
   // Check if already initialized
   if (admin.apps.length > 0) {
     console.log('✅ Firebase Admin already initialized');
@@ -26,6 +32,8 @@ function initializeFirebase() {
       });
 
       console.log('✅ Firebase Admin initialized with service account');
+      console.log(`   Project ID: ${process.env.FIREBASE_PROJECT_ID}`);
+      console.log(`   Client Email: ${process.env.FIREBASE_CLIENT_EMAIL}`);
     } 
     // Development: Use client configuration (limited functionality)
     else if (process.env.FIREBASE_PROJECT_ID) {
@@ -40,8 +48,11 @@ function initializeFirebase() {
     // Fallback: Initialize without credentials (very limited functionality)
     else {
       console.log('❌ Firebase credentials not found in environment variables');
-      console.log('   Firebase Admin SDK will not be initialized');
-      console.log('   Add FIREBASE_PROJECT_ID, FIREBASE_PRIVATE_KEY, and FIREBASE_CLIENT_EMAIL to enable Firebase features');
+      console.log('   Required variables:');
+      console.log('   - FIREBASE_PROJECT_ID:', process.env.FIREBASE_PROJECT_ID ? '✅ Set' : '❌ Missing');
+      console.log('   - FIREBASE_CLIENT_EMAIL:', process.env.FIREBASE_CLIENT_EMAIL ? '✅ Set' : '❌ Missing');
+      console.log('   - FIREBASE_PRIVATE_KEY:', process.env.FIREBASE_PRIVATE_KEY ? '✅ Set' : '❌ Missing');
+      console.log('   Firebase features will be disabled. Add missing variables or set DISABLE_FIREBASE=true');
       return null;
     }
 
