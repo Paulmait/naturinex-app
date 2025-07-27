@@ -1826,6 +1826,37 @@ app.post('/api/subscription/cancel', async (req, res) => {
 
 // Remove duplicate endpoints - already defined above
 
+// Simple test ingestion endpoint (temporary for testing)
+app.post('/api/admin/run-test-ingestion', async (req, res) => {
+  try {
+    console.log('Test ingestion endpoint called');
+    
+    // Initialize MongoDB connection if needed
+    const mongoose = require('mongoose');
+    if (mongoose.connection.readyState !== 1) {
+      await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/naturinex');
+    }
+    
+    const DataIngestionOrchestrator = require('./services/dataIngestion/dataIngestionOrchestrator');
+    const orchestrator = new DataIngestionOrchestrator();
+    
+    // Run test ingestion
+    res.json({ 
+      message: 'Test ingestion started',
+      info: 'This will ingest 3 test remedies (turmeric, ginger, echinacea)'
+    });
+    
+    // Run asynchronously
+    orchestrator.runTestIngestion()
+      .then(() => console.log('Test ingestion completed'))
+      .catch(err => console.error('Test ingestion error:', err));
+      
+  } catch (error) {
+    console.error('Ingestion endpoint error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Admin endpoints (require authentication)
 app.get('/api/admin/analytics', async (req, res) => {
   try {
