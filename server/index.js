@@ -1826,8 +1826,8 @@ app.post('/api/subscription/cancel', async (req, res) => {
 
 // Remove duplicate endpoints - already defined above
 
-// Simple test ingestion endpoint (temporary for testing)
-app.post('/api/admin/run-test-ingestion', async (req, res) => {
+// Simple test ingestion endpoint (temporary for testing - no auth required)
+app.post('/api/test-data-ingestion-setup', async (req, res) => {
   try {
     console.log('Test ingestion endpoint called');
     
