@@ -16,7 +16,7 @@ const { getWellnessAlternatives } = require('./data/wellnessAlternatives');
 const { saveScanToHistory, checkPremiumStatus } = require('./services/scanTracking');
 const { getUserPricingGroup, getAllPricingTiers, getPromotionalOffer, trackPricingEvent, validCoupons } = require('./services/pricingAB');
 const { checkStudentStatus, verifyStudent, getStudentBenefits } = require('./services/studentVerification');
-const { getApplicableCoupons, trackCouponUsage } = require('./services/couponTracking');
+const { getApplicableCoupons, trackCouponUsage, trackReferral } = require('./services/couponTracking');
 const { IntegratedNaturalAPI } = require('./services/externalAPIs');
 const adminRoutes = require('./routes/adminRoutes');
 const optimizedSearch = require('./services/optimizedSearch');
@@ -1227,7 +1227,6 @@ app.post('/api/track-referral', async (req, res) => {
     }
     
     // Track the referral
-    const { trackReferral } = require('./services/couponTracking');
     const success = await trackReferral(referredUserId, referrerUserId);
     
     res.json({ success });
