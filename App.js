@@ -24,6 +24,7 @@ import TermsOfUseScreen from './src/components/TermsOfUseScreen';
 import AdminDashboard from './src/screens/AdminDashboard';
 import AdminSettings from './src/screens/AdminSettings';
 import NotificationProvider from './src/components/NotificationProvider';
+import AppLaunchGate from './src/components/AppLaunchGate';
 import { startSession, endSession } from './src/services/engagementTracking';
 
 const Stack = createNativeStackNavigator();
@@ -60,9 +61,10 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar style="auto" />
-      <NotificationProvider>
-        <NavigationContainer>
-          <Stack.Navigator
+      <AppLaunchGate>
+        <NotificationProvider>
+          <NavigationContainer>
+            <Stack.Navigator
           initialRouteName="Login"
           screenOptions={{
             headerStyle: {
@@ -138,8 +140,9 @@ export default function App() {
             options={{ title: 'Admin Settings' }}
           />
         </Stack.Navigator>
-      </NavigationContainer>
-      </NotificationProvider>
+          </NavigationContainer>
+        </NotificationProvider>
+      </AppLaunchGate>
     </SafeAreaProvider>
   );
 }

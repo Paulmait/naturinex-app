@@ -20,6 +20,7 @@ import * as MediaLibrary from 'expo-media-library';
 import { getDeviceId } from '../utils/deviceId';
 import engagementTracker from '../services/engagementTracking';
 import { notificationManager } from '../components/NotificationBanner';
+import reviewPrompt from '../utils/reviewPrompt';
 
 const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-zsga.onrender.com';
 
@@ -190,6 +191,9 @@ export default function AnalysisScreen({ route, navigation }) {
         result.productInfo?.productName || result.medicationName,
         result
       );
+      
+      // Increment scan count for review prompt
+      await reviewPrompt.incrementScanCount();
       
     } catch (error) {
       console.error('Analysis error:', error);

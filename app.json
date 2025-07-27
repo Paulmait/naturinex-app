@@ -28,6 +28,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.naturinex.app",
       "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Naturinex Wellness Guide uses the camera to capture text from product labels for educational wellness information lookup",
         "NSPhotoLibraryUsageDescription": "Naturinex Wellness Guide accesses photos to analyze product labels and provide educational wellness information",
         "NSPhotoLibraryAddUsageDescription": "Naturinex Wellness Guide can save educational wellness information to your photo library for future reference"
@@ -45,12 +46,7 @@
       "package": "com.naturinex.app",
       "permissions": [
         "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
-        "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE"
+        "READ_EXTERNAL_STORAGE"
       ],
       "versionCode": 1
     },
