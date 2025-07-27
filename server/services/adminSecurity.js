@@ -310,18 +310,56 @@ class AdminSecurityService {
   }
 
   /**
-   * Verify admin credentials (placeholder - implement with your auth system)
+   * Verify admin credentials
    */
   async verifyAdminCredentials(email, password) {
-    // This should verify against your admin user database
-    // For now, returning mock data
-    return {
-      id: 'admin123',
-      email,
-      twoFactorEnabled: true,
-      twoFactorSecret: 'stored-secret',
-      permissions: ['read', 'write', 'delete']
-    };
+    try {
+      // Check if user exists in adminUsers collection
+      const adminSnapshot = await admin.firestore()
+        .collection('adminUsers')
+        .where('email', '==', email)
+        .where('active', '==', true)
+        .limit(1)
+        .get();
+      
+      if (adminSnapshot.empty) {
+        return null;
+      }
+      
+      const adminDoc = adminSnapshot.docs[0];
+      const adminId = adminDoc.id;
+      
+      // Get user profile
+      const userDoc = await admin.firestore()
+        .collection('users')
+        .doc(adminId)
+        .get();
+      
+      if (!userDoc.exists) {
+        return null;
+      }
+      
+      const userData = userDoc.data();
+      
+      // Verify password
+      const bcrypt = require('bcryptjs');
+      const isValidPassword = await bcrypt.compare(password, userData.passwordHash);
+      
+      if (!isValidPassword) {
+        return null;
+      }
+      
+      return {
+        id: adminId,
+        email: userData.email,
+        twoFactorEnabled: userData.twoFactorEnabled || false,
+        twoFactorSecret: userData.twoFactorSecret,
+        permissions: userData.permissions || ['read', 'write', 'delete']
+      };
+    } catch (error) {
+      console.error('Error verifying admin credentials:', error);
+      return null;
+    }
   }
 
   /**
