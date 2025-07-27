@@ -1834,7 +1834,13 @@ app.post('/api/test-data-ingestion-setup', async (req, res) => {
     // Initialize MongoDB connection if needed
     const mongoose = require('mongoose');
     if (mongoose.connection.readyState !== 1) {
-      await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/naturinex');
+      const mongoUri = process.env.MONGODB_URI;
+      if (!mongoUri) {
+        throw new Error('MONGODB_URI environment variable not set');
+      }
+      console.log('Connecting to MongoDB Atlas...');
+      await mongoose.connect(mongoUri);
+      console.log('MongoDB connected successfully');
     }
     
     const DataIngestionOrchestrator = require('./services/dataIngestion/dataIngestionOrchestrator');
