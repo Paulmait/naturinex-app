@@ -6,7 +6,7 @@ export default function TermsOfUseScreen() {
   return (
     <View style={styles.container}>
       <WebView
-        source={{ uri: 'https://raw.githubusercontent.com/Paulmait/naturinex-legal/main/terms-of-service-enhanced.html' }}
+        source={{ uri: 'https://paulmait.github.io/naturinex-legal/terms-of-service-enhanced.html' }}
         style={styles.webview}
         startInLoadingState={true}
         renderLoading={() => (

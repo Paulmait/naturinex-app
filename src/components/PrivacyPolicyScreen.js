@@ -6,7 +6,7 @@ export default function PrivacyPolicyScreen() {
   return (
     <View style={styles.container}>
       <WebView
-        source={{ uri: 'https://raw.githubusercontent.com/Paulmait/naturinex-legal/main/privacy-policy-enhanced.html' }}
+        source={{ uri: 'https://paulmait.github.io/naturinex-legal/privacy-policy-enhanced.html' }}
         style={styles.webview}
         startInLoadingState={true}
         renderLoading={() => (
