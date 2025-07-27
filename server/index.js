@@ -264,6 +264,41 @@ if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_a
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
+// Firebase Authentication middleware
+const authenticateUser = async (req, res, next) => {
+  try {
+    // Get the authorization header
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Unauthorized: No token provided' });
+    }
+    
+    // Extract the token
+    const token = authHeader.split('Bearer ')[1];
+    
+    try {
+      // Verify the token with Firebase Admin
+      const decodedToken = await admin.auth().verifyIdToken(token);
+      
+      // Attach user info to request
+      req.user = {
+        uid: decodedToken.uid,
+        email: decodedToken.email,
+        emailVerified: decodedToken.email_verified
+      };
+      
+      next();
+    } catch (error) {
+      console.error('Token verification failed:', error.message);
+      return res.status(401).json({ error: 'Unauthorized: Invalid token' });
+    }
+  } catch (error) {
+    console.error('Authentication error:', error);
+    return res.status(500).json({ error: 'Authentication failed' });
+  }
+};
+
 // Input validation middleware
 const validateMedicationInput = (req, res, next) => {
   const { medicationName } = req.body;
