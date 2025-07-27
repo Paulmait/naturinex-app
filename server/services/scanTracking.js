@@ -1,10 +1,11 @@
+const { isFirebaseAvailable, getFirestore } = require('../config/firebase-init');
 const admin = require('firebase-admin');
 
 // Get Firestore instance lazily
 let db;
 function getDb() {
   if (!db) {
-    db = admin.firestore();
+    db = getFirestore();
   }
   return db;
 }
@@ -14,7 +15,18 @@ function getDb() {
  */
 async function saveScanToHistory(userId, scanData) {
   try {
-    const scanRef = getDb().collection('scanHistory').doc();
+    // Check if Firebase is available
+    if (!isFirebaseAvailable()) {
+      console.log('Firebase not available, skipping scan history');
+      return null;
+    }
+    
+    const firestore = getDb();
+    if (!firestore) {
+      console.log('Firestore not available, skipping scan history');
+      return null;
+    }
+    const scanRef = firestore.collection('scanHistory').doc();
     const scanId = scanRef.id;
     
     const scanRecord = {
@@ -55,7 +67,7 @@ async function saveScanToHistory(userId, scanData) {
     await scanRef.set(scanRecord);
     
     // Update user's scan count
-    const userRef = getDb().collection('users').doc(userId);
+    const userRef = firestore.collection('users').doc(userId);
     await userRef.update({
       'metadata.totalScans': admin.firestore.FieldValue.increment(1),
       'metadata.lastScanDate': admin.firestore.FieldValue.serverTimestamp()
@@ -76,6 +88,10 @@ async function saveScanToHistory(userId, scanData) {
  */
 async function getUserScanHistory(userId, limit = 50, startAfter = null) {
   try {
+    if (!isFirebaseAvailable()) {
+      console.log('Firebase not available, returning empty history');
+      return [];
+    }
     let query = getDb().collection('scanHistory')
       .where('userId', '==', userId)
       .orderBy('timestamp', 'desc')
@@ -107,6 +123,10 @@ async function getUserScanHistory(userId, limit = 50, startAfter = null) {
  */
 async function updateUserSubscription(userId, subscriptionData) {
   try {
+    if (!isFirebaseAvailable()) {
+      console.log('Firebase not available, skipping subscription update');
+      return;
+    }
     const userRef = getDb().collection('users').doc(userId);
     
     await userRef.update({
@@ -145,6 +165,10 @@ async function updateUserSubscription(userId, subscriptionData) {
  */
 async function checkPremiumStatus(userId) {
   try {
+    if (!isFirebaseAvailable()) {
+      console.log('Firebase not available, returning false for premium status');
+      return false;
+    }
     const userDoc = await getDb().collection('users').doc(userId).get();
     
     if (!userDoc.exists) {
@@ -173,6 +197,10 @@ async function checkPremiumStatus(userId) {
  */
 async function updateDailyAnalytics(productName) {
   try {
+    if (!isFirebaseAvailable()) {
+      console.log('Firebase not available, skipping analytics update');
+      return;
+    }
     const today = new Date().toISOString().split('T')[0];
     const analyticsRef = getDb().collection('analytics').doc(today);
     
@@ -228,6 +256,14 @@ async function updateDailyAnalytics(productName) {
  */
 async function getAdminAnalytics(startDate, endDate) {
   try {
+    if (!isFirebaseAvailable()) {
+      console.log('Firebase not available, returning empty analytics');
+      return {
+        totalUsers: 0,
+        premiumUsers: 0,
+        dailyMetrics: []
+      };
+    }
     const analytics = await getDb().collection('analytics')
       .where('date', '>=', startDate)
       .where('date', '<=', endDate)

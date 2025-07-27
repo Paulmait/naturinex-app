@@ -7,7 +7,7 @@ require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 // Add Firebase Admin SDK for webhook handling
-const admin = require('firebase-admin');
+const { initializeFirebase, isFirebaseAvailable, getFirestore, getAuth, admin } = require('./config/firebase-init');
 const multer = require('multer');
 const axios = require('axios');
 const { extractProductInfo } = require('./utils/productExtraction');
@@ -53,28 +53,7 @@ if (missingEnvVars.length > 0) {
 }
 
 // Initialize Firebase Admin SDK
-if (!admin.apps.length) {
-  try {
-    // Use service account if available, otherwise use default credentials
-    if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
-      admin.initializeApp({
-        credential: admin.credential.cert({
-          projectId: process.env.FIREBASE_PROJECT_ID,
-          privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        }),
-      });
-    } else {
-      // Use default credentials for development
-      admin.initializeApp({
-        credential: admin.credential.applicationDefault(),
-      });
-    }
-    console.log('🔥 Firebase Admin initialized successfully');
-  } catch (error) {
-    console.warn('⚠️ Firebase Admin initialization skipped (webhook functions may not work):', error.message);
-  }
-}
+initializeFirebase();
 
 const app = express();
 
@@ -309,8 +288,21 @@ const authenticateUser = async (req, res, next) => {
     const token = authHeader.split('Bearer ')[1];
     
     try {
+      // Check if Firebase is available
+      const auth = getAuth();
+      if (!auth) {
+        console.warn('Firebase Auth not available, skipping authentication');
+        // For development, allow guest access
+        req.user = {
+          uid: 'guest_' + Date.now(),
+          email: 'guest@example.com',
+          emailVerified: false
+        };
+        return next();
+      }
+      
       // Verify the token with Firebase Admin
-      const decodedToken = await admin.auth().verifyIdToken(token);
+      const decodedToken = await auth.verifyIdToken(token);
       
       // Attach user info to request
       req.user = {
@@ -1308,7 +1300,12 @@ app.post('/api/subscription/portal', authenticateUser, async (req, res) => {
     const userId = req.user.uid;
     
     // Get user's Stripe customer ID from Firestore
-    const userDoc = await admin.firestore().collection('users').doc(userId).get();
+    const db = getFirestore();
+    if (!db) {
+      return res.status(503).json({ error: 'Database service unavailable' });
+    }
+    
+    const userDoc = await db.collection('users').doc(userId).get();
     if (!userDoc.exists) {
       return res.status(404).json({ error: 'User not found' });
     }

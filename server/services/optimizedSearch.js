@@ -1,4 +1,4 @@
-const admin = require('firebase-admin');
+const { isFirebaseAvailable, getFirestore } = require('../config/firebase-init');
 
 /**
  * Optimized search service using pre-ingested data
@@ -13,8 +13,8 @@ class OptimizedSearchService {
   }
 
   get db() {
-    if (!this._db && admin.apps.length > 0) {
-      this._db = admin.firestore();
+    if (!this._db) {
+      this._db = getFirestore();
     }
     return this._db;
   }
@@ -34,7 +34,7 @@ class OptimizedSearchService {
   }
 
   isFirebaseAvailable() {
-    return admin.apps.length > 0;
+    return isFirebaseAvailable();
   }
 
   /**
