@@ -92,7 +92,7 @@ async function saveScanToHistory(userId, scanData) {
     }
     
     // Update daily analytics
-    await updateDailyAnalytics(scanData.productInfo.name);
+    await updateDailyAnalytics(scanData.productInfo.productName);
     
     return scanId;
   } catch (error) {
@@ -219,6 +219,13 @@ async function updateDailyAnalytics(productName) {
       console.log('Firebase not available, skipping analytics update');
       return;
     }
+    
+    // Skip if productName is undefined or null
+    if (!productName) {
+      console.log('Product name is undefined, skipping analytics update');
+      return;
+    }
+    
     const today = new Date().toISOString().split('T')[0];
     const analyticsRef = getDb().collection('analytics').doc(today);
     

@@ -1,4 +1,4 @@
-import { getFirestore, collection, addDoc, updateDoc, doc, increment } from 'firebase/firestore';
+import { getFirestore, collection, addDoc, updateDoc, doc, increment, setDoc, getDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import * as SecureStore from 'expo-secure-store';
 
@@ -9,6 +9,34 @@ class EngagementTracker {
     this.sessionStartTime = Date.now();
     this.lastActivityTime = Date.now();
     this.sessionEvents = [];
+  }
+
+  // Helper function to ensure user document exists
+  async ensureUserDocument(userId) {
+    try {
+      const userDocRef = doc(db, 'users', userId);
+      const userDoc = await getDoc(userDocRef);
+      
+      if (!userDoc.exists()) {
+        // Create user document with default values
+        await setDoc(userDocRef, {
+          createdAt: new Date(),
+          stats: {
+            totalScans: 0,
+            lastScanDate: null,
+            mostScannedCategory: 'unknown',
+            featuresUsed: {}
+          }
+        });
+        console.log('Created new user document');
+      }
+    } catch (error) {
+      if (error.code === 'not-found') {
+        console.log('User document not found');
+      } else {
+        console.error('Error ensuring user document:', error);
+      }
+    }
   }
 
   // Track when user completes a scan
@@ -40,6 +68,9 @@ class EngagementTracker {
         try {
           await addDoc(collection(db, 'engagement'), event);
           
+          // Ensure user document exists before updating
+          await this.ensureUserDocument(user.uid);
+          
           // Update user stats
           await updateDoc(doc(db, 'users', user.uid), {
             'stats.totalScans': increment(1),
@@ -50,6 +81,8 @@ class EngagementTracker {
           // Handle permission errors gracefully
           if (firestoreError.code === 'permission-denied') {
             console.log('Firestore permission denied - check security rules');
+          } else if (firestoreError.message?.includes('No document to update')) {
+            console.log('User document not found - skipping stats update');
           } else {
             console.error('Firestore error:', firestoreError.message);
           }
@@ -82,13 +115,24 @@ class EngagementTracker {
       this.sessionEvents.push(event);
       
       if (user) {
-        await addDoc(collection(db, 'engagement'), event);
-        
-        // Track feature popularity
-        const featureKey = `stats.featuresUsed.${feature}`;
-        await updateDoc(doc(db, 'users', user.uid), {
-          [featureKey]: increment(1)
-        });
+        try {
+          await addDoc(collection(db, 'engagement'), event);
+          
+          // Ensure user document exists before updating
+          await this.ensureUserDocument(user.uid);
+          
+          // Track feature popularity
+          const featureKey = `stats.featuresUsed.${feature}`;
+          await updateDoc(doc(db, 'users', user.uid), {
+            [featureKey]: increment(1)
+          });
+        } catch (firestoreError) {
+          if (firestoreError.message?.includes('No document to update')) {
+            console.log('User document not found - skipping feature tracking');
+          } else {
+            console.error('Error updating feature stats:', firestoreError);
+          }
+        }
       }
       
     } catch (error) {
