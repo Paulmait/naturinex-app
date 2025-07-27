@@ -79,7 +79,14 @@ if (!admin.apps.length) {
 const app = express();
 
 // Trust proxy headers (required for cloud platforms like Render)
-app.set('trust proxy', true);
+// Set trust proxy based on environment
+// For Render.com, we trust their proxy headers
+if (process.env.NODE_ENV === 'production') {
+  // Render uses specific proxy headers
+  app.set('trust proxy', 1); // Trust first proxy
+} else {
+  app.set('trust proxy', false); // No proxy in development
+}
 
 // 🔒 COMPREHENSIVE SECURITY CONFIGURATION
 
@@ -124,6 +131,18 @@ const generalLimiter = rateLimit({
   message: { error: 'Too many requests, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,
+  // Properly handle proxy for Render deployment
+  keyGenerator: (req) => {
+    // Use X-Forwarded-For header if in production (Render)
+    if (process.env.NODE_ENV === 'production') {
+      return req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip;
+    }
+    return req.ip;
+  },
+  skip: (req) => {
+    // Skip rate limiting for health checks
+    return req.path === '/health';
+  }
 });
 
 const authLimiter = rateLimit({
@@ -132,6 +151,12 @@ const authLimiter = rateLimit({
   message: { error: 'Too many authentication attempts' },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => {
+    if (process.env.NODE_ENV === 'production') {
+      return req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip;
+    }
+    return req.ip;
+  }
 });
 
 const apiLimiter = rateLimit({
@@ -140,6 +165,12 @@ const apiLimiter = rateLimit({
   message: { error: 'API rate limit exceeded' },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => {
+    if (process.env.NODE_ENV === 'production') {
+      return req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip;
+    }
+    return req.ip;
+  }
 });
 
 // Apply rate limiting

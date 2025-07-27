@@ -26,7 +26,7 @@ async function testConnection() {
     
     // Test creating a natural remedy document
     console.log('🧪 Testing Natural Remedy Schema...');
-    const NaturalRemedy = require('./server/models/naturalRemedySchema');
+    const NaturalRemedy = require('./models/naturalRemedySchema');
     
     const testRemedy = {
       name: 'Test Herb',
