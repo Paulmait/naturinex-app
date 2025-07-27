@@ -1,14 +1,20 @@
 const admin = require('firebase-admin');
 
-// Initialize Firestore
-const db = admin.firestore();
+// Get Firestore instance lazily
+let db;
+function getDb() {
+  if (!db) {
+    db = admin.firestore();
+  }
+  return db;
+}
 
 /**
  * Save scan to user's history
  */
 async function saveScanToHistory(userId, scanData) {
   try {
-    const scanRef = db.collection('scanHistory').doc();
+    const scanRef = getDb().collection('scanHistory').doc();
     const scanId = scanRef.id;
     
     const scanRecord = {
@@ -49,7 +55,7 @@ async function saveScanToHistory(userId, scanData) {
     await scanRef.set(scanRecord);
     
     // Update user's scan count
-    const userRef = db.collection('users').doc(userId);
+    const userRef = getDb().collection('users').doc(userId);
     await userRef.update({
       'metadata.totalScans': admin.firestore.FieldValue.increment(1),
       'metadata.lastScanDate': admin.firestore.FieldValue.serverTimestamp()
@@ -70,7 +76,7 @@ async function saveScanToHistory(userId, scanData) {
  */
 async function getUserScanHistory(userId, limit = 50, startAfter = null) {
   try {
-    let query = db.collection('scanHistory')
+    let query = getDb().collection('scanHistory')
       .where('userId', '==', userId)
       .orderBy('timestamp', 'desc')
       .limit(limit);
@@ -101,7 +107,7 @@ async function getUserScanHistory(userId, limit = 50, startAfter = null) {
  */
 async function updateUserSubscription(userId, subscriptionData) {
   try {
-    const userRef = db.collection('users').doc(userId);
+    const userRef = getDb().collection('users').doc(userId);
     
     await userRef.update({
       subscription: {
@@ -118,7 +124,7 @@ async function updateUserSubscription(userId, subscriptionData) {
     });
     
     // Log subscription event
-    await db.collection('subscriptionEvents').add({
+    await getDb().collection('subscriptionEvents').add({
       userId,
       type: subscriptionData.eventType || 'updated',
       plan: subscriptionData.plan,
@@ -139,7 +145,7 @@ async function updateUserSubscription(userId, subscriptionData) {
  */
 async function checkPremiumStatus(userId) {
   try {
-    const userDoc = await db.collection('users').doc(userId).get();
+    const userDoc = await getDb().collection('users').doc(userId).get();
     
     if (!userDoc.exists) {
       return false;
@@ -168,9 +174,9 @@ async function checkPremiumStatus(userId) {
 async function updateDailyAnalytics(productName) {
   try {
     const today = new Date().toISOString().split('T')[0];
-    const analyticsRef = db.collection('analytics').doc(today);
+    const analyticsRef = getDb().collection('analytics').doc(today);
     
-    await db.runTransaction(async (transaction) => {
+    await getDb().runTransaction(async (transaction) => {
       const doc = await transaction.get(analyticsRef);
       
       if (!doc.exists) {
@@ -222,13 +228,13 @@ async function updateDailyAnalytics(productName) {
  */
 async function getAdminAnalytics(startDate, endDate) {
   try {
-    const analytics = await db.collection('analytics')
+    const analytics = await getDb().collection('analytics')
       .where('date', '>=', startDate)
       .where('date', '<=', endDate)
       .orderBy('date', 'desc')
       .get();
     
-    const users = await db.collection('users').get();
+    const users = await getDb().collection('users').get();
     const premiumUsers = users.docs.filter(doc => 
       doc.data().subscription?.status === 'premium'
     ).length;

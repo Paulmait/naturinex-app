@@ -5,7 +5,7 @@ const WHOScraper = require('./whoScraper');
 const MSKCCScraper = require('./mskccScraper');
 const SafetyValidator = require('./safetyValidator');
 const NaturalRemedy = require('../../models/naturalRemedySchema');
-const { db } = require('../../firebase-admin');
+const admin = require('firebase-admin');
 
 class DataIngestionOrchestrator {
   constructor() {
@@ -260,14 +260,16 @@ class DataIngestionOrchestrator {
    */
   async saveToFirestore(remedyData) {
     try {
-      const docRef = db.collection('naturalRemedies').doc(remedyData.name.toLowerCase().replace(/\s+/g, '-'));
-      
-      await docRef.set({
-        ...remedyData,
-        lastUpdated: new Date(),
-        searchKeywords: this.generateSearchKeywords(remedyData)
-      });
-      
+      // Only save to Firestore if Firebase Admin is initialized
+      if (admin.apps.length > 0) {
+        const docRef = admin.firestore().collection('naturalRemedies').doc(remedyData.name.toLowerCase().replace(/\s+/g, '-'));
+        
+        await docRef.set({
+          ...remedyData,
+          lastUpdated: new Date(),
+          searchKeywords: this.generateSearchKeywords(remedyData)
+        });
+      }
     } catch (error) {
       console.error('Firestore save error:', error.message);
     }
@@ -318,8 +320,10 @@ class DataIngestionOrchestrator {
       errorDetails: results.errors
     };
     
-    // Save to Firestore
-    await db.collection('ingestionLogs').add(log);
+    // Save to Firestore if initialized
+    if (admin.apps.length > 0) {
+      await admin.firestore().collection('ingestionLogs').add(log);
+    }
     
     console.log('Ingestion completed:', log);
   }
