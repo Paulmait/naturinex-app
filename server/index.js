@@ -24,6 +24,7 @@ const DataIngestionOrchestrator = require('./services/dataIngestion/dataIngestio
 // Cloud functions - these will be deployed separately
 // const { scheduledIngestion, manualIngestion } = require('./functions/dataIngestion');
 // const { handleIngestionTask, handleBatchIngestion } = require('./functions/cloudTasks');
+const dataIngestionRoutes = require('./routes/dataIngestionRoute');
 
 // Configure multer for image uploads
 const upload = multer({ 
@@ -362,6 +363,9 @@ app.get('/health', (req, res) => {
 
 // Admin routes (protected)
 app.use('/api/admin', adminRoutes);
+
+// Data ingestion routes
+app.use('/api/data', dataIngestionRoutes);
 
 // Enhanced alternatives endpoint - now using pre-ingested data for speed
 app.get('/api/alternatives/:medication', apiLimiter, async (req, res) => {

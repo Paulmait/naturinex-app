@@ -1,6 +1,6 @@
 require('dotenv').config();
 const mongoose = require('mongoose');
-const { getNaturalRemediesData } = require('../services/dataIngestion');
+const DataIngestionOrchestrator = require('../services/dataIngestion/dataIngestionOrchestrator');
 
 async function ingestAllRemedies() {
   try {
@@ -9,6 +9,9 @@ async function ingestAllRemedies() {
     // Connect to MongoDB
     await mongoose.connect(process.env.MONGODB_URI);
     console.log('✅ Connected to MongoDB');
+    
+    // Initialize the orchestrator
+    const orchestrator = new DataIngestionOrchestrator();
     
     // Full list of remedies to ingest
     const remedies = [
@@ -29,16 +32,16 @@ async function ingestAllRemedies() {
     for (const remedy of remedies) {
       try {
         console.log(`\n🔄 Processing: ${remedy}`);
-        const data = await getNaturalRemediesData(remedy);
+        const result = await orchestrator.ingestSingleQuery(remedy);
         
-        if (data && Object.keys(data).length > 0) {
+        if (result.success && result.data) {
           console.log(`✅ Successfully ingested data for: ${remedy}`);
-          console.log(`   - PubChem: ${data.pubchem ? 'Yes' : 'No'}`);
-          console.log(`   - WHO: ${data.who ? 'Yes' : 'No'}`);
-          console.log(`   - MSKCC: ${data.mskcc ? 'Yes' : 'No'}`);
+          console.log(`   - Total substances found: ${result.data.substances ? result.data.substances.length : 0}`);
+          console.log(`   - Safety validated: ${result.safetyValidated ? 'Yes' : 'No'}`);
           successCount++;
         } else {
           console.log(`⚠️  Limited data found for: ${remedy}`);
+          console.log(`   - Error: ${result.error || 'Unknown error'}`);
           errorCount++;
         }
         
