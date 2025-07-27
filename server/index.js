@@ -1826,43 +1826,7 @@ app.post('/api/subscription/cancel', async (req, res) => {
 
 // Remove duplicate endpoints - already defined above
 
-// Simple test ingestion endpoint (temporary for testing - no auth required)
-app.post('/api/test-data-ingestion-setup', async (req, res) => {
-  try {
-    console.log('Test ingestion endpoint called');
-    console.log('MongoDB URI exists:', !!process.env.MONGODB_URI);
-    
-    // Initialize MongoDB connection if needed
-    const mongoose = require('mongoose');
-    if (mongoose.connection.readyState !== 1) {
-      const mongoUri = process.env.MONGODB_URI;
-      if (!mongoUri) {
-        throw new Error('MONGODB_URI environment variable not set');
-      }
-      console.log('Connecting to MongoDB Atlas...');
-      await mongoose.connect(mongoUri);
-      console.log('MongoDB connected successfully');
-    }
-    
-    const DataIngestionOrchestrator = require('./services/dataIngestion/dataIngestionOrchestrator');
-    const orchestrator = new DataIngestionOrchestrator();
-    
-    // Run test ingestion
-    res.json({ 
-      message: 'Test ingestion started',
-      info: 'This will ingest 3 test remedies (turmeric, ginger, echinacea)'
-    });
-    
-    // Run asynchronously
-    orchestrator.runTestIngestion()
-      .then(() => console.log('Test ingestion completed'))
-      .catch(err => console.error('Test ingestion error:', err));
-      
-  } catch (error) {
-    console.error('Ingestion endpoint error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
+// Test ingestion endpoint removed - use admin dashboard for data ingestion
 
 // Admin endpoints (require authentication)
 app.get('/api/admin/analytics', async (req, res) => {
