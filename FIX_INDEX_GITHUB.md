@@ -1,0 +1,117 @@
+# Fix Index.html on GitHub
+
+The index.html file on GitHub is incomplete (only 10 lines instead of the full file).
+
+## Quick Fix Instructions:
+
+1. **Go to**: https://github.com/Paulmait/naturinex-legal/blob/main/index.html
+2. **Click** the pencil icon (Edit this file)
+3. **Delete** all current content
+4. **Copy** the complete content below
+5. **Paste** it into GitHub editor
+6. **Commit** with message: "Fix incomplete index.html"
+
+## Complete index.html Content:
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Naturinex Legal Documents</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+            text-align: center;
+        }
+        .container {
+            background-color: white;
+            padding: 60px 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .logo {
+            font-size: 72px;
+            margin-bottom: 30px;
+        }
+        h1 {
+            color: #2c5530;
+            font-size: 32px;
+            margin-bottom: 20px;
+        }
+        p {
+            color: #666;
+            font-size: 18px;
+            margin-bottom: 40px;
+        }
+        .links {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            align-items: center;
+        }
+        a {
+            display: inline-block;
+            width: 300px;
+            padding: 20px 30px;
+            background-color: #10B981;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 18px;
+            transition: background-color 0.3s ease;
+        }
+        a:hover {
+            background-color: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .footer {
+            margin-top: 60px;
+            color: #999;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">🌿</div>
+        <h1>Naturinex Legal Documents</h1>
+        <p>Access our legal documents below:</p>
+        <div class="links">
+            <a href="privacy-policy-enhanced.html">Privacy Policy</a>
+            <a href="terms-of-service-enhanced.html">Terms of Service</a>
+        </div>
+        <div class="footer">
+            © 2025 Cien Rios LLC (DBA Naturinex). All rights reserved.
+        </div>
+    </div>
+</body>
+</html>
+```
+
+## Alternative: Run This Command
+
+If you prefer using the command line:
+
+```bash
+cd %TEMP%
+git clone https://github.com/Paulmait/naturinex-legal.git
+cd naturinex-legal
+```
+
+Then create a new file with the complete content and push:
+
+```bash
+git add index.html
+git commit -m "Fix incomplete index.html with full content"
+git push origin main
+```
