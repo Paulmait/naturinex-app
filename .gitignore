@@ -22,3 +22,10 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Security - Never commit these!
+secrets/
+*.p8
+*-key.json
+appstore-connect-key.json
+google-play-key.json
