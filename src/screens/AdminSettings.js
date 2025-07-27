@@ -13,6 +13,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { getAuth, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
 import { getFirestore, doc, getDoc, updateDoc } from 'firebase/firestore';
 import * as SecureStore from 'expo-secure-store';
+import { safeUpdateUserDoc } from '../utils/firebaseUserUtils';
 
 export default function AdminSettings({ navigation }) {
   const [loading, setLoading] = useState(false);
@@ -113,9 +114,8 @@ export default function AdminSettings({ navigation }) {
               );
               
               // Log the password change
-              await updateDoc(doc(db, 'users', user.uid), {
-                'metadata.lastPasswordChange': new Date(),
-                'metadata.updatedAt': new Date(),
+              await safeUpdateUserDoc(user.uid, {
+                'metadata.lastPasswordChange': new Date()
               });
               
             } catch (error) {

@@ -6,6 +6,7 @@ import { auth, db } from '../firebase';
 import { deleteUser } from 'firebase/auth';
 import { doc, updateDoc } from 'firebase/firestore';
 import { trackEvent } from '../utils/analytics';
+import { safeUpdateUserDoc } from '../utils/firebaseUserUtils';
 
 function AccountDeletion({ user, onCancel, onSuccess }) {
   const [step, setStep] = useState(1);
@@ -113,7 +114,7 @@ function AccountDeletion({ user, onCancel, onSuccess }) {
     await doc(db, 'deletion_requests', user.uid).set(deletionData);
 
     // Mark user account for immediate deletion
-    await updateDoc(doc(db, 'users', user.uid), {
+    await safeUpdateUserDoc(user.uid, {
       status: 'deleted',
       deletionDate: new Date(),
       dataRetentionDays: 0,
@@ -129,17 +130,13 @@ function AccountDeletion({ user, onCancel, onSuccess }) {
     await doc(db, 'deletion_requests', user.uid).set(deletionData);
 
     // Mark user account as soft deleted
-    await updateDoc(doc(db, 'users', user.uid), {
+    await safeUpdateUserDoc(user.uid, {
       status: 'deactivated',
       deactivationDate: new Date(),
       dataRetentionDays: retentionOptions[retentionOption].retention,
       scheduledDeletionDate: deletionData.scheduledDeletionDate,
       canRecover: true,
-      recoveryToken: generateRecoveryToken()
-    });
-
-    // Disable Firebase Auth account but don't delete
-    await updateDoc(doc(db, 'users', user.uid), {
+      recoveryToken: generateRecoveryToken(),
       accountDisabled: true
     });
   };

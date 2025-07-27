@@ -1,6 +1,7 @@
 import { getFirestore, collection, addDoc, updateDoc, doc, increment, setDoc, getDoc } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import * as SecureStore from 'expo-secure-store';
+import { safeUpdateUserDoc } from '../utils/firebaseUserUtils';
 
 const db = getFirestore();
 
@@ -11,33 +12,6 @@ class EngagementTracker {
     this.sessionEvents = [];
   }
 
-  // Helper function to ensure user document exists
-  async ensureUserDocument(userId) {
-    try {
-      const userDocRef = doc(db, 'users', userId);
-      const userDoc = await getDoc(userDocRef);
-      
-      if (!userDoc.exists()) {
-        // Create user document with default values
-        await setDoc(userDocRef, {
-          createdAt: new Date(),
-          stats: {
-            totalScans: 0,
-            lastScanDate: null,
-            mostScannedCategory: 'unknown',
-            featuresUsed: {}
-          }
-        });
-        console.log('Created new user document');
-      }
-    } catch (error) {
-      if (error.code === 'not-found') {
-        console.log('User document not found');
-      } else {
-        console.error('Error ensuring user document:', error);
-      }
-    }
-  }
 
   // Track when user completes a scan
   async trackScan(productName, scanResult) {
@@ -68,11 +42,8 @@ class EngagementTracker {
         try {
           await addDoc(collection(db, 'engagement'), event);
           
-          // Ensure user document exists before updating
-          await this.ensureUserDocument(user.uid);
-          
-          // Update user stats
-          await updateDoc(doc(db, 'users', user.uid), {
+          // Update user stats using safe update
+          await safeUpdateUserDoc(user.uid, {
             'stats.totalScans': increment(1),
             'stats.lastScanDate': new Date(),
             'stats.mostScannedCategory': scanResult?.category || 'unknown'
@@ -118,12 +89,9 @@ class EngagementTracker {
         try {
           await addDoc(collection(db, 'engagement'), event);
           
-          // Ensure user document exists before updating
-          await this.ensureUserDocument(user.uid);
-          
-          // Track feature popularity
+          // Track feature popularity using safe update
           const featureKey = `stats.featuresUsed.${feature}`;
-          await updateDoc(doc(db, 'users', user.uid), {
+          await safeUpdateUserDoc(user.uid, {
             [featureKey]: increment(1)
           });
         } catch (firestoreError) {
@@ -160,12 +128,16 @@ class EngagementTracker {
       
       await addDoc(collection(db, 'engagement'), sessionData);
       
-      // Update average session time
-      await updateDoc(doc(db, 'users', user.uid), {
-        'stats.totalSessionTime': increment(sessionDuration),
-        'stats.sessionCount': increment(1),
-        'stats.lastActiveDate': new Date()
-      });
+      // Update average session time using safe update
+      try {
+        await safeUpdateUserDoc(user.uid, {
+          'stats.totalSessionTime': increment(sessionDuration),
+          'stats.sessionCount': increment(1),
+          'stats.lastActiveDate': new Date()
+        });
+      } catch (updateError) {
+        console.log('Could not update session stats:', updateError.message);
+      }
       
     } catch (error) {
       console.error('Error tracking session:', error);
@@ -201,7 +173,7 @@ class EngagementTracker {
           
           // Save achievement
           try {
-            await updateDoc(doc(db, 'users', user.uid), {
+            await safeUpdateUserDoc(user.uid, {
               [`achievements.${milestone.reward}`]: true,
               [`achievements.${milestone.reward}_date`]: new Date()
             });
