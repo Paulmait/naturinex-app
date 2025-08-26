@@ -1,0 +1,276 @@
+// Enhanced product name extraction with NLP-like pattern matching
+function extractProductInfo(detectedText) {
+  if (!detectedText) {
+    return {
+      productName: 'Unknown Product',
+      brandName: null,
+      activeIngredient: null,
+      category: null,
+      fullText: detectedText
+    };
+  }
+
+  // Clean and normalize text
+  const lines = detectedText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
+  
+  // Common pharmaceutical and wellness product patterns
+  const patterns = {
+    // Prescription medication format: "DRUG_NAME DOSAGE FORM"
+    prescription: /^([A-Z][A-Za-z]+(?:\s+[A-Za-z]+)*)\s+(\d+(?:\.\d+)?)\s*(MG|ML|MCG|G|IU|mg|ml|mcg|g)/i,
+    
+    // OTC brand names to look for
+    brands: [
+      'equate', 'walgreens', 'cvs', 'rite aid', 'kirkland', 'up&up', 'good sense',
+      'bayer', 'advil', 'tylenol', 'excedrin', 'aleve', 'motrin', 'pepto-bismol',
+      'prilosec', 'nexium', 'claritin', 'zyrtec', 'allegra', 'mucinex', 'robitussin',
+      'nyquil', 'dayquil', 'tums', 'gaviscon', 'mylanta', 'maalox', 'imodium',
+      'miralax', 'dulcolax', 'senokot', 'benefiber', 'metamucil'
+    ],
+    
+    // Common active ingredients (include uppercase for better matching)
+    activeIngredients: [
+      'ibuprofen', 'acetaminophen', 'aspirin', 'naproxen', 'diphenhydramine',
+      'loratadine', 'cetirizine', 'fexofenadine', 'ranitidine', 'famotidine',
+      'omeprazole', 'esomeprazole', 'lansoprazole', 'bismuth subsalicylate',
+      'loperamide', 'simethicone', 'calcium carbonate', 'magnesium hydroxide',
+      'polyethylene glycol', 'docusate', 'senna', 'psyllium',
+      'IBUPROFEN', 'ACETAMINOPHEN', 'ASPIRIN', 'NAPROXEN', 'DIPHENHYDRAMINE',
+      'LORATADINE', 'CETIRIZINE', 'OMEPRAZOLE', 'FAMOTIDINE'
+    ],
+    
+    // Lines to skip
+    skip: /^(NDC|Rx#|TAKE|USE|CAUTION|PROVIDER|compare to|federal law|lot|exp|mfg|dist|questions|warnings|directions|drug facts|tamper evident|do not use if)/i,
+    
+    // Dosage patterns
+    dosage: /(\d+(?:\.\d+)?)\s*(mg|ml|mcg|g|iu|%)/i,
+  };
+  
+  // Results storage
+  let productName = null;
+  let brandName = null;
+  let activeIngredient = null;
+  let dosage = null;
+  let category = null;
+  
+  // First pass: Look for brand names
+  for (const line of lines) {
+    const lowerLine = line.toLowerCase();
+    
+    // Skip instruction/legal lines
+    if (patterns.skip.test(line)) continue;
+    
+    // Check against known brands
+    for (const brand of patterns.brands) {
+      if (lowerLine.includes(brand)) {
+        brandName = brand.charAt(0).toUpperCase() + brand.slice(1);
+        break;
+      }
+    }
+  }
+  
+  // First, look for ALL CAPS lines that might be product names
+  const allCapsLines = [];
+  const productWords = ['ASPIRIN', 'IBUPROFEN', 'ACETAMINOPHEN', 'NAPROXEN', 'OMEPRAZOLE', 
+                       'CETIRIZINE', 'LORATADINE', 'FAMOTIDINE', 'ESOMEPRAZOLE'];
+  
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    // Check if line is ALL CAPS and likely a product name
+    if (line === line.toUpperCase() && 
+        line.length >= 3 && 
+        line.length <= 30 && 
+        !patterns.skip.test(line) &&
+        !/^\d+$/.test(line) && // Not just numbers
+        !/^[\d\s]+(?:tablets?|capsules?|pills?)$/i.test(line)) { // Not "100 TABLETS"
+      
+      // Prioritize known product names
+      const priority = productWords.includes(line) ? 1 : 2;
+      allCapsLines.push({ line, index: i, priority });
+    }
+  }
+  
+  // Sort by priority (known products first)
+  allCapsLines.sort((a, b) => a.priority - b.priority);
+  
+  // Second pass: Look for active ingredients and prescription names
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const lowerLine = line.toLowerCase();
+    
+    // Skip if already processed
+    if (patterns.skip.test(line)) continue;
+    
+    // Check for prescription pattern (e.g., "OMEPRAZOLE 20MG")
+    const rxMatch = line.match(patterns.prescription);
+    if (rxMatch) {
+      productName = rxMatch[1];
+      dosage = `${rxMatch[2]}${rxMatch[3]}`;
+      category = 'prescription';
+      break;
+    }
+    
+    // Look for "active ingredient" label
+    if (lowerLine.includes('active ingredient')) {
+      // Check next line for the actual ingredient
+      if (i + 1 < lines.length) {
+        const nextLine = lines[i + 1];
+        const ingredientMatch = nextLine.match(/([A-Za-z\s]+?)(\d+(?:\.\d+)?\s*(?:mg|ml|mcg|g|%))?/i);
+        if (ingredientMatch) {
+          activeIngredient = ingredientMatch[1].trim();
+          if (ingredientMatch[2]) {
+            dosage = ingredientMatch[2].trim();
+          }
+        }
+      }
+    }
+    
+    // Check against known active ingredients
+    for (const ingredient of patterns.activeIngredients) {
+      if (lowerLine.includes(ingredient.toLowerCase())) {
+        // Found an active ingredient
+        activeIngredient = ingredient.charAt(0).toUpperCase() + ingredient.slice(1).toLowerCase();
+        
+        // Check if this line is ALL CAPS - likely the main product name
+        const isAllCaps = line === line.toUpperCase() && line.length > 3;
+        
+        // Look for dosage on the same line or nearby lines
+        const dosageMatch = line.match(patterns.dosage);
+        if (dosageMatch) {
+          dosage = dosageMatch[0];
+        } else {
+          // Check next line for dosage (like "325 mg")
+          if (i + 1 < lines.length) {
+            const nextLineMatch = lines[i + 1].match(patterns.dosage);
+            if (nextLineMatch) {
+              dosage = nextLineMatch[0];
+            }
+          }
+          // Check previous line for dosage
+          if (!dosage && i > 0) {
+            const prevLineMatch = lines[i - 1].match(patterns.dosage);
+            if (prevLineMatch) {
+              dosage = prevLineMatch[0];
+            }
+          }
+        }
+        
+        // If this is the main product name (like ASPIRIN in all caps)
+        if (isAllCaps || (allCapsLines.some(caps => caps.line.includes(ingredient.toUpperCase())))) {
+          productName = activeIngredient;
+          // For ALL CAPS entries, preserve the capitalization
+          if (isAllCaps) {
+            productName = ingredient.toUpperCase();
+          }
+        }
+        
+        break;
+      }
+    }
+  }
+  
+  // Third pass: Look for product descriptors if we haven't found a name
+  if (!productName && !brandName) {
+    // First check ALL CAPS lines as they're likely product names
+    if (allCapsLines.length > 0) {
+      // Prioritize ALL CAPS lines that contain known ingredients
+      for (const capsLine of allCapsLines) {
+        for (const ingredient of patterns.activeIngredients) {
+          if (capsLine.line.includes(ingredient.toUpperCase())) {
+            productName = capsLine.line;
+            activeIngredient = ingredient.charAt(0).toUpperCase() + ingredient.slice(1).toLowerCase();
+            break;
+          }
+        }
+        if (productName) break;
+      }
+      
+      // If still no match, use the first ALL CAPS line
+      if (!productName && allCapsLines.length > 0) {
+        productName = allCapsLines[0].line;
+      }
+    }
+    
+    // Fallback to looking for product keywords
+    if (!productName) {
+      const productKeywords = [
+        'relief', 'tablet', 'capsule', 'liquid', 'syrup', 'gel', 'cream',
+        'ointment', 'drops', 'spray', 'powder', 'suspension'
+      ];
+      
+      for (const line of lines) {
+        const lowerLine = line.toLowerCase();
+        if (patterns.skip.test(line)) continue;
+        
+        // Skip lines that are just counts like "100 tablets"
+        if (/^\d+\s+(tablets?|capsules?|pills?)$/i.test(line)) continue;
+        
+        for (const keyword of productKeywords) {
+          if (lowerLine.includes(keyword) && line.length > 3 && line.length < 50) {
+            productName = line;
+            break;
+          }
+        }
+        if (productName) break;
+      }
+    }
+  }
+  
+  // Check if we found a known active ingredient in ALL CAPS - that's likely the product name
+  if (!productName && activeIngredient && allCapsLines.length > 0) {
+    const activeIngredientUpper = activeIngredient.toUpperCase();
+    const matchingCapsLine = allCapsLines.find(caps => caps.line === activeIngredientUpper);
+    if (matchingCapsLine) {
+      productName = matchingCapsLine.line;
+    }
+  }
+  
+  // Determine final product name
+  if (!productName) {
+    if (brandName && activeIngredient) {
+      productName = `${brandName} (${activeIngredient})`;
+    } else if (brandName) {
+      productName = brandName;
+    } else if (activeIngredient) {
+      productName = activeIngredient;
+    } else if (allCapsLines.length > 0) {
+      // Use the first ALL CAPS line as product name (already sorted by priority)
+      productName = allCapsLines[0].line;
+    } else {
+      // Last resort: use the first non-skip line that's reasonable length
+      for (const line of lines) {
+        if (!patterns.skip.test(line) && 
+            line.length > 2 && 
+            line.length < 50 &&
+            !/^\d+\s+(tablets?|capsules?|pills?)$/i.test(line)) { // Skip "100 tablets"
+          productName = line;
+          break;
+        }
+      }
+    }
+  }
+  
+  // Add dosage to product name if available
+  if (productName && dosage && !productName.includes(dosage)) {
+    productName = `${productName} ${dosage}`;
+  }
+  
+  // Categorize the product
+  if (!category) {
+    if (activeIngredient || brandName) {
+      category = 'otc'; // Over-the-counter
+    } else {
+      category = 'unknown';
+    }
+  }
+  
+  return {
+    productName: productName || 'Unknown Product',
+    brandName: brandName,
+    activeIngredient: activeIngredient,
+    dosage: dosage,
+    category: category,
+    fullText: detectedText
+  };
+}
+
+module.exports = { extractProductInfo };

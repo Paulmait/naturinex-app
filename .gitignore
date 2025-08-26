@@ -4,6 +4,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Prevent Windows reserved file from being tracked
+nul
+
 # Environment variables
 .env
 .env.local
@@ -11,18 +14,46 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
-# Production builds
-/client/build
-/server/dist
+# Build outputs
+build/
+dist/
+.next/
+out/
 
-# IDE files
+# Expo
+.expo/
+.expo-shared/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
+
+# Firebase
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+.firebaserc
+
+# Vercel
+.vercel
+
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
-# OS files
+# OS
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
 Thumbs.db
 
 # Logs
@@ -37,11 +68,98 @@ pids
 
 # Coverage directory used by tools like istanbul
 coverage/
+*.lcov
 
-# Firebase cache
-.firebase/
-firebase-debug.log
+# nyc test coverage
+.nyc_output
 
-# Temporary files
-*.tmp
-*.temp
+# Dependency directories
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Microbundle cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# next.js build output
+.next
+
+# nuxt.js build output
+.nuxt
+
+# vuepress build output
+.vuepress/dist
+
+# Serverless directories
+.serverless/
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# TernJS port file
+.tern-port
+
+# Stores VSCode versions used for testing VSCode extensions
+.vscode-test
+
+# Temporary folders
+tmp/
+temp/
+
+# Security
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+secrets/
+credentials.json
+service-account-key.json
+google-play-key.json
+appstore-connect-key.json
+
+# App Store Connect
+*.mobileprovision
+*.ipa
+*.apk
+*.aab
+
+# EAS
+.easignore
+
+# Capacitor
+android/
+ios/
+
+# Testing
+coverage/
+.nyc_output/
+test-results/
+playwright-report/
+test-results.xml
+
+# Local development
+.local/

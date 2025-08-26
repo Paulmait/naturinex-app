@@ -13,7 +13,7 @@ function PremiumCheckout({ user, onSuccess, onCancel }) {
 
     try {
       // Create checkout session
-      const response = await fetch('http://localhost:5000/create-checkout-session', {
+      const response = await fetch('http://10.0.0.74:5000/create-checkout-session', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -48,7 +48,7 @@ function PremiumCheckout({ user, onSuccess, onCancel }) {
 
     try {
       // Test endpoint for demo purposes
-      const response = await fetch('http://localhost:5000/test-premium-upgrade', {
+      const response = await fetch('http://10.0.0.74:5000/test-premium-upgrade', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -1,7 +1,8 @@
 {
   "cli": {
     "version": ">= 5.0.0",
-    "promptToConfigurePushNotifications": false
+    "promptToConfigurePushNotifications": false,
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
@@ -18,7 +19,7 @@
       },
       "env": {
         "EXPO_PUBLIC_ENV": "development",
-        "EXPO_PUBLIC_API_URL": "http://localhost:5001/naturinex/us-central1/api"
+        "EXPO_PUBLIC_API_URL": "https://naturinex-app-zsga.onrender.com"
       }
     },
     "preview": {
@@ -34,7 +35,7 @@
       },
       "env": {
         "EXPO_PUBLIC_ENV": "preview",
-        "EXPO_PUBLIC_API_URL": "https://naturinex-preview.cloudfunctions.net/api"
+        "EXPO_PUBLIC_API_URL": "https://naturinex-app-zsga.onrender.com"
       }
     },
     "production": {
@@ -48,23 +49,24 @@
       },
       "env": {
         "EXPO_PUBLIC_ENV": "production",
-        "EXPO_PUBLIC_API_URL": "https://api.naturinex.com"
+        "EXPO_PUBLIC_API_URL": "https://naturinex-app-zsga.onrender.com"
       }
     }
   },
   "submit": {
     "production": {
       "ios": {
-        "appleId": "your-apple-id@email.com",
-        "ascAppId": "your-app-store-connect-app-id",
-        "appleTeamId": "your-apple-team-id",
-        "ascApiKeyPath": "./secrets/appstore-connect-key.json"
+        "appleId": "crazya1c@hotmail.com",
+        "ascAppId": "6749164831",
+        "appleTeamId": "LFB9Z5Q3Y9",
+        "ascApiKeyPath": "./secrets/AuthKey_NUNBB3ZFJJ.p8",
+        "ascApiKeyId": "NUNBB3ZFJJ",
+        "ascApiKeyIssuerId": "69a6de7f-df3a-47e3-e053-5b8c7c11a4d1"
       },
       "android": {
         "serviceAccountKeyPath": "./secrets/google-play-key.json",
         "track": "beta",
-        "releaseStatus": "draft",
-        "rollout": 0.1
+        "releaseStatus": "draft"
       }
     }
   }

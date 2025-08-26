@@ -11,7 +11,7 @@ import {
   ScrollView,
   Image,
 } from 'react-native';
-import { getAuth, signInWithEmailAndPassword, GoogleAuthProvider, signInWithCredential } from 'firebase/auth';
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInAnonymously, GoogleAuthProvider, signInWithCredential, sendPasswordResetEmail } from 'firebase/auth';
 import * as Google from 'expo-auth-session/providers/google';
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
@@ -20,6 +20,7 @@ export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
   const auth = getAuth();
 
   const [request, response, promptAsync] = Google.useAuthRequest({
@@ -43,7 +44,7 @@ export default function LoginScreen({ navigation }) {
     }
   }, [response]);
 
-  const handleEmailLogin = async () => {
+  const handleEmailAuth = async () => {
     if (!email || !password) {
       Alert.alert('Error', 'Please enter both email and password');
       return;
@@ -51,11 +52,50 @@ export default function LoginScreen({ navigation }) {
 
     setLoading(true);
     try {
-      const result = await signInWithEmailAndPassword(auth, email, password);
+      let result;
+      if (isSignUp) {
+        result = await createUserWithEmailAndPassword(auth, email, password);
+        Alert.alert('Success', 'Account created successfully!');
+      } else {
+        result = await signInWithEmailAndPassword(auth, email, password);
+      }
       await handleAuthSuccess(result.user);
     } catch (error) {
-      console.error('Login error:', error);
-      Alert.alert('Error', 'Invalid email or password. Please try again.');
+      console.error('Auth error:', error);
+      if (error.code === 'auth/email-already-in-use') {
+        Alert.alert('Error', 'This email is already registered. Please sign in.');
+      } else if (error.code === 'auth/weak-password') {
+        Alert.alert('Error', 'Password should be at least 6 characters.');
+      } else if (error.code === 'auth/invalid-email') {
+        Alert.alert('Error', 'Please enter a valid email address.');
+      } else if (error.code === 'auth/user-not-found') {
+        Alert.alert('Error', 'No account found with this email. Please sign up.');
+      } else {
+        Alert.alert('Error', isSignUp ? 'Failed to create account.' : 'Invalid email or password.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSkip = async () => {
+    setLoading(true);
+    try {
+      // Create a local guest session without Firebase auth
+      const guestId = `guest_${Date.now()}`;
+      await SecureStore.setItemAsync('is_guest', 'true');
+      await SecureStore.setItemAsync('free_scans_remaining', '3');
+      await SecureStore.setItemAsync('user_id', guestId);
+      await SecureStore.setItemAsync('user_email', 'guest@naturinex.app');
+      await SecureStore.setItemAsync('auth_token', 'guest_token');
+      
+      // Skip onboarding for guests
+      await SecureStore.setItemAsync('onboarding_completed', 'true');
+      
+      navigation.replace('Home');
+    } catch (error) {
+      console.error('Guest login error:', error);
+      Alert.alert('Error', 'Failed to continue as guest. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -86,16 +126,57 @@ export default function LoginScreen({ navigation }) {
     promptAsync();
   };
 
+  const handleForgotPassword = () => {
+    if (!email) {
+      Alert.alert('Email Required', 'Please enter your email address first.');
+      return;
+    }
+
+    Alert.alert(
+      'Reset Password',
+      `Send password reset instructions to ${email}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Send',
+          onPress: async () => {
+            try {
+              await sendPasswordResetEmail(auth, email);
+              Alert.alert(
+                'Email Sent! ✅',
+                'Check your email for password reset instructions. Please also check your spam folder.',
+                [{ text: 'OK' }]
+              );
+            } catch (error) {
+              console.error('Password reset error:', error);
+              if (error.code === 'auth/user-not-found') {
+                Alert.alert('Error', 'No account found with this email address.');
+              } else if (error.code === 'auth/invalid-email') {
+                Alert.alert('Error', 'Please enter a valid email address.');
+              } else {
+                Alert.alert('Error', 'Failed to send reset email. Please try again.');
+              }
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <ScrollView contentContainerStyle={styles.scrollContainer}>
+      <ScrollView 
+        contentContainerStyle={styles.scrollContainer}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         <View style={styles.logoContainer}>
-          <Text style={styles.logo}>💊</Text>
+          <Text style={styles.logo}>🌿</Text>
           <Text style={styles.appName}>Naturinex</Text>
-          <Text style={styles.tagline}>Natural medication alternatives</Text>
+          <Text style={styles.tagline}>Your Natural Wellness Guide</Text>
         </View>
 
         <View style={styles.formContainer}>
@@ -120,11 +201,20 @@ export default function LoginScreen({ navigation }) {
 
           <TouchableOpacity
             style={[styles.button, styles.primaryButton]}
-            onPress={handleEmailLogin}
+            onPress={handleEmailAuth}
             disabled={loading}
           >
             <Text style={styles.buttonText}>
-              {loading ? 'Signing In...' : 'Sign In'}
+              {loading ? (isSignUp ? 'Creating Account...' : 'Signing In...') : (isSignUp ? 'Sign Up' : 'Sign In')}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.switchAuth}
+            onPress={() => setIsSignUp(!isSignUp)}
+          >
+            <Text style={styles.switchAuthText}>
+              {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
             </Text>
           </TouchableOpacity>
 
@@ -143,8 +233,16 @@ export default function LoginScreen({ navigation }) {
           </TouchableOpacity>
 
           <TouchableOpacity
+            style={[styles.button, styles.skipButton]}
+            onPress={handleSkip}
+            disabled={loading}
+          >
+            <Text style={styles.skipButtonText}>Try Free (3 Scans) 🎁</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
             style={styles.forgotPassword}
-            onPress={() => Alert.alert('Info', 'Password reset feature coming soon!')}
+            onPress={() => handleForgotPassword()}
           >
             <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
           </TouchableOpacity>
@@ -153,8 +251,8 @@ export default function LoginScreen({ navigation }) {
         <View style={styles.footer}>
           <Text style={styles.footerText}>
             By signing in, you agree to our{' '}
-            <Text style={styles.link}>Terms of Service</Text> and{' '}
-            <Text style={styles.link}>Privacy Policy</Text>
+            <Text style={styles.link} onPress={() => navigation.navigate('TermsOfUse')}>Terms of Service</Text> and{' '}
+            <Text style={styles.link} onPress={() => navigation.navigate('PrivacyPolicy')}>Privacy Policy</Text>
           </Text>
         </View>
       </ScrollView>
@@ -171,10 +269,12 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'center',
     paddingHorizontal: 20,
+    paddingVertical: 40,
   },
   logoContainer: {
     alignItems: 'center',
-    marginBottom: 50,
+    marginBottom: 30,
+    marginTop: 20,
   },
   logo: {
     fontSize: 80,
@@ -193,8 +293,13 @@ const styles = StyleSheet.create({
   formContainer: {
     backgroundColor: 'white',
     borderRadius: 20,
-    padding: 30,
+    padding: 25,
     marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
   },
   input: {
     borderWidth: 1,
@@ -207,15 +312,21 @@ const styles = StyleSheet.create({
   },
   button: {
     borderRadius: 10,
-    padding: 15,
+    padding: 16,
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 12,
   },
   primaryButton: {
     backgroundColor: '#10B981',
   },
   googleButton: {
     backgroundColor: '#4285F4',
+  },
+  skipButton: {
+    backgroundColor: '#6B7280',
+    marginTop: 5,
+    borderWidth: 2,
+    borderColor: '#4B5563',
   },
   buttonText: {
     color: 'white',
@@ -227,10 +338,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
   },
+  skipButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  switchAuth: {
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  switchAuthText: {
+    color: '#10B981',
+    fontSize: 14,
+  },
   divider: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 20,
+    marginVertical: 15,
   },
   dividerLine: {
     flex: 1,
@@ -252,9 +376,11 @@ const styles = StyleSheet.create({
   },
   footer: {
     alignItems: 'center',
+    marginTop: 10,
+    paddingBottom: 20,
   },
   footerText: {
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: 'rgba(255, 255, 255, 0.9)',
     fontSize: 12,
     textAlign: 'center',
     lineHeight: 18,

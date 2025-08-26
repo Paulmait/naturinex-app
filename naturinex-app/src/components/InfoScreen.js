@@ -202,6 +202,9 @@ const InfoScreen = ({ navigation }) => {
             Our app provides educational information about natural health options while emphasizing the 
             importance of consulting healthcare professionals for medical decisions.
           </Text>
+          <Text style={styles.attributionText}>
+            Powered by Google Gemini AI for intelligent medication analysis.
+          </Text>
           
           <View style={styles.disclaimerBox}>
             <Text style={styles.disclaimerTitle}>⚠️ Important Notice</Text>
@@ -209,6 +212,26 @@ const InfoScreen = ({ navigation }) => {
               Naturinex provides educational information only and is not a substitute for professional 
               medical advice. Always consult healthcare providers before making medical decisions.
             </Text>
+          </View>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>🔐 Data & Privacy</Text>
+          <View style={styles.privacyInfo}>
+            <Text style={styles.privacyTitle}>Data Retention Policy:</Text>
+            <Text style={styles.privacyItem}>• Scan history: Retained for 12 months</Text>
+            <Text style={styles.privacyItem}>• Account data: Retained while account is active</Text>
+            <Text style={styles.privacyItem}>• Analytics data: Anonymized after 30 days</Text>
+            <Text style={styles.privacyItem}>• You can request deletion at any time</Text>
+          </View>
+          
+          <View style={styles.privacyInfo}>
+            <Text style={styles.privacyTitle}>GDPR Compliance (EU Users):</Text>
+            <Text style={styles.privacyItem}>• Right to access your data</Text>
+            <Text style={styles.privacyItem}>• Right to rectification</Text>
+            <Text style={styles.privacyItem}>• Right to erasure ("right to be forgotten")</Text>
+            <Text style={styles.privacyItem}>• Right to data portability</Text>
+            <Text style={styles.privacyItem}>• Contact: privacy@naturinex.com</Text>
           </View>
         </View>
 
@@ -423,6 +446,32 @@ const styles = StyleSheet.create({
     color: '#666666',
     textAlign: 'center',
     marginBottom: 5,
+  },
+  attributionText: {
+    fontSize: 12,
+    color: '#666666',
+    fontStyle: 'italic',
+    marginTop: 5,
+  },
+  privacyInfo: {
+    backgroundColor: '#f8f9fa',
+    padding: 15,
+    borderRadius: 8,
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+  },
+  privacyTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333333',
+    marginBottom: 8,
+  },
+  privacyItem: {
+    fontSize: 13,
+    color: '#555555',
+    marginBottom: 4,
+    lineHeight: 18,
   },
 });
 

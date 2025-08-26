@@ -109,7 +109,7 @@ function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
       });
 
       // Call Stripe checkout
-      const response = await fetch('http://localhost:5000/create-checkout-session', {
+      const response = await fetch('http://10.0.0.74:5000/create-checkout-session', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

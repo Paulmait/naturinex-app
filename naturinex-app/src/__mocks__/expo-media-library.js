@@ -1,0 +1,9 @@
+// Mock for expo-media-library
+const MediaLibrary = {
+  requestPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
+  getPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
+  createAssetAsync: jest.fn().mockResolvedValue({ id: 'mock-asset-id' }),
+  saveToLibraryAsync: jest.fn().mockResolvedValue({ id: 'mock-saved-asset-id' })
+};
+
+export default MediaLibrary; 

@@ -13,7 +13,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
 
-const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app.onrender.com';
+const API_URL = 'http://10.0.0.74:5000';
 
 export default function AnalysisScreen({ route, navigation }) {
   const [analysisResult, setAnalysisResult] = useState(null);

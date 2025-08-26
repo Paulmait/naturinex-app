@@ -63,11 +63,13 @@
     "submit:android": "eas submit -p android",
     "start:web": "react-scripts start",
     "build:web": "react-scripts build",
+    "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "test:firebase": "node -e \"console.log('Testing Firebase configuration...'); require('./src/firebase.js'); console.log('Firebase initialized successfully');\"",
     "test:api": "node -e \"console.log('Testing API connection...'); fetch('https://naturinex-app.onrender.com/api/health').then(r => r.json()).then(d => console.log('API Status:', d)).catch(e => console.log('API Error:', e.message));\"",
-    "test:camera": "expo start --ios --simulator"
+    "test:camera": "expo start --ios --simulator",
+    "vercel-build": "npm run build:web"
   },
   "eslintConfig": {
     "extends": [

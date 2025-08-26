@@ -3,14 +3,26 @@ import { getAuth, GoogleAuthProvider } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import Constants from 'expo-constants';
 
-// Firebase configuration - Use environment variables or fallback to defaults
+// Firebase configuration - Use environment variables with secure fallbacks
 const firebaseConfig = {
-  apiKey: Constants.expoConfig?.extra?.firebaseApiKey || process.env.REACT_APP_FIREBASE_API_KEY || "your-api-key",
-  authDomain: Constants.expoConfig?.extra?.firebaseAuthDomain || process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "mediscan-b6252.firebaseapp.com",
-  projectId: Constants.expoConfig?.extra?.firebaseProjectId || process.env.REACT_APP_FIREBASE_PROJECT_ID || "mediscan-b6252",
-  storageBucket: Constants.expoConfig?.extra?.firebaseStorageBucket || process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "mediscan-b6252.appspot.com",
-  messagingSenderId: Constants.expoConfig?.extra?.firebaseMessagingSenderId || process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "890126739800",
-  appId: Constants.expoConfig?.extra?.firebaseAppId || process.env.REACT_APP_FIREBASE_APP_ID || "your-app-id"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY || 
+           Constants.expoConfig?.extra?.firebaseApiKey || 
+           "your-api-key",
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || 
+               Constants.expoConfig?.extra?.firebaseAuthDomain || 
+               "naturinex-app.firebaseapp.com",
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || 
+             Constants.expoConfig?.extra?.firebaseProjectId || 
+             "naturinex-app",
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || 
+                 Constants.expoConfig?.extra?.firebaseStorageBucket || 
+                 "naturinex-app.appspot.com",
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || 
+                     Constants.expoConfig?.extra?.firebaseMessagingSenderId || 
+                     "123456789",
+  appId: process.env.REACT_APP_FIREBASE_APP_ID || 
+          Constants.expoConfig?.extra?.firebaseAppId || 
+          "your-app-id"
 };
 
 // Initialize Firebase

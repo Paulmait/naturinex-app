@@ -1,112 +1,148 @@
-import React, { useState } from 'react';
-import { useUser } from './hooks/useUser';
-import { useAutoLogout } from './utils/autoLogout';
-import { APP_CONFIG } from './constants/appConfig';
+import React, { useEffect, useState } from 'react';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
+import { View, Text, ActivityIndicator } from 'react-native';
+
+// Initialize Firebase
+import './src/config/firebase';
+
+// Screens
+import LoginScreen from './src/screens/LoginScreen';
+import HomeScreen from './src/screens/HomeScreen';
+import SimpleCameraScreen from './src/screens/SimpleCameraScreen';
+import AnalysisScreen from './src/screens/AnalysisScreen';
+import ProfileScreen from './src/screens/ProfileScreen';
+import SubscriptionScreen from './src/screens/SubscriptionScreen';
+import OnboardingScreen from './src/screens/OnboardingScreen';
 
 // Components
-import Dashboard from './components/Dashboard';
-import Onboarding from './components/Onboarding';
-import PremiumCheckout from './components/PremiumCheckout';
-import ErrorBoundary from './components/ErrorBoundary';
-import NotificationSystem, { useNotifications } from './components/NotificationSystem';
+import ScanHistory from './src/components/ScanHistory';
+import PrivacyPolicyScreen from './src/components/PrivacyPolicyScreen';
+import TermsOfUseScreen from './src/components/TermsOfUseScreen';
+import AdminDashboard from './src/screens/AdminDashboard';
+import AdminSettings from './src/screens/AdminSettings';
+import NotificationProvider from './src/components/NotificationProvider';
+import AppLaunchGate from './src/components/AppLaunchGate';
+import { startSession, endSession } from './src/services/engagementTracking';
 
-// Styles
-import './mobile.css';
+const Stack = createNativeStackNavigator();
 
-function App() {
-  const [showOnboarding, setShowOnboarding] = useState(false);
-  const [showPremiumCheckout, setShowPremiumCheckout] = useState(false);
+export default function App() {
+  const [isReady, setIsReady] = useState(false);
   
-  // Initialize hooks
-  const notifications = useNotifications();
-  const { user, isLoading, userProfile } = useUser();
-  
-  // Initialize auto-logout for security and API cost savings
-  useAutoLogout(user, notifications);
+  useEffect(() => {
+    // Start engagement session
+    startSession();
+    
+    // End session when app closes
+    return () => {
+      endSession();
+    };
+  }, []);
 
-  // Check if user needs onboarding
-  React.useEffect(() => {
-    if (user && !isLoading) {
-      const onboardingCompleted = userProfile?.onboardingCompleted || 
-        localStorage.getItem(`${APP_CONFIG.STORAGE_KEYS.ONBOARDING_PREFIX}${user.uid}`) === 'completed';
-      
-      if (!onboardingCompleted) {
-        setShowOnboarding(true);
-      }
-    }
-  }, [user, isLoading, userProfile]);
+  useEffect(() => {
+    // Give Firebase a moment to initialize
+    setTimeout(() => {
+      setIsReady(true);
+    }, 100);
+  }, []);
 
-  const handleOnboardingComplete = (shouldShowPremium) => {
-    setShowOnboarding(false);
-    if (shouldShowPremium) {
-      setShowPremiumCheckout(true);
-    }
-  };
-
-  const handlePremiumSuccess = () => {
-    setShowPremiumCheckout(false);
-  };
-
-  const handlePremiumCancel = () => {
-    setShowPremiumCheckout(false);
-  };
-
-  // Loading state
-  if (isLoading) {
+  if (!isReady) {
     return (
-      <div className="loading-container">
-        <div className="loading-content">
-          <div className="loading-icon">💊</div>
-          <div className="loading-text">Loading {APP_CONFIG.APP_NAME}...</div>
-        </div>
-      </div>
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#10B981" />
+        <Text style={{ marginTop: 10 }}>Loading Naturinex...</Text>
+      </View>
     );
   }
 
-  // Onboarding flow
-  if (user && showOnboarding) {
-    return (
-      <ErrorBoundary>
-        <NotificationSystem 
-          notifications={notifications.notifications}
-          removeNotification={notifications.removeNotification}
-        />
-        <Onboarding user={user} onComplete={handleOnboardingComplete} />
-      </ErrorBoundary>
-    );
-  }
-
-  // Premium checkout modal
-  if (showPremiumCheckout) {
-    return (
-      <ErrorBoundary>
-        <NotificationSystem 
-          notifications={notifications.notifications}
-          removeNotification={notifications.removeNotification}
-        />
-        <div className="modal-overlay">
-          <div className="modal-container">
-            <PremiumCheckout 
-              user={user} 
-              onSuccess={handlePremiumSuccess}
-              onCancel={handlePremiumCancel}
-            />
-          </div>
-        </div>
-      </ErrorBoundary>
-    );
-  }
-
-  // Main app
   return (
-    <ErrorBoundary>
-      <NotificationSystem 
-        notifications={notifications.notifications}
-        removeNotification={notifications.removeNotification}
-      />
-      <Dashboard user={user} notifications={notifications} />
-    </ErrorBoundary>
+    <SafeAreaProvider>
+      <StatusBar style="auto" />
+      <AppLaunchGate>
+        <NotificationProvider>
+          <NavigationContainer>
+            <Stack.Navigator
+          initialRouteName="Login"
+          screenOptions={{
+            headerStyle: {
+              backgroundColor: '#10B981',
+            },
+            headerTintColor: '#fff',
+            headerTitleStyle: {
+              fontWeight: 'bold',
+            },
+          }}
+        >
+          <Stack.Screen 
+            name="Login" 
+            component={LoginScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen 
+            name="Home" 
+            component={HomeScreen}
+            options={{ 
+              title: 'Naturinex',
+              headerBackVisible: false
+            }}
+          />
+          <Stack.Screen 
+            name="Camera" 
+            component={SimpleCameraScreen}
+            options={{ title: 'Scan Product' }}
+          />
+          <Stack.Screen 
+            name="Analysis" 
+            component={AnalysisScreen}
+            options={{ title: 'Analysis Results' }}
+          />
+          <Stack.Screen 
+            name="Profile" 
+            component={ProfileScreen}
+            options={{ title: 'Profile' }}
+          />
+          <Stack.Screen 
+            name="Subscription" 
+            component={SubscriptionScreen}
+            options={{ title: 'Premium' }}
+          />
+          <Stack.Screen 
+            name="Onboarding" 
+            component={OnboardingScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen 
+            name="ScanHistory" 
+            component={ScanHistory}
+            options={{ title: 'Scan History' }}
+          />
+          <Stack.Screen 
+            name="PrivacyPolicy" 
+            component={PrivacyPolicyScreen}
+            options={{ title: 'Privacy Policy' }}
+          />
+          <Stack.Screen 
+            name="TermsOfUse" 
+            component={TermsOfUseScreen}
+            options={{ title: 'Terms of Service' }}
+          />
+          <Stack.Screen 
+            name="AdminDashboard" 
+            component={AdminDashboard}
+            options={{ title: 'Admin Dashboard' }}
+          />
+          <Stack.Screen 
+            name="AdminSettings" 
+            component={AdminSettings}
+            options={{ title: 'Admin Settings' }}
+          />
+        </Stack.Navigator>
+          </NavigationContainer>
+        </NotificationProvider>
+      </AppLaunchGate>
+    </SafeAreaProvider>
   );
 }
-
-export default App;

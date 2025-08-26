@@ -1,0 +1,6 @@
+// Mock for expo-build-properties
+const BuildProperties = {
+  // This is typically a plugin, so we just export an empty object
+};
+
+export default BuildProperties; 

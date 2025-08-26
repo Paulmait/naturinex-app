@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { db } from '../firebase';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import Constants from 'expo-constants';
+
+const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app.onrender.com';
 
 function Dashboard({ user }) {
   // const [file, setFile] = useState(null);
@@ -39,7 +42,7 @@ function Dashboard({ user }) {
     });
 
     try {
-      const res = await fetch('http://localhost:5000/suggest', {
+      const res = await fetch(`${API_URL}/suggest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ medicationName: "Advil" }) // TODO: Extract from barcode/image later

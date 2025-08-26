@@ -8,29 +8,117 @@ import {
   Alert,
   ActivityIndicator,
   Image,
+  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
+import MedicalDisclaimer from '../components/MedicalDisclaimer';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library';
+import { getDeviceId } from '../utils/deviceId';
+import engagementTracker from '../services/engagementTracking';
+import { notificationManager } from '../components/NotificationBanner';
+import reviewPrompt from '../utils/reviewPrompt';
 
-const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app.onrender.com';
+const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-zsga.onrender.com';
 
 export default function AnalysisScreen({ route, navigation }) {
   const [analysisResult, setAnalysisResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isGuest, setIsGuest] = useState(false);
+  const [isPremium, setIsPremium] = useState(false);
+  const [showDisclaimer, setShowDisclaimer] = useState(false);
+  const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
 
   useEffect(() => {
-    if (route.params?.imageUri && route.params?.imageBase64) {
+    checkUserStatus();
+    
+    if (route.params?.medicationName) {
+      // Handle manual medication name input
+      analyzeMedicationByName(route.params.medicationName);
+    } else if (route.params?.barcode) {
+      // Handle barcode scan
+      analyzeMedicationByBarcode(route.params.barcode);
+    } else if (route.params?.imageUri && route.params?.imageBase64) {
       analyzeImage(route.params.imageUri, route.params.imageBase64);
     } else if (route.params?.analysisResult) {
       setAnalysisResult(route.params.analysisResult);
       setLoading(false);
     } else {
-      setError('No image data provided');
+      setError('No data provided for analysis');
       setLoading(false);
     }
   }, [route.params]);
+
+  const checkUserStatus = async () => {
+    const guestStatus = await SecureStore.getItemAsync('is_guest') || 'false';
+    const premiumStatus = await SecureStore.getItemAsync('is_premium') || 'false';
+    setIsGuest(guestStatus === 'true');
+    setIsPremium(premiumStatus === 'true');
+  };
+
+  const analyzeMedicationByName = async (medicationName) => {
+    try {
+      setLoading(true);
+      
+      console.log(`Analyzing medication: ${medicationName} at ${API_URL}/api/analyze/name`);
+      
+      const response = await fetch(`${API_URL}/api/analyze/name`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ medicationName }),
+      });
+
+      const responseText = await response.text();
+      console.log('Response status:', response.status);
+      console.log('Response:', responseText);
+
+      if (!response.ok) {
+        throw new Error(`Analysis failed: ${response.status} - ${responseText}`);
+      }
+
+      const result = JSON.parse(responseText);
+      setAnalysisResult(result);
+      
+    } catch (error) {
+      console.error('Analysis error:', error);
+      setError(`Failed to analyze "${medicationName}". Error: ${error.message}. Please check if the server is running.`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const analyzeMedicationByBarcode = async (barcode) => {
+    try {
+      setLoading(true);
+      
+      const response = await fetch(`${API_URL}/api/analyze/barcode`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ barcode }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Analysis failed');
+      }
+
+      const result = await response.json();
+      setAnalysisResult(result);
+      
+    } catch (error) {
+      console.error('Analysis error:', error);
+      setError('Failed to find product by barcode. Please try scanning the product label instead.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const analyzeImage = async (imageUri, imageBase64) => {
     try {
@@ -44,29 +132,72 @@ export default function AnalysisScreen({ route, navigation }) {
         name: 'medication.jpg',
       });
 
+      // Get device ID for tracking
+      const deviceId = await getDeviceId();
+
       const response = await fetch(`${API_URL}/api/analyze`, {
         method: 'POST',
         body: formData,
         headers: {
           'Content-Type': 'multipart/form-data',
+          'X-Device-Id': deviceId,
         },
       });
 
       if (!response.ok) {
-        throw new Error('Analysis failed');
+        const errorData = await response.json();
+        if (response.status === 429) {
+          // Scan limit reached
+          Alert.alert(
+            '🌟 Upgrade to Premium',
+            errorData.message || 'You\'ve reached your free scan limit. Upgrade to premium for unlimited scans!',
+            [
+              { text: 'Later', style: 'cancel' },
+              { text: 'Upgrade Now', onPress: () => navigation.navigate('Profile') }
+            ]
+          );
+          navigation.goBack();
+          return;
+        }
+        throw new Error(errorData.error || 'Analysis failed');
       }
 
       const result = await response.json();
       setAnalysisResult(result);
+      
+      // Update remaining scans if provided
+      if (result.scansRemaining !== undefined) {
+        await SecureStore.setItemAsync('free_scans_remaining', result.scansRemaining.toString());
+        
+        // Show warning if running low on scans
+        if (!isPremium && result.scansRemaining === 1) {
+          notificationManager.showWarning(
+            '1 free scan remaining!',
+            {
+              text: 'Upgrade',
+              onPress: () => navigation.navigate('Subscription')
+            }
+          );
+        }
+      }
       
       // Save scan count
       const currentCount = await SecureStore.getItemAsync('scan_count') || '0';
       const newCount = parseInt(currentCount) + 1;
       await SecureStore.setItemAsync('scan_count', newCount.toString());
       
+      // Track engagement
+      await engagementTracker.trackScan(
+        result.productInfo?.productName || result.medicationName,
+        result
+      );
+      
+      // Increment scan count for review prompt
+      await reviewPrompt.incrementScanCount();
+      
     } catch (error) {
       console.error('Analysis error:', error);
-      setError('Failed to analyze medication. Please try again.');
+      setError('Failed to analyze product. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -81,16 +212,78 @@ export default function AnalysisScreen({ route, navigation }) {
     }
   };
 
-  const handleShare = () => {
-    // TODO: Implement share functionality
-    Alert.alert('Coming Soon', 'Share feature will be available soon!');
+  const handleShare = async () => {
+    if (isGuest || !isPremium) {
+      Alert.alert(
+        '🌟 Premium Feature',
+        'Share your wellness discoveries with friends and family!\n\nUpgrade to Premium to:\n✓ Share analysis results\n✓ Download reports\n✓ Access full history\n✓ Unlimited scans',
+        [
+          { text: 'Maybe Later', style: 'cancel' },
+          { text: 'Upgrade Now 🚀', onPress: () => navigation.navigate('Subscription') }
+        ]
+      );
+      return;
+    }
+    
+    try {
+      const shareText = `🌿 Natural Wellness Discovery\n\nProduct: ${analysisResult.medicationName || analysisResult.productName}\n\nNatural Alternatives Found:\n${analysisResult.alternatives?.map(alt => `• ${alt.name}`).join('\n') || 'No alternatives found'}\n\nDiscovered with Naturinex - Your Natural Wellness Guide\n\n⚠️ Educational information only. Consult healthcare professionals.`;
+      
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(shareText);
+        
+        // Track feature usage
+        await engagementTracker.trackShare();
+      } else {
+        Alert.alert('Sharing not available', 'Sharing is not available on this device.')
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Unable to share. Please try again.');
+    }
+  };
+
+  const handleDownload = async () => {
+    if (isGuest || !isPremium) {
+      Alert.alert(
+        '📥 Premium Feature',
+        'Download and save your wellness reports!\n\nUpgrade to Premium to:\n✓ Download PDF reports\n✓ Export wellness history\n✓ Build your wellness library\n✓ Access offline',
+        [
+          { text: 'Maybe Later', style: 'cancel' },
+          { text: 'Upgrade Now 🚀', onPress: () => navigation.navigate('Subscription') }
+        ]
+      );
+      return;
+    }
+    
+    try {
+      const reportContent = `NATURINEX WELLNESS REPORT\n\nDate: ${new Date().toLocaleDateString()}\n\nProduct Analyzed: ${analysisResult.medicationName || analysisResult.productName}\nType: ${analysisResult.medicationType || analysisResult.productType || 'Health Product'}\n\nNATURAL ALTERNATIVES:\n${analysisResult.alternatives?.map(alt => `\n${alt.name}\n- ${alt.description}\n- Effectiveness: ${alt.effectiveness}\n${alt.benefits?.map(b => `  • ${b}`).join('\n') || ''}`).join('\n') || 'No alternatives found'}\n\n${analysisResult.warnings?.length ? `\nWARNINGS:\n${analysisResult.warnings.map(w => `• ${w}`).join('\n')}` : ''}\n\n${analysisResult.recommendations?.length ? `\nRECOMMENDATIONS:\n${analysisResult.recommendations.map(r => `• ${r}`).join('\n')}` : ''}\n\nDISCLAIMER:\nThis information is for educational purposes only. Always consult healthcare professionals before making changes to your wellness routine.\n\nGenerated by Naturinex - Your Natural Wellness Guide`;
+      
+      const filename = `naturinex-report-${Date.now()}.txt`;
+      const fileUri = FileSystem.documentDirectory + filename;
+      
+      await FileSystem.writeAsStringAsync(fileUri, reportContent);
+      
+      if (Platform.OS === 'ios') {
+        await Sharing.shareAsync(fileUri);
+      } else {
+        const permission = await MediaLibrary.requestPermissionsAsync();
+        if (permission.granted) {
+          const asset = await MediaLibrary.createAssetAsync(fileUri);
+          Alert.alert('Success', 'Report saved to your device!');
+        }
+      }
+      
+      // Track feature usage
+      await engagementTracker.trackPDFExport();
+    } catch (error) {
+      Alert.alert('Error', 'Unable to download report. Please try again.');
+    }
   };
 
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#10B981" />
-        <Text style={styles.loadingText}>Analyzing medication...</Text>
+        <Text style={styles.loadingText}>Analyzing product...</Text>
       </View>
     );
   }
@@ -118,6 +311,20 @@ export default function AnalysisScreen({ route, navigation }) {
     );
   }
 
+  // Show disclaimer before results if not accepted
+  if (!disclaimerAccepted && analysisResult) {
+    return (
+      <>
+        <MedicalDisclaimer
+          visible={true}
+          type="results"
+          onAccept={() => setDisclaimerAccepted(true)}
+          onDecline={() => navigation.goBack()}
+        />
+      </>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -131,22 +338,43 @@ export default function AnalysisScreen({ route, navigation }) {
             <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
               <MaterialIcons name="share" size={20} color="#10B981" />
             </TouchableOpacity>
+            <TouchableOpacity style={styles.actionButton} onPress={handleDownload}>
+              <MaterialIcons name="download" size={20} color="#10B981" />
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* Medication Info */}
-        <View style={styles.medicationCard}>
-          <Text style={styles.medicationName}>
-            {analysisResult.medicationName || 'Unknown Medication'}
-          </Text>
-          <Text style={styles.medicationType}>
-            {analysisResult.medicationType || 'Prescription Medication'}
+        {/* Medical Disclaimer Banner */}
+        <View style={styles.disclaimerBanner}>
+          <MaterialIcons name="info" size={20} color="#DC2626" />
+          <Text style={styles.disclaimerBannerText}>
+            Educational information only. Not medical advice. Always consult healthcare professionals.
           </Text>
         </View>
 
-        {/* Natural Alternatives */}
+        {/* Mock Data Warning */}
+        {analysisResult.isMockData && (
+          <View style={styles.mockDataWarning}>
+            <MaterialIcons name="info" size={20} color="#F59E0B" />
+            <Text style={styles.mockDataWarningText}>
+              ⚠️ This is mock data for testing. To enable real camera OCR, configure Google Vision API on the server.
+            </Text>
+          </View>
+        )}
+
+        {/* Product Info */}
+        <View style={styles.medicationCard}>
+          <Text style={styles.medicationName}>
+            {analysisResult.medicationName || analysisResult.productName || 'Unknown Product'}
+          </Text>
+          <Text style={styles.medicationType}>
+            {analysisResult.medicationType || analysisResult.productType || 'Health & Wellness Product'}
+          </Text>
+        </View>
+
+        {/* Wellness Information */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>🌿 Natural Alternatives</Text>
+          <Text style={styles.sectionTitle}>🌿 Educational Wellness Information</Text>
           {analysisResult.alternatives && analysisResult.alternatives.length > 0 ? (
             analysisResult.alternatives.map((alternative, index) => (
               <View key={index} style={styles.alternativeItem}>
@@ -208,7 +436,7 @@ export default function AnalysisScreen({ route, navigation }) {
         {/* Disclaimer */}
         <View style={styles.disclaimerContainer}>
           <Text style={styles.disclaimerText}>
-            ⚠️ This information is for educational purposes only. Always consult with your healthcare provider before making any changes to your medication regimen.
+            ⚠️ This information is for educational purposes only. Always consult with healthcare professionals before making any changes to your wellness routine.
           </Text>
         </View>
       </ScrollView>
@@ -230,6 +458,23 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F9FAFB',
+  },
+  disclaimerBanner: {
+    backgroundColor: '#FEE2E2',
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  disclaimerBannerText: {
+    color: '#991B1B',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 8,
+    flex: 1,
   },
   loadingContainer: {
     flex: 1,
@@ -413,6 +658,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#92400E',
     lineHeight: 16,
+  },
+  mockDataWarning: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 20,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  mockDataWarningText: {
+    fontSize: 14,
+    color: '#92400E',
+    marginLeft: 8,
+    flex: 1,
+    lineHeight: 20,
+    fontWeight: '500',
   },
   bottomActions: {
     flexDirection: 'row',

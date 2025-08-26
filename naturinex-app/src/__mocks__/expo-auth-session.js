@@ -1,0 +1,15 @@
+// Mock for expo-auth-session
+const AuthSession = {
+  makeRedirectUri: jest.fn().mockReturnValue('mock-redirect-uri'),
+  useAuthRequest: jest.fn().mockReturnValue([
+    { type: 'success', authentication: { accessToken: 'mock-token' } },
+    { type: 'cancel' },
+    { type: 'error', error: 'mock-error' },
+  ]),
+  useAutoDiscovery: jest.fn().mockReturnValue({
+    authorizationEndpoint: 'mock-auth-endpoint',
+    tokenEndpoint: 'mock-token-endpoint',
+  }),
+};
+
+export default AuthSession; 

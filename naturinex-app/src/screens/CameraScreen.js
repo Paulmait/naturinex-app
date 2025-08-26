@@ -1,25 +1,45 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Alert, Image } from 'react-native';
-import { Camera } from 'expo-camera';
+import { View, Text, TouchableOpacity, StyleSheet, Alert, Image, Platform, Linking, TextInput, Modal, KeyboardAvoidingView } from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as MediaLibrary from 'expo-media-library';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { MaterialIcons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
+import * as SecureStore from 'expo-secure-store';
+import { getDeviceId } from '../utils/deviceId';
 
-const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app.onrender.com';
+const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-zsga.onrender.com';
 
 export default function CameraScreen({ navigation }) {
-  const [hasPermission, setHasPermission] = useState(null);
-  const [type, setType] = useState(Camera.Constants.Type.back);
+  const [permission, requestPermission] = useCameraPermissions();
+  const [facing, setFacing] = useState('back');
   const [capturedImage, setCapturedImage] = useState(null);
+  const [isScanning, setIsScanning] = useState(false);
+  const [showManualInput, setShowManualInput] = useState(false);
+  const [productName, setProductName] = useState('');
+  const [showCameraLimitNotice, setShowCameraLimitNotice] = useState(true);
   const cameraRef = useRef(null);
 
   useEffect(() => {
     (async () => {
-      const { status } = await Camera.requestCameraPermissionsAsync();
-      setHasPermission(status === 'granted');
+      if (!permission) return;
+      
+      const mediaLibraryStatus = await MediaLibrary.requestPermissionsAsync();
+      
+      if (!permission.granted) {
+        Alert.alert(
+          'Camera Permission Required',
+          'Please allow camera access to scan products.',
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => navigation.goBack() },
+            { text: 'Allow', onPress: () => requestPermission() }
+          ]
+        );
+      }
     })();
-  }, []);
+    
+  }, [permission, showCameraLimitNotice]);
 
   const takePicture = async () => {
     if (cameraRef.current) {
@@ -32,7 +52,7 @@ export default function CameraScreen({ navigation }) {
         setCapturedImage(photo);
         analyzeImage(photo);
       } catch (error) {
-        Alert.alert('Error', 'Failed to take picture');
+        Alert.alert('Error', 'Failed to take picture. Please try again.');
       }
     }
   };
@@ -54,6 +74,19 @@ export default function CameraScreen({ navigation }) {
 
   const analyzeImage = async (image) => {
     try {
+      // Check if guest user and update free scans
+      const isGuest = await SecureStore.getItemAsync('is_guest') || 'false';
+      if (isGuest === 'true') {
+        const remainingScans = parseInt(await SecureStore.getItemAsync('free_scans_remaining') || '0');
+        if (remainingScans > 0) {
+          await SecureStore.setItemAsync('free_scans_remaining', String(remainingScans - 1));
+        }
+      }
+      
+      // Update total scan count
+      const scanCount = parseInt(await SecureStore.getItemAsync('scan_count') || '0');
+      await SecureStore.setItemAsync('scan_count', String(scanCount + 1));
+      
       // Show loading state
       navigation.navigate('Analysis', { 
         imageUri: image.uri,
@@ -61,23 +94,35 @@ export default function CameraScreen({ navigation }) {
         analyzing: true 
       });
 
-      // Send to backend for analysis
+      // Create FormData for image upload
       const formData = new FormData();
       formData.append('image', {
         uri: image.uri,
         type: 'image/jpeg',
-        name: 'medication.jpg',
+        name: 'product.jpg',
       });
 
+      // Get device ID for tracking
+      const deviceId = await getDeviceId();
+
+      console.log('📸 Uploading image to:', `${API_URL}/api/analyze`);
+      
       const response = await fetch(`${API_URL}/api/analyze`, {
         method: 'POST',
         body: formData,
         headers: {
           'Content-Type': 'multipart/form-data',
+          'X-Device-Id': deviceId,
         },
       });
 
+      console.log('📸 Response status:', response.status);
+
       const result = await response.json();
+      
+      if (result.error) {
+        throw new Error(result.error);
+      }
       
       // Navigate to results
       navigation.navigate('Analysis', { 
@@ -86,18 +131,101 @@ export default function CameraScreen({ navigation }) {
         analyzing: false 
       });
     } catch (error) {
-      Alert.alert('Analysis Error', 'Failed to analyze medication');
-      navigation.goBack();
+      Alert.alert(
+        'Camera Analysis',
+        'Unable to analyze image. Would you like to enter the medication name manually?',
+        [
+          {
+            text: 'Enter Manually',
+            onPress: () => {
+              setCapturedImage(null);
+              setShowManualInput(true);
+            },
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel',
+            onPress: () => navigation.goBack(),
+          },
+        ]
+      );
     }
   };
 
-  if (hasPermission === null) {
+  const handleBarCodeScanned = ({ type, data }) => {
+    setIsScanning(false);
+    Alert.alert(
+      'Barcode Detected',
+      `Found barcode: ${data}`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Search', 
+          onPress: () => {
+            // Navigate to analysis with barcode data
+            navigation.navigate('Analysis', { 
+              barcode: data,
+              barcodeType: type,
+              analyzing: true 
+            });
+          }
+        }
+      ]
+    );
+  };
+
+  const handleManualInput = async () => {
+    if (!productName.trim()) {
+      Alert.alert('Error', 'Please enter a product name');
+      return;
+    }
+
+    setShowManualInput(false);
+
+    // Check if guest user and update free scans
+    const isGuest = await SecureStore.getItemAsync('is_guest') || 'false';
+    if (isGuest === 'true') {
+      const remainingScans = parseInt(await SecureStore.getItemAsync('free_scans_remaining') || '0');
+      if (remainingScans <= 0) {
+        Alert.alert(
+          'Free Scans Used',
+          'You\'ve used all your free scans. Sign up for unlimited access!',
+          [
+            { text: 'Later', style: 'cancel' },
+            { text: 'Sign Up', onPress: () => navigation.replace('Login') }
+          ]
+        );
+        return;
+      }
+      await SecureStore.setItemAsync('free_scans_remaining', String(remainingScans - 1));
+    }
+    
+    // Update total scan count
+    const scanCount = parseInt(await SecureStore.getItemAsync('scan_count') || '0');
+    await SecureStore.setItemAsync('scan_count', String(scanCount + 1));
+
+    // Navigate to analysis with product name
+    navigation.navigate('Analysis', { 
+      medicationName: productName.trim(),
+      isManualEntry: true,
+      analyzing: true 
+    });
+
+    // Clear the input for next time
+    setProductName('');
+  };
+
+  if (!permission) {
     return <View style={styles.container}><Text>Requesting camera permission...</Text></View>;
   }
-  if (hasPermission === false) {
+  
+  if (!permission.granted) {
     return (
       <View style={styles.container}>
         <Text style={styles.text}>No access to camera</Text>
+        <TouchableOpacity style={styles.button} onPress={requestPermission}>
+          <Text style={styles.buttonText}>Grant Permission</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.button} onPress={pickImage}>
           <Text style={styles.buttonText}>Choose from Gallery</Text>
         </TouchableOpacity>
@@ -109,20 +237,71 @@ export default function CameraScreen({ navigation }) {
     <View style={styles.container}>
       {!capturedImage ? (
         <>
-          <Camera style={styles.camera} type={type} ref={cameraRef}>
+          <CameraView 
+            style={styles.camera} 
+            facing={facing} 
+            ref={cameraRef}
+            onBarcodeScanned={isScanning ? handleBarCodeScanned : undefined}
+            barcodeScannerSettings={{
+              barcodeTypes: ['ean13', 'ean8', 'upc_a', 'upc_e', 'code128', 'code39', 'qr'],
+            }}
+          >
             <View style={styles.overlay}>
-              <View style={styles.scanFrame} />
+              {/* Manual Entry Banner */}
+              <TouchableOpacity 
+                style={styles.manualEntryBanner} 
+                onPress={() => setShowManualInput(true)}
+              >
+                <MaterialIcons name="keyboard" size={20} color="#10B981" />
+                <Text style={styles.bannerText}>Tap here to enter product name manually</Text>
+                <MaterialIcons name="arrow-forward" size={20} color="#10B981" />
+              </TouchableOpacity>
+              
+              <View style={styles.scanFrame}>
+                {/* Corner guides for better framing */}
+                <View style={[styles.cornerGuide, styles.topLeft]} />
+                <View style={[styles.cornerGuide, styles.topRight]} />
+                <View style={[styles.cornerGuide, styles.bottomLeft]} />
+                <View style={[styles.cornerGuide, styles.bottomRight]} />
+                
+                {/* Center focus indicator */}
+                <View style={styles.centerFocus}>
+                  <MaterialIcons name="center-focus-strong" size={40} color="#10B981" opacity={0.6} />
+                </View>
+              </View>
+              
               <Text style={styles.instructionText}>
-                Position medication label within frame
+                {isScanning ? 'Scanning for barcode...' : 'Center the product name in the frame'}
               </Text>
+              
+              {/* Camera Tips */}
+              <View style={styles.tipsContainer}>
+                <Text style={styles.tipText}>• Focus on the main product name</Text>
+                <Text style={styles.tipText}>• Include dosage info (mg, ml)</Text>
+                <Text style={styles.tipText}>• Good lighting helps</Text>
+              </View>
+              
+              <TouchableOpacity 
+                style={styles.scanModeButton} 
+                onPress={() => setIsScanning(!isScanning)}
+              >
+                <MaterialIcons name={isScanning ? "qr-code-scanner" : "qr-code"} size={24} color="white" />
+                <Text style={styles.scanModeText}>
+                  {isScanning ? 'Barcode Mode' : 'Photo Mode'}
+                </Text>
+              </TouchableOpacity>
             </View>
-          </Camera>
+          </CameraView>
           <View style={styles.controls}>
+            <TouchableOpacity style={styles.galleryButton} onPress={pickImage}>
+              <MaterialIcons name="photo-library" size={30} color="white" />
+            </TouchableOpacity>
             <TouchableOpacity style={styles.captureButton} onPress={takePicture}>
               <MaterialIcons name="camera" size={40} color="white" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.galleryButton} onPress={pickImage}>
-              <MaterialIcons name="photo-library" size={30} color="white" />
+            <TouchableOpacity style={styles.keyboardButton} onPress={() => setShowManualInput(true)}>
+              <MaterialIcons name="keyboard" size={30} color="white" />
+              <Text style={styles.manualEntryLabel}>Manual</Text>
             </TouchableOpacity>
           </View>
         </>
@@ -132,6 +311,56 @@ export default function CameraScreen({ navigation }) {
           <Text style={styles.analyzingText}>Analyzing medication...</Text>
         </View>
       )}
+
+      {/* Manual Input Modal */}
+      <Modal
+        visible={showManualInput}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowManualInput(false)}
+      >
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalContainer}
+        >
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Enter Product Name</Text>
+            <Text style={styles.modalSubtitle}>
+              Type the name of the product you want to analyze
+            </Text>
+            
+            <TextInput
+              style={styles.modalInput}
+              placeholder="e.g., Ibuprofen, Vitamin C, Omega-3"
+              value={productName}
+              onChangeText={setProductName}
+              autoFocus
+              autoCapitalize="words"
+              returnKeyType="search"
+              onSubmitEditing={handleManualInput}
+            />
+            
+            <View style={styles.modalActions}>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.cancelButton]} 
+                onPress={() => {
+                  setShowManualInput(false);
+                  setProductName('');
+                }}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.searchButton]} 
+                onPress={handleManualInput}
+              >
+                <Text style={styles.searchButtonText}>Search</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -151,12 +380,54 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   scanFrame: {
-    width: 250,
-    height: 250,
+    width: 280,
+    height: 280,
     borderWidth: 2,
     borderColor: '#10B981',
-    borderRadius: 10,
+    borderRadius: 15,
     backgroundColor: 'transparent',
+    position: 'relative',
+  },
+  cornerGuide: {
+    position: 'absolute',
+    width: 30,
+    height: 30,
+    borderColor: '#10B981',
+    borderWidth: 3,
+  },
+  topLeft: {
+    top: -1,
+    left: -1,
+    borderRightWidth: 0,
+    borderBottomWidth: 0,
+    borderTopLeftRadius: 15,
+  },
+  topRight: {
+    top: -1,
+    right: -1,
+    borderLeftWidth: 0,
+    borderBottomWidth: 0,
+    borderTopRightRadius: 15,
+  },
+  bottomLeft: {
+    bottom: -1,
+    left: -1,
+    borderRightWidth: 0,
+    borderTopWidth: 0,
+    borderBottomLeftRadius: 15,
+  },
+  bottomRight: {
+    bottom: -1,
+    right: -1,
+    borderLeftWidth: 0,
+    borderTopWidth: 0,
+    borderBottomRightRadius: 15,
+  },
+  centerFocus: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -20 }, { translateY: -20 }],
   },
   instructionText: {
     color: 'white',
@@ -190,6 +461,61 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  keyboardButton: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#6366F1',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#818CF8',
+  },
+  manualEntryLabel: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
+    marginTop: 2,
+  },
+  manualEntryBanner: {
+    position: 'absolute',
+    top: 50,
+    backgroundColor: 'rgba(16, 185, 129, 0.95)',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderRadius: 30,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#10B981',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  bannerText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginHorizontal: 8,
+    flex: 1,
+  },
+  tipsContainer: {
+    position: 'absolute',
+    bottom: 100,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderRadius: 10,
+    maxWidth: '80%',
+  },
+  tipText: {
+    color: 'white',
+    fontSize: 12,
+    marginBottom: 4,
+    lineHeight: 16,
+  },
   preview: {
     flex: 1,
     justifyContent: 'center',
@@ -221,5 +547,81 @@ const styles = StyleSheet.create({
     fontSize: 18,
     marginBottom: 20,
     color: 'white',
+  },
+  scanModeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 25,
+    marginTop: 20,
+  },
+  scanModeText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginLeft: 8,
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingBottom: 40,
+  },
+  modalTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    fontSize: 16,
+    color: '#6B7280',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    padding: 15,
+    fontSize: 16,
+    backgroundColor: '#F9FAFB',
+    marginBottom: 20,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  modalButton: {
+    flex: 1,
+    padding: 16,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  cancelButton: {
+    backgroundColor: '#F3F4F6',
+  },
+  cancelButtonText: {
+    color: '#6B7280',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  searchButton: {
+    backgroundColor: '#10B981',
+  },
+  searchButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

@@ -1,0 +1,279 @@
+// Pricing Plans Configuration
+
+const pricingPlans = {
+  basic: {
+    A: {
+      name: 'Basic A',
+      monthly: {
+        priceId: process.env.STRIPE_BASIC_A_MONTHLY || 'price_1RpEb3IwUuNq64NpP2jNKWIJ',
+        amount: 799,
+        display: '$7.99'
+      },
+      yearly: {
+        priceId: process.env.STRIPE_BASIC_A_YEARLY || 'price_1RpEeKIwUuNq64Np0VUrD3jm',
+        amount: 7999,
+        display: '$79.99',
+        savings: '$15.89'
+      }
+    },
+    B: {
+      name: 'Basic B',
+      monthly: {
+        priceId: process.env.STRIPE_BASIC_B_MONTHLY || 'price_1RpEcUIwUuNq64Np4KLl689G',
+        amount: 999,
+        display: '$9.99'
+      },
+      yearly: {
+        priceId: process.env.STRIPE_BASIC_B_YEARLY || 'price_1RpEeqIwUuNq64NpPculkKkA',
+        amount: 9999,
+        display: '$99.99',
+        savings: '$19.89'
+      }
+    },
+    C: {
+      name: 'Basic C',
+      monthly: {
+        priceId: process.env.STRIPE_BASIC_C_MONTHLY || 'price_1RpEdHIwUuNq64NpfLgNzDkc',
+        amount: 1199,
+        display: '$11.99'
+      },
+      yearly: {
+        priceId: process.env.STRIPE_BASIC_C_YEARLY || 'price_1RpEfFIwUuNq64Npcg9kVtC0',
+        amount: 11999,
+        display: '$119.99',
+        savings: '$23.89'
+      }
+    }
+  },
+  premium: {
+    name: 'Premium',
+    monthly: {
+      priceId: process.env.STRIPE_PREMIUM_MONTHLY || 'price_1Rn7frIwUuNq64NpcGXEdiDD',
+      amount: 1499,
+      display: '$14.99'
+    },
+    yearly: {
+      priceId: process.env.STRIPE_PREMIUM_YEARLY || 'price_1Rn7jbIwUuNq64NpooI9IPsF',
+      amount: 13999,
+      display: '$139.99',
+      savings: '$39.89'
+    }
+  },
+  professional: {
+    name: 'Professional',
+    monthly: {
+      priceId: process.env.STRIPE_PROFESSIONAL_MONTHLY || 'price_1Rn7gRIwUuNq64NpnqVYDAIF',
+      amount: 3999,
+      display: '$39.99'
+    },
+    yearly: {
+      priceId: process.env.STRIPE_PROFESSIONAL_YEARLY || 'price_1Rn7jwIwUuNq64NpDIgCKq2G',
+      amount: 35999,
+      display: '$359.99',
+      savings: '$119.89'
+    }
+  }
+};
+
+// A/B Testing groups for Basic tier only
+const pricingGroups = {
+  A: pricingPlans.basic.A,
+  B: pricingPlans.basic.B,
+  C: pricingPlans.basic.C
+};
+
+// Consistent user assignment based on user ID
+function getUserPricingGroup(userId) {
+  if (!userId) return pricingGroups.B; // Default to standard
+  
+  // Create consistent hash from user ID
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    const char = userId.charCodeAt(i);
+    hash = ((hash << 5) - hash) + char;
+    hash = hash & hash; // Convert to 32-bit integer
+  }
+  
+  // Distribute users across groups
+  const groupIndex = Math.abs(hash) % 3;
+  const groups = ['A', 'B', 'C'];
+  
+  return pricingGroups[groups[groupIndex]];
+}
+
+// Check if user is eligible for promotional pricing
+async function getPromotionalOffer(userId, db) {
+  try {
+    const userDoc = await db.collection('users').doc(userId).get();
+    
+    if (!userDoc.exists) {
+      return { hasOffer: false };
+    }
+    
+    const userData = userDoc.data();
+    const createdAt = userData.metadata?.createdAt?.toDate() || new Date();
+    const daysSinceSignup = (Date.now() - createdAt) / (1000 * 60 * 60 * 24);
+    
+    // New user offer (first 7 days)
+    if (daysSinceSignup <= 7) {
+      return {
+        hasOffer: true,
+        code: 'WELCOME50',
+        description: '50% off for your first 3 months!',
+        percentOff: 50,
+        duration: 'repeating',
+        durationInMonths: 3
+      };
+    }
+    
+    // Win-back offer (inactive for 30+ days)
+    const lastActiveDate = userData.metadata?.lastActiveDate?.toDate();
+    if (lastActiveDate) {
+      const daysSinceActive = (Date.now() - lastActiveDate) / (1000 * 60 * 60 * 24);
+      if (daysSinceActive >= 30) {
+        return {
+          hasOffer: true,
+          code: 'WINBACK50',
+          description: 'Welcome back! 50% off for 3 months!',
+          percentOff: 50,
+          duration: 'repeating',
+          durationInMonths: 3
+        };
+      }
+    }
+    
+    // Launch offer for early adopters
+    const launchDate = new Date('2024-01-01');
+    const daysSinceLaunch = (Date.now() - launchDate) / (1000 * 60 * 60 * 24);
+    if (daysSinceLaunch <= 90) { // First 90 days
+      return {
+        hasOffer: true,
+        code: 'LAUNCH20',
+        description: 'Launch Special: 20% off forever!',
+        percentOff: 20,
+        duration: 'forever'
+      };
+    }
+    
+    return { hasOffer: false };
+    
+  } catch (error) {
+    console.error('Error checking promotional offers:', error);
+    return { hasOffer: false };
+  }
+}
+
+// Track pricing experiment results
+async function trackPricingEvent(eventData, db) {
+  try {
+    await db.collection('pricingAnalytics').add({
+      ...eventData,
+      timestamp: new Date(),
+      experiment: 'pricing_ab_test_v1'
+    });
+  } catch (error) {
+    console.error('Error tracking pricing event:', error);
+  }
+}
+
+// Get conversion metrics by pricing group
+async function getPricingMetrics(db) {
+  try {
+    const metrics = {
+      A: { views: 0, conversions: 0, revenue: 0 },
+      B: { views: 0, conversions: 0, revenue: 0 },
+      C: { views: 0, conversions: 0, revenue: 0 }
+    };
+    
+    // Get all pricing events from last 30 days
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const events = await db.collection('pricingAnalytics')
+      .where('timestamp', '>=', thirtyDaysAgo)
+      .get();
+    
+    events.forEach(doc => {
+      const data = doc.data();
+      const group = data.pricingGroup;
+      
+      if (data.event === 'viewed_pricing') {
+        metrics[group].views++;
+      } else if (data.event === 'converted') {
+        metrics[group].conversions++;
+        metrics[group].revenue += data.amount || 0;
+      }
+    });
+    
+    // Calculate conversion rates
+    Object.keys(metrics).forEach(group => {
+      const m = metrics[group];
+      m.conversionRate = m.views > 0 ? (m.conversions / m.views * 100).toFixed(2) : 0;
+      m.averageRevenue = m.conversions > 0 ? (m.revenue / m.conversions).toFixed(2) : 0;
+    });
+    
+    return metrics;
+    
+  } catch (error) {
+    console.error('Error getting pricing metrics:', error);
+    return null;
+  }
+}
+
+// Get all available pricing tiers for a user
+function getAllPricingTiers(userId) {
+  // Get user's A/B test group for Basic tier
+  const userGroup = getUserPricingGroup(userId);
+  
+  return {
+    basic: userGroup,
+    premium: pricingPlans.premium,
+    professional: pricingPlans.professional
+  };
+}
+
+// Valid coupon codes
+const validCoupons = [
+  'COMBACK30', // Note: typo in Stripe dashboard
+  'WINBACK50',
+  'FRIEND15',
+  'LAUNCH20',
+  'WELCOME50',
+  // Beta testing coupons - 100% discount
+  'BETA2024',
+  'NATURINEXBETA',
+  'TESTFLIGHT'
+];
+
+// Beta coupon configuration
+const betaCoupons = {
+  'BETA2024': { discount: 1.00, expiresAt: new Date('2025-03-31'), description: 'Beta tester access' },
+  'NATURINEXBETA': { discount: 1.00, expiresAt: new Date('2025-03-31'), description: 'Beta program' },
+  'TESTFLIGHT': { discount: 1.00, expiresAt: new Date('2025-03-31'), description: 'TestFlight beta' }
+};
+
+// Check if user has beta access
+function isBetaTester(couponCode) {
+  if (!couponCode) return false;
+  return Object.keys(betaCoupons).includes(couponCode.toUpperCase());
+}
+
+// Apply beta discount
+function applyBetaDiscount(originalPrice, couponCode) {
+  if (!isBetaTester(couponCode)) return originalPrice;
+  return 0; // Free for beta testers
+}
+
+module.exports = {
+  pricingGroups,
+  pricingPlans,
+  getUserPricingGroup,
+  getAllPricingTiers,
+  getPromotionalOffer,
+  trackPricingEvent,
+  getPricingMetrics,
+  validCoupons,
+  betaCoupons,
+  isBetaTester,
+  applyBetaDiscount
+};

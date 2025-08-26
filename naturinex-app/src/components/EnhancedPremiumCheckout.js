@@ -3,6 +3,9 @@
 
 import React, { useState } from 'react';
 import { trackEvent } from '../utils/analytics';
+import Constants from 'expo-constants';
+
+const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app.onrender.com';
 
 function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
   const [selectedPlan, setSelectedPlan] = useState('premium');
@@ -109,7 +112,7 @@ function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
       });
 
       // Call Stripe checkout
-      const response = await fetch('http://localhost:5000/create-checkout-session', {
+      const response = await fetch(`${API_URL}/create-checkout-session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

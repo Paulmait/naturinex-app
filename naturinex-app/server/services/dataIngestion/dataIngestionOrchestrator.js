@@ -1,0 +1,332 @@
+const mongoose = require('mongoose');
+const cron = require('node-cron');
+const PubChemScraper = require('./pubchemScraper');
+const WHOScraper = require('./whoScraper');
+const MSKCCScraper = require('./mskccScraper');
+const SafetyValidator = require('./safetyValidator');
+const NaturalRemedy = require('../../models/naturalRemedySchema');
+const admin = require('firebase-admin');
+
+class DataIngestionOrchestrator {
+  constructor() {
+    this.pubchemScraper = new PubChemScraper();
+    this.whoScraper = new WHOScraper();
+    this.mskccScraper = new MSKCCScraper();
+    this.safetyValidator = new SafetyValidator();
+    
+    // Common natural remedies to scrape
+    this.commonRemedies = [
+      // Herbs
+      'turmeric', 'ginger', 'garlic', 'echinacea', 'ginseng',
+      'chamomile', 'valerian', 'st johns wort', 'milk thistle',
+      'ginkgo biloba', 'saw palmetto', 'black cohosh', 'feverfew',
+      'hawthorn', 'bilberry', 'elderberry', 'ashwagandha',
+      'rhodiola', 'holy basil', 'licorice root', 'peppermint',
+      'lavender', 'passionflower', 'lemon balm', 'calendula',
+      
+      // Supplements
+      'vitamin d', 'vitamin c', 'vitamin b12', 'omega-3',
+      'probiotics', 'magnesium', 'zinc', 'iron', 'calcium',
+      'coq10', 'melatonin', 'glucosamine', 'chondroitin',
+      'alpha-lipoic acid', 'resveratrol', 'quercetin',
+      
+      // Natural compounds
+      'curcumin', 'quercetin', 'resveratrol', 'egcg',
+      'lycopene', 'beta-carotene', 'lutein', 'astaxanthin'
+    ];
+  }
+
+  /**
+   * Initialize scheduled data ingestion
+   */
+  initializeScheduledIngestion() {
+    // Run every night at 2 AM
+    cron.schedule('0 2 * * *', async () => {
+      console.log('Starting nightly data ingestion...');
+      await this.runFullIngestion();
+    });
+    
+    // Run immediate test ingestion on startup (remove in production)
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Running test ingestion...');
+      this.runTestIngestion();
+    }
+  }
+
+  /**
+   * Run full data ingestion from all sources
+   */
+  async runFullIngestion() {
+    const startTime = Date.now();
+    const results = {
+      success: 0,
+      failed: 0,
+      updated: 0,
+      errors: []
+    };
+    
+    try {
+      // Connect to MongoDB if not connected
+      if (mongoose.connection.readyState !== 1) {
+        await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/naturinex');
+      }
+      
+      // Scrape from all sources
+      const [pubchemData, whoData, mskccData] = await Promise.all([
+        this.pubchemScraper.scrapeNaturalCompounds(this.commonRemedies),
+        this.whoScraper.scrapeHerbalMedicines(this.commonRemedies),
+        this.mskccScraper.scrapeHerbDatabase(this.commonRemedies)
+      ]);
+      
+      // Merge and deduplicate data
+      const mergedData = await this.mergeDataSources(pubchemData, whoData, mskccData);
+      
+      // Validate and save each remedy
+      for (const remedyData of mergedData) {
+        try {
+          // Perform safety validation
+          const validationResults = await this.safetyValidator.validateSafety(remedyData);
+          
+          // Only save if passes basic safety checks
+          if (validationResults.isValid || validationResults.safetyScore >= 50) {
+            // Add attribution
+            remedyData.attribution = this.generateAttribution(remedyData.dataSources);
+            
+            // Save or update in MongoDB
+            const saved = await this.saveOrUpdateRemedy(remedyData);
+            if (saved.isNew) results.success++;
+            else results.updated++;
+            
+            // Also save to Firestore for quick access
+            await this.saveToFirestore(remedyData);
+          } else {
+            console.warn(`Skipping ${remedyData.name} due to safety concerns`);
+            results.failed++;
+          }
+        } catch (error) {
+          console.error(`Error processing ${remedyData.name}:`, error.message);
+          results.errors.push({ remedy: remedyData.name, error: error.message });
+          results.failed++;
+        }
+      }
+      
+      // Log results
+      const duration = (Date.now() - startTime) / 1000;
+      await this.logIngestionResults(results, duration);
+      
+    } catch (error) {
+      console.error('Full ingestion failed:', error);
+      results.errors.push({ general: error.message });
+    }
+    
+    return results;
+  }
+
+  /**
+   * Run test ingestion with limited data
+   */
+  async runTestIngestion() {
+    const testRemedies = ['turmeric', 'ginger', 'echinacea'];
+    
+    try {
+      const pubchemData = await this.pubchemScraper.scrapeNaturalCompounds(testRemedies);
+      const whoData = await this.whoScraper.scrapeHerbalMedicines(testRemedies);
+      const mskccData = await this.mskccScraper.scrapeHerbDatabase(testRemedies);
+      
+      const mergedData = await this.mergeDataSources(pubchemData, whoData, mskccData);
+      
+      console.log(`Test ingestion completed. Found ${mergedData.length} remedies.`);
+      
+      // Save first remedy as example
+      if (mergedData.length > 0) {
+        const validationResults = await this.safetyValidator.validateSafety(mergedData[0]);
+        console.log('Validation results:', validationResults);
+      }
+      
+    } catch (error) {
+      console.error('Test ingestion failed:', error);
+    }
+  }
+
+  /**
+   * Merge data from multiple sources
+   */
+  async mergeDataSources(pubchemData, whoData, mskccData) {
+    const mergedMap = new Map();
+    
+    // Helper to merge remedy data
+    const mergeRemedy = (existing, newData) => {
+      // Merge data sources
+      existing.dataSources = [...existing.dataSources, ...newData.dataSources];
+      
+      // Merge conditions (deduplicate)
+      const conditionMap = new Map();
+      [...existing.conditions, ...newData.conditions].forEach(condition => {
+        const key = condition.name.toLowerCase();
+        if (!conditionMap.has(key) || condition.evidence.quality > conditionMap.get(key).evidence.quality) {
+          conditionMap.set(key, condition);
+        }
+      });
+      existing.conditions = Array.from(conditionMap.values());
+      
+      // Use most conservative safety rating
+      if (this.getSafetyPriority(newData.safety.generalSafety) > 
+          this.getSafetyPriority(existing.safety.generalSafety)) {
+        existing.safety.generalSafety = newData.safety.generalSafety;
+      }
+      
+      // Merge interactions
+      existing.interactions.medications = this.mergeInteractions(
+        existing.interactions.medications,
+        newData.interactions.medications
+      );
+      
+      // Update quality score (average)
+      existing.qualityScore = Math.round(
+        (existing.qualityScore + newData.qualityScore) / 2
+      );
+      
+      return existing;
+    };
+    
+    // Process all data sources
+    [...pubchemData, ...whoData, ...mskccData].forEach(remedy => {
+      const key = remedy.name.toLowerCase();
+      if (mergedMap.has(key)) {
+        mergedMap.set(key, mergeRemedy(mergedMap.get(key), remedy));
+      } else {
+        mergedMap.set(key, remedy);
+      }
+    });
+    
+    return Array.from(mergedMap.values());
+  }
+
+  /**
+   * Get safety priority (higher = more cautious)
+   */
+  getSafetyPriority(safety) {
+    const priorities = {
+      'dangerous': 5,
+      'caution': 4,
+      'moderate': 3,
+      'safe': 2,
+      'very-safe': 1
+    };
+    return priorities[safety] || 3;
+  }
+
+  /**
+   * Merge interaction lists
+   */
+  mergeInteractions(existing, newInteractions) {
+    const interactionMap = new Map();
+    
+    [...existing, ...newInteractions].forEach(interaction => {
+      const key = interaction.name.toLowerCase();
+      if (!interactionMap.has(key) || 
+          interaction.severity === 'major' && interactionMap.get(key).severity !== 'major') {
+        interactionMap.set(key, interaction);
+      }
+    });
+    
+    return Array.from(interactionMap.values());
+  }
+
+  /**
+   * Save or update remedy in MongoDB
+   */
+  async saveOrUpdateRemedy(remedyData) {
+    const existing = await NaturalRemedy.findOne({ 
+      name: { $regex: new RegExp(`^${remedyData.name}$`, 'i') }
+    });
+    
+    if (existing) {
+      // Update existing
+      Object.assign(existing, remedyData);
+      existing.updatedAt = new Date();
+      await existing.save();
+      return { isNew: false, id: existing._id };
+    } else {
+      // Create new
+      const newRemedy = new NaturalRemedy(remedyData);
+      await newRemedy.save();
+      return { isNew: true, id: newRemedy._id };
+    }
+  }
+
+  /**
+   * Save remedy to Firestore for quick access
+   */
+  async saveToFirestore(remedyData) {
+    try {
+      // Only save to Firestore if Firebase Admin is initialized
+      if (admin.apps.length > 0) {
+        const docRef = admin.firestore().collection('naturalRemedies').doc(remedyData.name.toLowerCase().replace(/\s+/g, '-'));
+        
+        await docRef.set({
+          ...remedyData,
+          lastUpdated: new Date(),
+          searchKeywords: this.generateSearchKeywords(remedyData)
+        });
+      }
+    } catch (error) {
+      console.error('Firestore save error:', error.message);
+    }
+  }
+
+  /**
+   * Generate search keywords for better search
+   */
+  generateSearchKeywords(remedyData) {
+    const keywords = new Set();
+    
+    // Add name variations
+    keywords.add(remedyData.name.toLowerCase());
+    remedyData.commonNames.forEach(name => keywords.add(name.toLowerCase()));
+    
+    // Add condition keywords
+    remedyData.conditions.forEach(condition => {
+      condition.name.split(' ').forEach(word => keywords.add(word.toLowerCase()));
+    });
+    
+    // Add category
+    keywords.add(remedyData.category);
+    
+    return Array.from(keywords);
+  }
+
+  /**
+   * Generate attribution text
+   */
+  generateAttribution(dataSources) {
+    const sources = dataSources.map(ds => ds.name).join(', ');
+    return `Data sourced from: ${sources}. Processed with Google Gemini AI for safety analysis.`;
+  }
+
+  /**
+   * Log ingestion results
+   */
+  async logIngestionResults(results, duration) {
+    const log = {
+      timestamp: new Date(),
+      duration: `${duration}s`,
+      results: {
+        newRemedies: results.success,
+        updatedRemedies: results.updated,
+        failedRemedies: results.failed,
+        errors: results.errors.length
+      },
+      errorDetails: results.errors
+    };
+    
+    // Save to Firestore if initialized
+    if (admin.apps.length > 0) {
+      await admin.firestore().collection('ingestionLogs').add(log);
+    }
+    
+    console.log('Ingestion completed:', log);
+  }
+}
+
+module.exports = DataIngestionOrchestrator;

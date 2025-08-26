@@ -6,7 +6,7 @@ const getStripe = async () => {
   if (!stripePromise) {
     try {
       // Get the public key from our server
-      const response = await fetch('http://localhost:5000/stripe-config');
+      const response = await fetch('http://10.0.0.74:5000/stripe-config');
       const { publicKey } = await response.json();
       stripePromise = loadStripe(publicKey);
     } catch (error) {

@@ -74,7 +74,7 @@ export const APP_CONFIG = {
   
   // API Endpoints (if applicable)
   API: {
-    BASE_URL: process.env.REACT_APP_API_BASE_URL || 'https://api.naturinex.com',
+    BASE_URL: 'http://10.0.0.74:5000',
     TIMEOUT: 30000
   }
 };

@@ -16,12 +16,18 @@ import AnalysisScreen from './src/screens/AnalysisScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import SubscriptionScreen from './src/screens/SubscriptionScreen';
 import OnboardingScreen from './src/screens/OnboardingScreen';
+import InfoScreen from './src/components/InfoScreen';
 
 const Stack = createNativeStackNavigator();
 
-// API Configuration
-const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app.onrender.com';
-const STRIPE_KEY = Constants.expoConfig?.extra?.stripePublishableKey || 'pk_live_51QTj9RRqEPLAinmJX0Jgqr8GJZQKziNhHDMhHCRpNQbwfWJRKrPz7ZY48mJzV1rP1bDYJhRNJy1z5VXJ0e5G8t9K00lAC53L05';
+// API Configuration - Use environment variables with fallbacks
+const API_URL = process.env.REACT_APP_API_URL || 
+                Constants.expoConfig?.extra?.apiUrl || 
+                'https://naturinex-app.onrender.com';
+
+const STRIPE_KEY = process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY || 
+                   Constants.expoConfig?.extra?.stripePublishableKey || 
+                   'pk_test_51QTj9RRqEPLAinmJX0Jgqr8GJZQKziNhHDMhHCRpNQbwfWJRKrPz7ZY48mJzV1rP1bDYJhRNJy1z5VXJ0e5G8t9K00lAC53L05';
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -121,6 +127,14 @@ export default function App() {
               name="Subscription" 
               component={SubscriptionScreen} 
               options={{ title: 'Subscription' }}
+            />
+            <Stack.Screen 
+              name="Info" 
+              component={InfoScreen} 
+              options={{ 
+                title: 'Info & Legal',
+                headerShown: false 
+              }}
             />
           </Stack.Navigator>
         </NavigationContainer>

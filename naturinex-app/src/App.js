@@ -56,7 +56,7 @@ function App() {
     return (
       <div className="loading-container">
         <div className="loading-content">
-          <div className="loading-icon">💊</div>
+          <div className="loading-icon">🌿</div>
           <div className="loading-text">Loading {APP_CONFIG.APP_NAME}...</div>
         </div>
       </div>

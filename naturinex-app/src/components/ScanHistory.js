@@ -1,20 +1,31 @@
 import React, { useState, useEffect } from 'react';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import * as SecureStore from 'expo-secure-store';
+import * as Sharing from 'expo-sharing';
+import * as FileSystem from 'expo-file-system';
 import { db } from '../firebase';
 import { doc, getDoc, updateDoc, arrayUnion } from 'firebase/firestore';
 
-function ScanHistory({ user }) {
+function ScanHistory({ user, navigation }) {
   const [scanHistory, setScanHistory] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isPremium, setIsPremium] = useState(false);
 
   useEffect(() => {
     const loadScanHistory = async () => {
       try {
-        const userRef = doc(db, "users", user.uid);
-        const docSnap = await getDoc(userRef);
+        const premiumStatus = await SecureStore.getItemAsync('is_premium') || 'false';
+        setIsPremium(premiumStatus === 'true');
         
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setScanHistory(data.scanHistory || []);
+        if (user?.uid) {
+          const userRef = doc(db, "users", user.uid);
+          const docSnap = await getDoc(userRef);
+          
+          if (docSnap.exists()) {
+            const data = docSnap.data();
+            setScanHistory(data.scanHistory || []);
+          }
         }
       } catch (error) {
         console.error("Error loading scan history:", error);
@@ -23,161 +34,169 @@ function ScanHistory({ user }) {
       }
     };
 
-    if (user?.uid) {
-      loadScanHistory();
-    }
+    loadScanHistory();
   }, [user?.uid]);
 
-  const exportToPDF = (scan) => {
-    // Create a simple text-based PDF export
-    const content = `
-Naturinex REPORT
+  const exportToPDF = async (scan) => {
+    if (!isPremium) {
+      Alert.alert(
+        '📥 Premium Feature',
+        'Download your wellness reports!\n\nUpgrade to Premium to export your discoveries.',
+        [
+          { text: 'Maybe Later', style: 'cancel' },
+          { text: 'Upgrade Now 🚀', onPress: () => navigation.navigate('Subscription') }
+        ]
+      );
+      return;
+    }
+    
+    try {
+      const content = `NATURINEX WELLNESS REPORT
 Generated: ${new Date().toLocaleDateString()}
 
-Medication: ${scan.medication}
+Product: ${scan.productName || scan.medication}
 Date Scanned: ${new Date(scan.timestamp).toLocaleDateString()}
 
 Natural Alternatives:
 ${scan.results}
 
 DISCLAIMER: This information is for educational purposes only. 
-Always consult healthcare professionals before making any medical decisions.
-    `;
-    
-    // Create blob and download
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Naturinex-${scan.medication}-${Date.now()}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
+Always consult healthcare professionals before making any wellness decisions.
+`;
+      
+      const filename = `naturinex-report-${Date.now()}.txt`;
+      const fileUri = FileSystem.documentDirectory + filename;
+      
+      await FileSystem.writeAsStringAsync(fileUri, content);
+      await Sharing.shareAsync(fileUri);
+      
+      Alert.alert('Success', 'Report exported successfully!');
+    } catch (error) {
+      Alert.alert('Error', 'Unable to export report. Please try again.');
+    }
   };
 
-  const shareResults = (scan) => {
-    const shareText = `Naturinex Results for ${scan.medication}:\n\n${scan.results}\n\nGenerated on ${new Date(scan.timestamp).toLocaleDateString()}`;
+  const shareResults = async (scan) => {
+    if (!isPremium) {
+      Alert.alert(
+        '🌟 Premium Feature',
+        'Share your wellness discoveries!\n\nUpgrade to Premium to share results.',
+        [
+          { text: 'Maybe Later', style: 'cancel' },
+          { text: 'Upgrade Now 🚀', onPress: () => navigation.navigate('Subscription') }
+        ]
+      );
+      return;
+    }
     
-    if (navigator.share) {
-      navigator.share({
-        title: `Naturinex Results - ${scan.medication}`,
-        text: shareText,
-        url: window.location.href,
-      });
-    } else {
-      navigator.clipboard.writeText(shareText);
-      alert('Results copied to clipboard!');
+    try {
+      const shareText = `🌿 Natural Wellness Discovery\n\nProduct: ${scan.productName || scan.medication}\nDate: ${new Date(scan.timestamp).toLocaleDateString()}\n\nResults:\n${scan.results}\n\nDiscovered with Naturinex - Your Natural Wellness Guide`;
+      
+      await Sharing.shareAsync(shareText);
+    } catch (error) {
+      Alert.alert('Error', 'Unable to share. Please try again.');
     }
   };
 
   if (isLoading) {
     return (
-      <div style={{ padding: '20px', textAlign: 'center' }}>
-        <p>Loading scan history...</p>
-      </div>
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#10B981" />
+        <Text style={styles.loadingText}>Loading scan history...</Text>
+      </View>
     );
   }
 
   if (scanHistory.length === 0) {
     return (
-      <div style={{ 
-        padding: '20px', 
-        textAlign: 'center',
-        backgroundColor: 'white',
-        borderRadius: '8px',
-        border: '1px solid #e0e0e0'
-      }}>
-        <h3 style={{ color: '#2c5530', marginBottom: '15px' }}>📊 Scan History</h3>
-        <p style={{ color: '#666' }}>No scans yet. Start scanning medications to build your history!</p>
-      </div>
+      <View style={styles.emptyState}>
+        <MaterialIcons name="history" size={64} color="#E5E7EB" />
+        <Text style={styles.emptyTitle}>No Scan History</Text>
+        <Text style={styles.emptyText}>
+          Start scanning products to build your wellness history
+        </Text>
+        <TouchableOpacity 
+          style={styles.scanButton} 
+          onPress={() => navigation.navigate('Camera')}
+        >
+          <Text style={styles.scanButtonText}>Start Scanning</Text>
+        </TouchableOpacity>
+      </View>
     );
   }
 
+  const renderScanItem = ({ item, index }) => (
+    <TouchableOpacity 
+      style={styles.scanItem}
+      onPress={() => navigation.navigate('Analysis', { 
+        analysisResult: { 
+          medicationName: item.productName || item.medication,
+          results: item.results 
+        }
+      })}
+    >
+      <View style={styles.scanInfo}>
+        <Text style={styles.productName}>{item.productName || item.medication}</Text>
+        <Text style={styles.scanDate}>
+          {new Date(item.timestamp).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          })}
+        </Text>
+        <Text style={styles.resultsPreview} numberOfLines={2}>
+          {item.results}
+        </Text>
+      </View>
+      <View style={styles.actionButtons}>
+        <TouchableOpacity 
+          style={styles.actionButton} 
+          onPress={() => shareResults(item)}
+        >
+          <MaterialIcons name="share" size={20} color="#10B981" />
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={styles.actionButton} 
+          onPress={() => exportToPDF(item)}
+        >
+          <MaterialIcons name="download" size={20} color="#10B981" />
+        </TouchableOpacity>
+      </View>
+    </TouchableOpacity>
+  );
+
   return (
-    <div style={{
-      backgroundColor: 'white',
-      borderRadius: '8px',
-      border: '1px solid #e0e0e0',
-      padding: '20px',
-      marginBottom: '20px'
-    }}>
-      <h3 style={{ color: '#2c5530', marginBottom: '20px' }}>📊 Scan History ({scanHistory.length} scans)</h3>
-      
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-        {scanHistory.slice().reverse().map((scan, index) => (
-          <div key={index} style={{
-            border: '1px solid #e0e0e0',
-            borderRadius: '8px',
-            padding: '15px',
-            backgroundColor: '#f8f9fa'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-              <h4 style={{ margin: 0, color: '#2c5530', fontSize: '16px' }}>
-                {scan.medication}
-              </h4>
-              <span style={{ fontSize: '12px', color: '#666' }}>
-                {new Date(scan.timestamp).toLocaleDateString()}
-              </span>
-            </div>
-            
-            <div style={{ 
-              marginBottom: '15px', 
-              fontSize: '14px', 
-              color: '#333',
-              lineHeight: '1.5',
-              maxHeight: '100px',
-              overflowY: 'auto'
-            }}>
-              {scan.results.length > 200 ? `${scan.results.substring(0, 200)}...` : scan.results}
-            </div>
-            
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <button
-                onClick={() => exportToPDF(scan)}
-                style={{
-                  backgroundColor: '#28a745',
-                  color: 'white',
-                  border: 'none',
-                  padding: '8px 12px',
-                  borderRadius: '4px',
-                  fontSize: '12px',
-                  cursor: 'pointer'
-                }}
-              >
-                📄 Export PDF
-              </button>
-              <button
-                onClick={() => shareResults(scan)}
-                style={{
-                  backgroundColor: '#007bff',
-                  color: 'white',
-                  border: 'none',
-                  padding: '8px 12px',
-                  borderRadius: '4px',
-                  fontSize: '12px',
-                  cursor: 'pointer'
-                }}
-              >
-                📤 Share
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-      
-      <div style={{
-        marginTop: '20px',
-        padding: '15px',
-        backgroundColor: '#e7f3ff',
-        borderRadius: '6px',
-        textAlign: 'center'
-      }}>
-        <p style={{ margin: 0, fontSize: '14px', color: '#0066cc' }}>
-          💎 Premium Feature: Your scan history is automatically saved and available anytime!
-        </p>
-      </div>
-    </div>
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <Text style={styles.title}>Scan History</Text>
+        <Text style={styles.subtitle}>{scanHistory.length} scans</Text>
+      </View>
+
+      {!isPremium && (
+        <View style={styles.premiumBanner}>
+          <MaterialIcons name="lock" size={20} color="#F59E0B" />
+          <Text style={styles.premiumText}>
+            Full history access is a Premium feature
+          </Text>
+          <TouchableOpacity 
+            style={styles.upgradeButton} 
+            onPress={() => navigation.navigate('Subscription')}
+          >
+            <Text style={styles.upgradeButtonText}>Upgrade</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      <FlatList
+        data={scanHistory.slice().reverse()}
+        renderItem={renderScanItem}
+        keyExtractor={(item, index) => index.toString()}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+      />
+    </View>
   );
 }
 
@@ -186,6 +205,7 @@ export const saveScanToHistory = async (user, medication, results) => {
   try {
     const userRef = doc(db, "users", user.uid);
     const scanEntry = {
+      productName: medication,
       medication: medication,
       results: results,
       timestamp: Date.now()
@@ -200,3 +220,141 @@ export const saveScanToHistory = async (user, medication, results) => {
 };
 
 export default ScanHistory;
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  header: {
+    padding: 20,
+    backgroundColor: 'white',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1F2937',
+  },
+  subtitle: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 5,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#6B7280',
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#6B7280',
+    marginTop: 20,
+    marginBottom: 10,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    marginBottom: 30,
+  },
+  scanButton: {
+    backgroundColor: '#10B981',
+    paddingHorizontal: 30,
+    paddingVertical: 15,
+    borderRadius: 10,
+  },
+  scanButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  premiumBanner: {
+    backgroundColor: '#FEF3C7',
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    marginHorizontal: 20,
+    marginTop: 20,
+    borderRadius: 10,
+  },
+  premiumText: {
+    flex: 1,
+    marginLeft: 10,
+    color: '#92400E',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  upgradeButton: {
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  upgradeButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  listContent: {
+    padding: 20,
+  },
+  scanItem: {
+    backgroundColor: 'white',
+    borderRadius: 15,
+    padding: 20,
+    marginBottom: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  scanInfo: {
+    flex: 1,
+  },
+  productName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 5,
+  },
+  scanDate: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginBottom: 5,
+  },
+  resultsPreview: {
+    fontSize: 14,
+    color: '#9CA3AF',
+    lineHeight: 20,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    marginLeft: 15,
+  },
+  actionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#E5E7EB',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 10,
+  },
+});

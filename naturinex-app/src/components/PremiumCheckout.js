@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import getStripe from '../stripe';
+import Constants from 'expo-constants';
+
+const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app.onrender.com';
 
 function PremiumCheckout({ user, onSuccess, onCancel }) {
   const [isLoading, setIsLoading] = useState(false);
@@ -13,7 +16,7 @@ function PremiumCheckout({ user, onSuccess, onCancel }) {
 
     try {
       // Create checkout session
-      const response = await fetch('http://localhost:5000/create-checkout-session', {
+      const response = await fetch(`${API_URL}/create-checkout-session`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -48,7 +51,7 @@ function PremiumCheckout({ user, onSuccess, onCancel }) {
 
     try {
       // Test endpoint for demo purposes
-      const response = await fetch('http://localhost:5000/test-premium-upgrade', {
+      const response = await fetch(`${API_URL}/test-premium-upgrade`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

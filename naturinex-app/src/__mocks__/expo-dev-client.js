@@ -1,0 +1,10 @@
+// Mock for expo-dev-client
+const DevClient = {
+  isDevice: true,
+  isDevelopmentBuild: true,
+  isDevelopmentClient: true,
+  getBuildNumber: jest.fn().mockReturnValue('1.0.0'),
+  getVersion: jest.fn().mockReturnValue('1.0.0'),
+};
+
+export default DevClient; 

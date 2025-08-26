@@ -84,9 +84,17 @@ export default function HomeScreen({ navigation }) {
             <Text style={styles.welcomeText}>Welcome back!</Text>
             <Text style={styles.userEmail}>{userEmail}</Text>
           </View>
-          <TouchableOpacity style={styles.profileButton} onPress={handleProfile}>
-            <MaterialIcons name="person" size={24} color="#10B981" />
-          </TouchableOpacity>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity 
+              style={styles.infoButton} 
+              onPress={() => navigation.navigate('Info')}
+            >
+              <MaterialIcons name="info" size={24} color="#10B981" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.profileButton} onPress={handleProfile}>
+              <MaterialIcons name="person" size={24} color="#10B981" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Stats Card */}
@@ -326,5 +334,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6B7280',
     marginTop: 4,
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  infoButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  infoButtonText: {
+    fontSize: 20,
   },
 }); 

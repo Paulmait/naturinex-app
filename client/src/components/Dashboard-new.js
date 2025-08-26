@@ -61,7 +61,7 @@ function Dashboard({ user }) {
 
       setScanCount(scans + 1);
 
-      const res = await fetch('http://localhost:5000/suggest', {
+      const res = await fetch('http://10.0.0.74:5000/suggest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ medicationName: medicationName.trim() })

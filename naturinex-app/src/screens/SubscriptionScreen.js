@@ -7,79 +7,339 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  TextInput,
+  Modal,
+  Linking,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
+import StudentVerification from '../components/StudentVerification';
 
 const STRIPE_KEY = Constants.expoConfig?.extra?.stripePublishableKey || 'pk_live_51QTj9RRqEPLAinmJX0Jgqr8GJZQKziNhHDMhHCRpNQbwfWJRKrPz7ZY48mJzV1rP1bDYJhRNJy1z5VXJ0e5G8t9K00lAC53L05';
+const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-zsga.onrender.com';
+
+// Track pricing conversion for A/B testing
+const trackPricingConversion = async (userId, planData, promoCode) => {
+  try {
+    await fetch(`${API_URL}/api/pricing/track-conversion`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        userId,
+        pricingGroup: planData.pricingGroup,
+        planType: planData.id,
+        amount: planData.price,
+        promoCode,
+        timestamp: new Date().toISOString()
+      }),
+    });
+  } catch (error) {
+    console.error('Error tracking conversion:', error);
+  }
+};
 
 export default function SubscriptionScreen({ navigation }) {
   const [isPremium, setIsPremium] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState('monthly');
+  const [selectedPlan, setSelectedPlan] = useState('basic_monthly');
+  const [tiers, setTiers] = useState(null);
+  const [offer, setOffer] = useState(null);
+  const [allOffers, setAllOffers] = useState([]);
+  const [showPromoInput, setShowPromoInput] = useState(false);
+  const [promoCode, setPromoCode] = useState('');
+  const [validCoupons, setValidCoupons] = useState([]);
+  const [studentBenefits, setStudentBenefits] = useState(null);
+  const [userContext, setUserContext] = useState({});
+  const [showStudentVerification, setShowStudentVerification] = useState(false);
 
   useEffect(() => {
     loadSubscriptionStatus();
+    loadPricing();
   }, []);
 
   const loadSubscriptionStatus = async () => {
     try {
       const premium = await SecureStore.getItemAsync('is_premium') || 'false';
       setIsPremium(premium === 'true');
+      
+      // Load subscription data from server if premium
+      if (premium === 'true') {
+        const userId = await SecureStore.getItemAsync('user_id');
+        const authToken = await SecureStore.getItemAsync('auth_token');
+        
+        if (userId && authToken) {
+          const response = await fetch(`${API_URL}/api/user/${userId}/subscription`, {
+            headers: {
+              'Authorization': `Bearer ${authToken}`
+            }
+          });
+          
+          if (response.ok) {
+            const subData = await response.json();
+            if (subData.subscriptionId) {
+              await SecureStore.setItemAsync('subscription_id', subData.subscriptionId);
+            }
+          }
+        }
+      }
     } catch (error) {
       console.error('Error loading subscription status:', error);
+    }
+  };
+
+  const loadPricing = async () => {
+    try {
+      const userId = await SecureStore.getItemAsync('user_id');
+      if (!userId) return;
+      
+      const response = await fetch(`${API_URL}/api/pricing/${userId}`);
+      
+      // Check if response is OK and is JSON
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      
+      const contentType = response.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error("Response is not JSON");
+      }
+      
+      const data = await response.json();
+      
+      setTiers(data.tiers);
+      setOffer(data.offer);
+      setAllOffers(data.allOffers || []);
+      setValidCoupons(data.validCoupons || []);
+      setStudentBenefits(data.studentBenefits);
+      setUserContext(data.userContext || {});
+      
+      // Auto-apply best offer if available
+      if (data.offer?.autoApply) {
+        setPromoCode(data.offer.code);
+      }
+      
+      // Show student verification prompt if eligible but not verified
+      if (!data.userContext?.isStudent && data.userContext?.isNewUser) {
+        // Could show a prompt here
+      }
+    } catch (error) {
+      console.error('Error loading pricing:', error);
+      // Fallback to default pricing
+      setTiers({
+        basic: {
+          name: 'Basic',
+          monthly: { display: '$9.99', priceId: 'price_1RpEcUIwUuNq64Np4KLl689G' },
+          yearly: { display: '$99.99', priceId: 'price_1RpEeqIwUuNq64NpPculkKkA', savings: '$19.89' }
+        },
+        premium: {
+          name: 'Premium',
+          monthly: { display: '$14.99', priceId: 'price_1Rn7frIwUuNq64NpcGXEdiDD' },
+          yearly: { display: '$139.99', priceId: 'price_1Rn7jbIwUuNq64NpooI9IPsF', savings: '$39.89' }
+        },
+        professional: {
+          name: 'Professional',
+          monthly: { display: '$39.99', priceId: 'price_1Rn7gRIwUuNq64NpnqVYDAIF' },
+          yearly: { display: '$359.99', priceId: 'price_1Rn7jwIwUuNq64NpDIgCKq2G', savings: '$119.89' }
+        }
+      });
     }
   };
 
   const handleSubscribe = async (plan) => {
     setLoading(true);
     try {
-      // TODO: Implement actual Stripe subscription
-      // For now, simulate subscription
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const userId = await SecureStore.getItemAsync('user_id');
+      const userEmail = await SecureStore.getItemAsync('user_email');
+      const authToken = await SecureStore.getItemAsync('auth_token');
       
-      await SecureStore.setItemAsync('is_premium', 'true');
+      if (!userId || !userEmail || !authToken) {
+        throw new Error('Authentication required');
+      }
+      
+      // Get selected plan data
+      const selectedPlanData = plans.find(p => p.id === plan);
+      
+      const response = await fetch(`${API_URL}/api/create-checkout-session`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          priceId: selectedPlanData.priceId,
+          userId,
+          userEmail,
+          couponCode: promoCode || undefined,
+          trialDays: userContext.isStudent ? 14 : 7 // Students get 14-day trial, others get 7-day
+        }),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to create checkout session');
+      }
+      
+      const { sessionUrl } = await response.json();
+      
+      if (sessionUrl) {
+        // Open Stripe checkout in browser
+        await Linking.openURL(sessionUrl);
+        
+        // Note: In a production app, you would handle the return URL
+        // and listen for the subscription success webhook
+        Alert.alert(
+          '✅ Checkout Opened',
+          'Complete your payment in the browser. The app will update automatically once payment is confirmed.',
+          [{ text: 'OK' }]
+        );
+      }
       setIsPremium(true);
       
+      // Track conversion for A/B testing
+      await trackPricingConversion(userId, {
+        ...selectedPlanData,
+        pricingGroup: selectedPlanData.tier,
+        price: selectedPlanData.price
+      }, promoCode);
+      
       Alert.alert(
-        'Subscription Successful!',
-        'Welcome to Naturinex Premium! You now have unlimited scans and access to all features.',
+        '🎉 Welcome to Premium!',
+        offer?.hasOffer 
+          ? `You saved ${offer.percentOff}% with code ${offer.code}!\n\nEnjoy unlimited scans and all premium features!`
+          : 'You now have unlimited scans and access to all premium features!\n\n✨ Start discovering natural wellness alternatives today!',
         [
           {
-            text: 'Continue',
-            onPress: () => navigation.goBack(),
+            text: 'Start Exploring 🚀',
+            onPress: () => navigation.navigate('Home'),
           },
         ]
       );
     } catch (error) {
       console.error('Subscription error:', error);
-      Alert.alert('Error', 'Failed to process subscription. Please try again.');
+      Alert.alert('Error', error.message || 'Failed to process subscription. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleManageSubscription = () => {
-    Alert.alert('Manage Subscription', 'Subscription management features will be available soon!');
+  const handleManageSubscription = async () => {
+    try {
+      setLoading(true);
+      const authToken = await SecureStore.getItemAsync('auth_token');
+      
+      if (!authToken) {
+        throw new Error('Authentication required');
+      }
+      
+      // Get Stripe customer portal URL
+      const response = await fetch(`${API_URL}/api/subscription/portal`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to access customer portal');
+      }
+      
+      const { portalUrl } = await response.json();
+      
+      // In production, open the portal URL
+      Alert.alert(
+        'Manage Subscription',
+        'You will be redirected to the Stripe customer portal to manage your subscription, payment methods, and billing history.',
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+          {
+            text: 'Open Portal',
+            onPress: () => {
+              // In production: Linking.openURL(portalUrl);
+              console.log('Would open:', portalUrl);
+            },
+          },
+        ]
+      );
+    } catch (error) {
+      console.error('Customer portal error:', error);
+      Alert.alert('Error', error.message || 'Failed to open subscription management portal');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCancelSubscription = () => {
     Alert.alert(
-      'Cancel Subscription',
-      'Are you sure you want to cancel your premium subscription?',
+      '⚠️ Cancel Premium Subscription',
+      'You will lose access to:\n• Unlimited scans\n• PDF exports & sharing\n• Scan history\n\nYour subscription will remain active until the end of the billing period.',
       [
-        { text: 'Keep Subscription', style: 'cancel' },
+        { text: 'Keep Premium ✨', style: 'cancel' },
         {
           text: 'Cancel Subscription',
           style: 'destructive',
           onPress: async () => {
             try {
-              await SecureStore.setItemAsync('is_premium', 'false');
-              setIsPremium(false);
-              Alert.alert('Subscription Cancelled', 'Your premium subscription has been cancelled.');
+              setLoading(true);
+              
+              // Get auth token and user data
+              const authToken = await SecureStore.getItemAsync('auth_token');
+              const userId = await SecureStore.getItemAsync('user_id');
+              const subscriptionId = await SecureStore.getItemAsync('subscription_id');
+              
+              if (!authToken || !userId) {
+                throw new Error('Authentication required');
+              }
+              
+              if (!subscriptionId) {
+                throw new Error('No active subscription found');
+              }
+              
+              // Call server endpoint
+              const response = await fetch(`${API_URL}/api/cancel-subscription`, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${authToken}`,
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  subscriptionId,
+                  userId
+                }),
+              });
+              
+              if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Cancellation failed');
+              }
+              
+              const result = await response.json();
+              const endDate = new Date(result.current_period_end * 1000);
+              
+              Alert.alert(
+                '✅ Subscription Cancelled',
+                `Your premium access will continue until ${endDate.toLocaleDateString()}\n\nWe're sorry to see you go! You can resubscribe anytime.`,
+                [{ text: 'OK' }]
+              );
+              
+              // Update local state
+              await SecureStore.setItemAsync('subscription_end_date', endDate.toISOString());
+              await SecureStore.setItemAsync('subscription_cancelling', 'true');
+              
+              // Don't set is_premium to false yet - they still have access until end date
+              
             } catch (error) {
-              Alert.alert('Error', 'Failed to cancel subscription.');
+              console.error('Cancellation error:', error);
+              Alert.alert('Error', error.message || 'Failed to cancel subscription. Please try again.');
+            } finally {
+              setLoading(false);
             }
           },
         },
@@ -87,35 +347,115 @@ export default function SubscriptionScreen({ navigation }) {
     );
   };
 
-  const plans = [
+  const plans = tiers ? [
     {
-      id: 'monthly',
-      name: 'Monthly Premium',
-      price: '$9.99',
+      id: 'basic_monthly',
+      tier: 'Basic',
+      name: 'Basic Monthly',
+      price: tiers.basic.monthly.display,
+      priceId: tiers.basic.monthly.priceId,
       period: 'per month',
+      popular: false,
       features: [
-        'Unlimited medication scans',
-        'Advanced AI analysis',
-        'Priority support',
-        'No ads',
-        'Export scan history',
+        '✨ 7-day free trial',
+        '10 scans per month',
+        '30-day scan history',
+        'Basic wellness insights',
+        'No watermarks',
+        'Email support'
       ],
     },
     {
-      id: 'yearly',
-      name: 'Yearly Premium',
-      price: '$99.99',
+      id: 'basic_yearly',
+      tier: 'Basic',
+      name: 'Basic Yearly',
+      price: tiers.basic.yearly.display,
+      priceId: tiers.basic.yearly.priceId,
       period: 'per year',
-      originalPrice: '$119.88',
-      savings: 'Save 17%',
+      originalPrice: `$${(parseFloat(tiers.basic.monthly.display.slice(1)) * 12).toFixed(2)}`,
+      savings: `Save ${tiers.basic.yearly.savings}`,
+      popular: false,
       features: [
-        'All monthly features',
+        '✨ 7-day free trial',
+        'All Basic Monthly features',
         '2 months free',
-        'Early access to new features',
-        'Premium customer support',
+        'Priority email support'
       ],
     },
-  ];
+    {
+      id: 'premium_monthly',
+      tier: 'Premium',
+      name: 'Premium Monthly',
+      price: tiers.premium.monthly.display,
+      priceId: tiers.premium.monthly.priceId,
+      period: 'per month',
+      popular: true,
+      features: [
+        '✨ 7-day free trial',
+        '50 scans per month',
+        'Permanent scan history',
+        'Advanced AI analysis',
+        'Export PDF reports',
+        'Share discoveries',
+        'Priority support',
+        'No ads'
+      ],
+    },
+    {
+      id: 'premium_yearly',
+      tier: 'Premium',
+      name: 'Premium Yearly',
+      price: tiers.premium.yearly.display,
+      priceId: tiers.premium.yearly.priceId,
+      period: 'per year',
+      originalPrice: `$${(parseFloat(tiers.premium.monthly.display.slice(1)) * 12).toFixed(2)}`,
+      savings: `Save ${tiers.premium.yearly.savings}`,
+      popular: true,
+      features: [
+        '✨ 7-day free trial',
+        'All Premium Monthly features',
+        '2+ months free',
+        'Early access to new features'
+      ],
+    },
+    {
+      id: 'professional_monthly',
+      tier: 'Professional',
+      name: 'Pro Monthly',
+      price: tiers.professional.monthly.display,
+      priceId: tiers.professional.monthly.priceId,
+      period: 'per month',
+      popular: false,
+      features: [
+        '✨ 7-day free trial',
+        '200 scans per month',
+        'API access',
+        'Bulk analysis tools',
+        'Custom integrations',
+        'Dedicated support',
+        'Team collaboration',
+        'Advanced analytics'
+      ],
+    },
+    {
+      id: 'professional_yearly',
+      tier: 'Professional',
+      name: 'Pro Yearly',
+      price: tiers.professional.yearly.display,
+      priceId: tiers.professional.yearly.priceId,
+      period: 'per year',
+      originalPrice: `$${(parseFloat(tiers.professional.monthly.display.slice(1)) * 12).toFixed(2)}`,
+      savings: `Save ${tiers.professional.yearly.savings}`,
+      popular: false,
+      features: [
+        '✨ 7-day free trial',
+        'All Pro Monthly features',
+        '3+ months free',
+        'White-label options',
+        'SLA guarantee'
+      ],
+    },
+  ] : [];
 
   if (isPremium) {
     return (
@@ -137,7 +477,7 @@ export default function SubscriptionScreen({ navigation }) {
             <Text style={styles.sectionTitle}>Your Premium Benefits</Text>
             <View style={styles.featureItem}>
               <MaterialIcons name="check-circle" size={20} color="#10B981" />
-              <Text style={styles.featureText}>Unlimited medication scans</Text>
+              <Text style={styles.featureText}>Unlimited product scans</Text>
             </View>
             <View style={styles.featureItem}>
               <MaterialIcons name="check-circle" size={20} color="#10B981" />
@@ -179,50 +519,198 @@ export default function SubscriptionScreen({ navigation }) {
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Upgrade to Premium</Text>
+          <Text style={styles.title}>Choose Your Plan</Text>
           <Text style={styles.subtitle}>
-            Get unlimited scans and advanced features
+            Unlock wellness insights with our flexible plans
           </Text>
+        </View>
+
+        {/* Toggle Monthly/Yearly */}
+        <View style={styles.toggleContainer}>
+          <TouchableOpacity
+            style={[
+              styles.toggleButton,
+              selectedPlan.includes('monthly') && styles.toggleActive
+            ]}
+            onPress={() => {
+              const currentTier = selectedPlan.split('_')[0];
+              setSelectedPlan(`${currentTier}_monthly`);
+            }}
+          >
+            <Text style={[
+              styles.toggleText,
+              selectedPlan.includes('monthly') && styles.toggleTextActive
+            ]}>Monthly</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.toggleButton,
+              selectedPlan.includes('yearly') && styles.toggleActive
+            ]}
+            onPress={() => {
+              const currentTier = selectedPlan.split('_')[0];
+              setSelectedPlan(`${currentTier}_yearly`);
+            }}
+          >
+            <Text style={[
+              styles.toggleText,
+              selectedPlan.includes('yearly') && styles.toggleTextActive
+            ]}>Yearly</Text>
+            <View style={styles.saveBadge}>
+              <Text style={styles.saveBadgeText}>SAVE</Text>
+            </View>
+          </TouchableOpacity>
         </View>
 
         {/* Plans */}
         <View style={styles.plansContainer}>
-          {plans.map((plan) => (
-            <TouchableOpacity
-              key={plan.id}
-              style={[
-                styles.planCard,
-                selectedPlan === plan.id && styles.selectedPlan,
-              ]}
-              onPress={() => setSelectedPlan(plan.id)}
-            >
-              <View style={styles.planHeader}>
-                <Text style={styles.planName}>{plan.name}</Text>
-                {plan.savings && (
-                  <View style={styles.savingsBadge}>
-                    <Text style={styles.savingsText}>{plan.savings}</Text>
+          {['basic', 'premium', 'professional'].map((tierName) => {
+            const monthlyPlan = plans.find(p => p.id === `${tierName}_monthly`);
+            const yearlyPlan = plans.find(p => p.id === `${tierName}_yearly`);
+            const currentPlan = selectedPlan.includes('yearly') ? yearlyPlan : monthlyPlan;
+            
+            if (!currentPlan) return null;
+            
+            return (
+              <TouchableOpacity
+                key={tierName}
+                style={[
+                  styles.planCard,
+                  selectedPlan.startsWith(tierName) && styles.selectedPlan,
+                  currentPlan.popular && styles.popularPlan
+                ]}
+                onPress={() => setSelectedPlan(currentPlan.id)}
+              >
+                {currentPlan.popular && (
+                  <View style={styles.popularBadge}>
+                    <Text style={styles.popularText}>MOST POPULAR</Text>
                   </View>
                 )}
-              </View>
+                
+                <View style={styles.planHeader}>
+                  <Text style={styles.tierName}>{currentPlan.tier}</Text>
+                  {currentPlan.savings && (
+                    <View style={styles.savingsBadge}>
+                      <Text style={styles.savingsText}>{currentPlan.savings}</Text>
+                    </View>
+                  )}
+                </View>
 
-              <View style={styles.priceContainer}>
-                <Text style={styles.price}>{plan.price}</Text>
-                <Text style={styles.period}>{plan.period}</Text>
-                {plan.originalPrice && (
-                  <Text style={styles.originalPrice}>{plan.originalPrice}</Text>
+                <View style={styles.priceContainer}>
+                  <Text style={styles.price}>{currentPlan.price}</Text>
+                  <Text style={styles.period}>{currentPlan.period}</Text>
+                  {currentPlan.originalPrice && (
+                    <Text style={styles.originalPrice}>{currentPlan.originalPrice}</Text>
+                  )}
+                </View>
+
+                <View style={styles.featuresList}>
+                  {currentPlan.features.map((feature, index) => (
+                    <View key={index} style={styles.featureItem}>
+                      <MaterialIcons name="check" size={16} color="#10B981" />
+                      <Text style={styles.featureText}>{feature}</Text>
+                    </View>
+                  ))}
+                </View>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Student Verification Banner */}
+        {!userContext.isStudent && (
+          <TouchableOpacity
+            style={styles.studentBanner}
+            onPress={() => setShowStudentVerification(true)}
+          >
+            <MaterialIcons name="school" size={24} color="#7C3AED" />
+            <View style={styles.studentContent}>
+              <Text style={styles.studentTitle}>Are you a student?</Text>
+              <Text style={styles.studentSubtitle}>Get 40% off forever!</Text>
+            </View>
+            <MaterialIcons name="chevron-right" size={24} color="#7C3AED" />
+          </TouchableOpacity>
+        )}
+
+        {/* Active Offers Display */}
+        {allOffers.length > 0 && (
+          <View style={styles.offersSection}>
+            <Text style={styles.offersTitle}>Your Available Offers:</Text>
+            {allOffers.map((offer, index) => (
+              <TouchableOpacity
+                key={index}
+                style={[
+                  styles.offerBanner,
+                  offer.autoApply && styles.offerBannerActive
+                ]}
+                onPress={() => setPromoCode(offer.code)}
+              >
+                <MaterialIcons 
+                  name={offer.type === 'STUDENT' ? 'school' : 'local-offer'} 
+                  size={24} 
+                  color="#10B981" 
+                />
+                <View style={styles.offerContent}>
+                  <Text style={styles.offerTitle}>{offer.description}</Text>
+                  <Text style={styles.offerCode}>
+                    {offer.autoApply ? 'Auto-applied' : `Tap to use: ${offer.code}`}
+                  </Text>
+                </View>
+                {offer.autoApply && (
+                  <MaterialIcons name="check-circle" size={20} color="#10B981" />
                 )}
-              </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+        )}
 
-              <View style={styles.featuresList}>
-                {plan.features.map((feature, index) => (
-                  <View key={index} style={styles.featureItem}>
-                    <MaterialIcons name="check" size={16} color="#10B981" />
-                    <Text style={styles.featureText}>{feature}</Text>
-                  </View>
-                ))}
+        {/* Student Benefits Display */}
+        {studentBenefits?.hasStudentDiscount && (
+          <View style={styles.studentBenefitsBox}>
+            <View style={styles.studentBenefitsHeader}>
+              <MaterialIcons name="school" size={24} color="#7C3AED" />
+              <Text style={styles.studentBenefitsTitle}>Student Benefits Active!</Text>
+            </View>
+            {studentBenefits.benefits.map((benefit, index) => (
+              <View key={index} style={styles.benefitItem}>
+                <MaterialIcons name="check" size={16} color="#7C3AED" />
+                <Text style={styles.benefitText}>{benefit}</Text>
               </View>
-            </TouchableOpacity>
-          ))}
+            ))}
+          </View>
+        )}
+
+        {/* Promo Code Input */}
+        <View style={styles.promoSection}>
+          <TouchableOpacity
+            style={styles.promoToggle}
+            onPress={() => setShowPromoInput(!showPromoInput)}
+          >
+            <Text style={styles.promoToggleText}>Have a promo code?</Text>
+            <MaterialIcons 
+              name={showPromoInput ? "expand-less" : "expand-more"} 
+              size={24} 
+              color="#10B981" 
+            />
+          </TouchableOpacity>
+          
+          {showPromoInput && (
+            <TextInput
+              style={styles.promoInput}
+              placeholder="Enter promo code"
+              value={promoCode}
+              onChangeText={setPromoCode}
+              autoCapitalize="characters"
+            />
+          )}
+        </View>
+
+        {/* Trial Banner */}
+        <View style={styles.trialBanner}>
+          <MaterialIcons name="celebration" size={24} color="#10B981" />
+          <Text style={styles.trialText}>
+            {userContext.isStudent ? '14-day' : '7-day'} free trial • Cancel anytime
+          </Text>
         </View>
 
         {/* Subscribe Button */}
@@ -237,7 +725,7 @@ export default function SubscriptionScreen({ navigation }) {
             <>
               <MaterialIcons name="star" size={20} color="white" />
               <Text style={styles.subscribeButtonText}>
-                Subscribe to Premium
+                Start {userContext.isStudent ? '14-Day' : '7-Day'} Free Trial
               </Text>
             </>
           )}
@@ -248,7 +736,7 @@ export default function SubscriptionScreen({ navigation }) {
           <Text style={styles.freeTierTitle}>Free Tier Includes:</Text>
           <View style={styles.featureItem}>
             <MaterialIcons name="check" size={16} color="#6B7280" />
-            <Text style={styles.freeFeatureText}>3 scans per day</Text>
+            <Text style={styles.freeFeatureText}>3 free scans total</Text>
           </View>
           <View style={styles.featureItem}>
             <MaterialIcons name="check" size={16} color="#6B7280" />
@@ -263,11 +751,45 @@ export default function SubscriptionScreen({ navigation }) {
         {/* Terms */}
         <View style={styles.termsContainer}>
           <Text style={styles.termsText}>
-            By subscribing, you agree to our Terms of Service and Privacy Policy.
-            Subscriptions auto-renew unless cancelled.
+            By subscribing, you agree to our{' '}
+            <Text 
+              style={styles.termsLink} 
+              onPress={() => navigation.navigate('TermsOfUse')}
+            >
+              Terms of Service
+            </Text>
+            {' '}and{' '}
+            <Text 
+              style={styles.termsLink} 
+              onPress={() => navigation.navigate('PrivacyPolicy')}
+            >
+              Privacy Policy
+            </Text>
+            . Free trial for new users. Cancel anytime during trial. Subscriptions auto-renew unless cancelled.
           </Text>
         </View>
       </ScrollView>
+      
+      {/* Student Verification Modal */}
+      <Modal
+        visible={showStudentVerification}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setShowStudentVerification(false)}
+      >
+        <StudentVerification
+          onVerified={(result) => {
+            setShowStudentVerification(false);
+            // Reload pricing with student discount
+            loadPricing();
+            Alert.alert(
+              '🎉 Student Verified!',
+              'Your 40% student discount has been applied to all plans!'
+            );
+          }}
+          onClose={() => setShowStudentVerification(false)}
+        />
+      </Modal>
     </View>
   );
 }
@@ -439,6 +961,10 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     textAlign: 'center',
   },
+  termsLink: {
+    textDecorationLine: 'underline',
+    fontWeight: 'bold',
+  },
   section: {
     backgroundColor: 'white',
     borderRadius: 15,
@@ -479,5 +1005,196 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     marginLeft: 12,
     flex: 1,
+  },
+  offerBanner: {
+    backgroundColor: '#ECFDF5',
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#10B981',
+  },
+  offerContent: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  offerTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#065F46',
+    marginBottom: 4,
+  },
+  offerCode: {
+    fontSize: 14,
+    color: '#10B981',
+    fontWeight: '600',
+  },
+  promoSection: {
+    marginBottom: 20,
+  },
+  promoToggle: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  promoToggleText: {
+    fontSize: 16,
+    color: '#10B981',
+    marginRight: 8,
+  },
+  promoInput: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
+    fontSize: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+  toggleContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 20,
+    alignSelf: 'center',
+  },
+  toggleButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginHorizontal: 2,
+    position: 'relative',
+  },
+  toggleActive: {
+    backgroundColor: 'white',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  toggleText: {
+    fontSize: 16,
+    color: '#6B7280',
+    fontWeight: '600',
+  },
+  toggleTextActive: {
+    color: '#1F2937',
+  },
+  saveBadge: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    backgroundColor: '#10B981',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  saveBadgeText: {
+    fontSize: 10,
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  tierName: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 4,
+  },
+  popularPlan: {
+    borderColor: '#10B981',
+    borderWidth: 2,
+  },
+  popularBadge: {
+    position: 'absolute',
+    top: -12,
+    alignSelf: 'center',
+    backgroundColor: '#10B981',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+  },
+  popularText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  studentBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3E8FF',
+    borderRadius: 12,
+    padding: 16,
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#E9D5FF',
+  },
+  studentContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  studentTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#7C3AED',
+  },
+  studentSubtitle: {
+    fontSize: 14,
+    color: '#6B21A8',
+    marginTop: 2,
+  },
+  offersSection: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+  },
+  offersTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#1F2937',
+    marginBottom: 12,
+  },
+  offerBannerActive: {
+    borderColor: '#10B981',
+    backgroundColor: '#ECFDF5',
+  },
+  studentBenefitsBox: {
+    backgroundColor: '#F3E8FF',
+    borderRadius: 12,
+    padding: 16,
+    marginHorizontal: 20,
+    marginBottom: 20,
+  },
+  studentBenefitsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  studentBenefitsTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#7C3AED',
+    marginLeft: 8,
+  },
+  trialBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ECFDF5',
+    padding: 12,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderRadius: 8,
+  },
+  trialText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#065F46',
+    marginLeft: 8,
   },
 }); 

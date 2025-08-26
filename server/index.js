@@ -9,16 +9,38 @@ const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 // Add Firebase Admin SDK for webhook handling
 const admin = require('firebase-admin');
 
+// Validate required environment variables
+const requiredEnvVars = [
+  'GEMINI_API_KEY',
+  'STRIPE_SECRET_KEY',
+  'STRIPE_WEBHOOK_SECRET'
+];
+
+const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
+if (missingEnvVars.length > 0) {
+  console.error('❌ Missing required environment variables:', missingEnvVars);
+  console.error('Please check your .env file and ensure all required variables are set.');
+  process.exit(1);
+}
+
 // Initialize Firebase Admin SDK
 if (!admin.apps.length) {
-  // In production, use service account key or default credentials
-  // For development, you can use the Firebase Admin SDK with default credentials
   try {
-    admin.initializeApp({
-      credential: admin.credential.applicationDefault(),
-      // You can also use service account key file:
-      // credential: admin.credential.cert(require('./path-to-service-account-key.json')),
-    });
+    // Use service account if available, otherwise use default credentials
+    if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
+      admin.initializeApp({
+        credential: admin.credential.cert({
+          projectId: process.env.FIREBASE_PROJECT_ID,
+          privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+          clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+        }),
+      });
+    } else {
+      // Use default credentials for development
+      admin.initializeApp({
+        credential: admin.credential.applicationDefault(),
+      });
+    }
     console.log('🔥 Firebase Admin initialized successfully');
   } catch (error) {
     console.warn('⚠️ Firebase Admin initialization skipped (webhook functions may not work):', error.message);
@@ -151,19 +173,21 @@ const verifyStripeWebhook = (req, res, next) => {
 // Security middleware
 app.use(helmet());
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://your-production-domain.com'] 
-    : [
-        'http://localhost:3000', 
-        'http://localhost:3001', 
-        'http://localhost:3003', 
-        'http://localhost:3004', 
-        'http://127.0.0.1:3000',
-        'http://10.0.0.74:3000',    // Mobile testing
-        'http://10.0.0.74:3001',    // Mobile testing
-        'http://10.0.0.74:3003',    // Mobile testing
-        'http://10.0.0.74:3004'     // Mobile testing
-      ],
+  origin: process.env.CORS_ORIGIN ? 
+    process.env.CORS_ORIGIN.split(',') : 
+    (process.env.NODE_ENV === 'production' 
+      ? ['https://naturinex.com', 'https://www.naturinex.com'] 
+      : [
+          'http://localhost:3000', 
+          'http://localhost:3001', 
+          'http://localhost:3003', 
+          'http://localhost:3004', 
+          'http://127.0.0.1:3000',
+          'http://10.0.0.74:3000',    // Mobile testing
+          'http://10.0.0.74:3001',    // Mobile testing
+          'http://10.0.0.74:3003',    // Mobile testing
+          'http://10.0.0.74:3004'     // Mobile testing
+        ]),
   credentials: true
 }));
 
@@ -241,7 +265,8 @@ app.get('/health', (req, res) => {
     status: 'Server is running', 
     timestamp: new Date().toISOString(),
     version: '2.0.0',
-    features: ['AI Analysis', 'Premium Tiers', 'Rate Limiting', 'Security Headers']
+    features: ['AI Analysis', 'Premium Tiers', 'Rate Limiting', 'Security Headers'],
+    environment: process.env.NODE_ENV || 'development'
   });
 });
 
@@ -866,4 +891,5 @@ app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📊 Health check available at http://localhost:${PORT}/health`);
   console.log(`💳 Stripe integration ready for testing`);
+  console.log(`🔒 Environment: ${process.env.NODE_ENV || 'development'}`);
 });

@@ -15,6 +15,8 @@ import { getAuth, signOut } from 'firebase/auth';
 export default function HomeScreen({ navigation }) {
   const [userEmail, setUserEmail] = useState('');
   const [scanCount, setScanCount] = useState(0);
+  const [isGuest, setIsGuest] = useState(false);
+  const [freeScansRemaining, setFreeScansRemaining] = useState(0);
   const auth = getAuth();
 
   React.useEffect(() => {
@@ -25,20 +27,46 @@ export default function HomeScreen({ navigation }) {
     try {
       const email = await SecureStore.getItemAsync('user_email');
       const count = await SecureStore.getItemAsync('scan_count') || '0';
+      const guestStatus = await SecureStore.getItemAsync('is_guest') || 'false';
+      const remainingScans = await SecureStore.getItemAsync('free_scans_remaining') || '0';
+      
       setUserEmail(email || '');
       setScanCount(parseInt(count));
+      setIsGuest(guestStatus === 'true');
+      setFreeScansRemaining(parseInt(remainingScans));
     } catch (error) {
       // Error loading user data - handled silently
     }
   };
 
-  const handleScan = () => {
+  const handleScan = async () => {
+    if (isGuest && freeScansRemaining <= 0) {
+      Alert.alert(
+        '🎯 Unlock Unlimited Wellness',
+        'You\'ve discovered the power of natural alternatives! Sign up now to:\n\n✓ Unlimited product scans\n✓ Save & share your discoveries\n✓ Access complete wellness history\n✓ Export your personal wellness guide\n\n🎁 Special offer: Start your wellness journey today!',
+        [
+          { text: 'Maybe Later', style: 'cancel' },
+          { text: 'Start Free Trial 🚀', onPress: () => navigation.replace('Login'), style: 'default' }
+        ]
+      );
+      return;
+    }
     navigation.navigate('Camera');
   };
 
   const handleHistory = () => {
-    // TODO: Implement history screen
-    Alert.alert('Coming Soon', 'Scan history feature will be available soon!');
+    if (isGuest) {
+      Alert.alert(
+        '📊 Premium Feature',
+        'Access your complete wellness history!\\n\\nSign up to:\\n✓ View all past scans\\n✓ Download reports\\n✓ Share discoveries\\n✓ Track your wellness journey',
+        [
+          { text: 'Maybe Later', style: 'cancel' },
+          { text: 'Sign Up Now 🚀', onPress: () => navigation.replace('Login') }
+        ]
+      );
+      return;
+    }
+    navigation.navigate('ScanHistory');
   };
 
   const handleProfile = () => {
@@ -64,6 +92,8 @@ export default function HomeScreen({ navigation }) {
               await SecureStore.deleteItemAsync('auth_token');
               await SecureStore.deleteItemAsync('user_id');
               await SecureStore.deleteItemAsync('user_email');
+              await SecureStore.deleteItemAsync('is_guest');
+              await SecureStore.deleteItemAsync('free_scans_remaining');
               navigation.replace('Login');
             } catch (error) {
               // Logout error - showing alert to user
@@ -82,23 +112,48 @@ export default function HomeScreen({ navigation }) {
         <View style={styles.header}>
           <View style={styles.userInfo}>
             <Text style={styles.welcomeText}>Welcome back!</Text>
-            <Text style={styles.userEmail}>{userEmail}</Text>
+            <Text style={styles.userEmail}>{isGuest ? 'Guest User' : userEmail}</Text>
           </View>
           <TouchableOpacity style={styles.profileButton} onPress={handleProfile}>
             <MaterialIcons name="person" size={24} color="#10B981" />
           </TouchableOpacity>
         </View>
 
+        {/* Guest Banner */}
+        {isGuest && (
+          <View style={styles.guestBanner}>
+            <View style={styles.scanCounterContainer}>
+              <Text style={styles.scanCounterNumber}>{freeScansRemaining}</Text>
+              <Text style={styles.scanCounterLabel}>Free Scans Left</Text>
+            </View>
+            <View style={styles.bannerTextContainer}>
+              <Text style={styles.guestBannerText}>
+                {freeScansRemaining > 0 
+                  ? `Try ${freeScansRemaining} more ${freeScansRemaining === 1 ? 'scan' : 'scans'} free!` 
+                  : '🎯 Time to unlock unlimited scans!'}
+              </Text>
+              <TouchableOpacity 
+                style={[styles.upgradeButton, freeScansRemaining === 0 && styles.upgradeButtonPulse]} 
+                onPress={() => navigation.replace('Login')}
+              >
+                <Text style={styles.upgradeButtonText}>
+                  {freeScansRemaining > 0 ? 'Sign Up' : 'Unlock Now 🚀'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
         {/* Stats Card */}
         <View style={styles.statsCard}>
           <View style={styles.statItem}>
             <Text style={styles.statNumber}>{scanCount}</Text>
-            <Text style={styles.statLabel}>Scans Today</Text>
+            <Text style={styles.statLabel}>Total Scans</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statNumber}>3</Text>
-            <Text style={styles.statLabel}>Free Limit</Text>
+            <Text style={styles.statNumber}>{isGuest ? freeScansRemaining : '∞'}</Text>
+            <Text style={styles.statLabel}>{isGuest ? 'Scans Left' : 'Unlimited'}</Text>
           </View>
         </View>
 
@@ -108,9 +163,9 @@ export default function HomeScreen({ navigation }) {
             <View style={styles.actionIcon}>
               <MaterialIcons name="camera-alt" size={32} color="white" />
             </View>
-            <Text style={styles.actionTitle}>Scan Medication</Text>
+            <Text style={styles.actionTitle}>Scan Product</Text>
             <Text style={styles.actionSubtitle}>
-              Analyze medications for natural alternatives
+              Discover natural wellness alternatives
             </Text>
           </TouchableOpacity>
 
@@ -132,7 +187,7 @@ export default function HomeScreen({ navigation }) {
           <Text style={styles.tipsTitle}>💡 Quick Tips</Text>
           <View style={styles.tipItem}>
             <Text style={styles.tipText}>
-              • Hold medication label steady for best results
+              • Hold product label steady for best results
             </Text>
           </View>
           <View style={styles.tipItem}>
@@ -205,6 +260,55 @@ const styles = StyleSheet.create({
     backgroundColor: '#E5E7EB',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  guestBanner: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 15,
+    padding: 20,
+    marginBottom: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 2,
+    borderColor: '#F59E0B',
+  },
+  scanCounterContainer: {
+    alignItems: 'center',
+    marginRight: 20,
+  },
+  scanCounterNumber: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: '#F59E0B',
+  },
+  scanCounterLabel: {
+    fontSize: 12,
+    color: '#92400E',
+    fontWeight: '600',
+  },
+  bannerTextContainer: {
+    flex: 1,
+  },
+  guestBannerText: {
+    color: '#92400E',
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 10,
+  },
+  upgradeButton: {
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 25,
+    alignSelf: 'flex-start',
+  },
+  upgradeButtonPulse: {
+    backgroundColor: '#DC2626',
+  },
+  upgradeButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
   statsCard: {
     backgroundColor: 'white',

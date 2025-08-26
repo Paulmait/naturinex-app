@@ -1,0 +1,9 @@
+// Mock for expo-secure-store
+const SecureStore = {
+  getItemAsync: jest.fn().mockResolvedValue(null),
+  setItemAsync: jest.fn().mockResolvedValue(undefined),
+  deleteItemAsync: jest.fn().mockResolvedValue(undefined),
+  isAvailableAsync: jest.fn().mockResolvedValue(true)
+};
+
+export default SecureStore; 

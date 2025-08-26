@@ -1,0 +1,239 @@
+// Import the comprehensive natural alternatives database
+const { getNaturalAlternatives, searchByCondition } = require('./naturalAlternativesDB');
+
+// Wellness alternatives database for common products
+const wellnessAlternatives = {
+  // Pain Relief
+  'aspirin': {
+    category: 'pain_relief',
+    alternatives: [
+      {
+        name: 'White Willow Bark',
+        effectiveness: 'High',
+        description: 'Natural source of salicin, which the body converts to salicylic acid',
+        benefits: ['Anti-inflammatory properties', 'Natural pain relief', 'May help with headaches']
+      },
+      {
+        name: 'Turmeric (Curcumin)',
+        effectiveness: 'Moderate',
+        description: 'Powerful anti-inflammatory compound found in turmeric root',
+        benefits: ['Reduces inflammation', 'Antioxidant properties', 'May help with joint pain']
+      },
+      {
+        name: 'Ginger',
+        effectiveness: 'Moderate',
+        description: 'Natural anti-inflammatory that may help with pain and nausea',
+        benefits: ['Reduces muscle pain', 'Anti-nausea effects', 'Digestive support']
+      }
+    ]
+  },
+  
+  'ibuprofen': {
+    category: 'pain_relief',
+    alternatives: [
+      {
+        name: 'Omega-3 Fatty Acids',
+        effectiveness: 'Moderate',
+        description: 'Essential fatty acids with anti-inflammatory properties',
+        benefits: ['Reduces inflammation', 'Supports heart health', 'May reduce joint stiffness']
+      },
+      {
+        name: 'Boswellia (Indian Frankincense)',
+        effectiveness: 'Moderate',
+        description: 'Resin extract with powerful anti-inflammatory compounds',
+        benefits: ['Reduces joint inflammation', 'May improve mobility', 'Traditional arthritis remedy']
+      },
+      {
+        name: 'Arnica',
+        effectiveness: 'Moderate',
+        description: 'Topical herb for bruises, sprains, and muscle aches',
+        benefits: ['Reduces bruising', 'Eases muscle soreness', 'Anti-inflammatory when applied topically']
+      }
+    ]
+  },
+  
+  // Digestive Health
+  'omeprazole': {
+    category: 'digestive',
+    alternatives: [
+      {
+        name: 'Slippery Elm',
+        effectiveness: 'Moderate',
+        description: 'Mucilaginous herb that coats and soothes the digestive tract',
+        benefits: ['Soothes stomach lining', 'May reduce acid reflux', 'Supports digestive healing']
+      },
+      {
+        name: 'Probiotics',
+        effectiveness: 'High',
+        description: 'Beneficial bacteria that support digestive health',
+        benefits: ['Improves gut health', 'May reduce bloating', 'Supports immune system']
+      },
+      {
+        name: 'Aloe Vera Juice',
+        effectiveness: 'Moderate',
+        description: 'Soothing plant juice for digestive comfort',
+        benefits: ['Reduces stomach acid', 'Anti-inflammatory properties', 'Promotes healing']
+      }
+    ]
+  },
+  
+  'pepto-bismol': {
+    category: 'digestive',
+    alternatives: [
+      {
+        name: 'Peppermint Oil',
+        effectiveness: 'High',
+        description: 'Essential oil that relaxes digestive muscles',
+        benefits: ['Reduces nausea', 'Eases stomach cramps', 'May help with IBS symptoms']
+      },
+      {
+        name: 'Chamomile Tea',
+        effectiveness: 'Moderate',
+        description: 'Gentle herb that soothes digestive upset',
+        benefits: ['Calms stomach', 'Reduces gas', 'Promotes relaxation']
+      },
+      {
+        name: 'Activated Charcoal',
+        effectiveness: 'Moderate',
+        description: 'Natural substance that may help with gas and bloating',
+        benefits: ['Absorbs gas', 'May reduce bloating', 'Traditional remedy for upset stomach']
+      }
+    ]
+  },
+  
+  'miralax': {
+    category: 'digestive',
+    alternatives: [
+      {
+        name: 'Psyllium Husk',
+        effectiveness: 'High',
+        description: 'Natural fiber supplement that promotes regular bowel movements',
+        benefits: ['Gentle constipation relief', 'Supports digestive health', 'May lower cholesterol']
+      },
+      {
+        name: 'Magnesium Citrate',
+        effectiveness: 'High',
+        description: 'Natural mineral that draws water into intestines',
+        benefits: ['Relieves constipation', 'Muscle relaxation', 'Supports bone health']
+      },
+      {
+        name: 'Prunes/Prune Juice',
+        effectiveness: 'Moderate',
+        description: 'Natural fruit with mild laxative effects',
+        benefits: ['Gentle relief', 'High in fiber', 'Contains sorbitol for natural laxative effect']
+      }
+    ]
+  },
+  
+  // Allergy Relief
+  'claritin': {
+    category: 'allergy',
+    alternatives: [
+      {
+        name: 'Quercetin',
+        effectiveness: 'Moderate',
+        description: 'Natural flavonoid with antihistamine properties',
+        benefits: ['Reduces histamine release', 'Anti-inflammatory', 'Antioxidant properties']
+      },
+      {
+        name: 'Stinging Nettle',
+        effectiveness: 'Moderate',
+        description: 'Herb that may reduce allergic reactions',
+        benefits: ['Natural antihistamine', 'May reduce hay fever symptoms', 'Anti-inflammatory']
+      },
+      {
+        name: 'Local Honey',
+        effectiveness: 'Low',
+        description: 'May help build tolerance to local pollens',
+        benefits: ['Gradual desensitization', 'Soothing properties', 'Natural and pleasant remedy']
+      }
+    ]
+  },
+  
+  // Sleep & Anxiety
+  'benadryl': {
+    category: 'sleep_anxiety',
+    alternatives: [
+      {
+        name: 'Valerian Root',
+        effectiveness: 'Moderate',
+        description: 'Herb traditionally used for sleep and anxiety',
+        benefits: ['Promotes sleep', 'Reduces anxiety', 'Non-habit forming']
+      },
+      {
+        name: 'Passionflower',
+        effectiveness: 'Moderate',
+        description: 'Calming herb for anxiety and sleep',
+        benefits: ['Reduces anxiety', 'Improves sleep quality', 'May lower blood pressure']
+      },
+      {
+        name: 'L-Theanine',
+        effectiveness: 'Moderate',
+        description: 'Amino acid found in tea that promotes relaxation',
+        benefits: ['Promotes calm alertness', 'Reduces stress', 'Improves sleep quality']
+      }
+    ]
+  }
+};
+
+// Function to get alternatives by product name or active ingredient
+function getWellnessAlternatives(productName) {
+  if (!productName) return null;
+  
+  const searchTerm = productName.toLowerCase();
+  
+  // Direct match
+  if (wellnessAlternatives[searchTerm]) {
+    return wellnessAlternatives[searchTerm].alternatives;
+  }
+  
+  // Partial match
+  for (const [key, data] of Object.entries(wellnessAlternatives)) {
+    if (searchTerm.includes(key) || key.includes(searchTerm)) {
+      return data.alternatives;
+    }
+  }
+  
+  // Category-based default alternatives
+  const categoryDefaults = {
+    pain_relief: wellnessAlternatives['aspirin'].alternatives,
+    digestive: wellnessAlternatives['pepto-bismol'].alternatives,
+    allergy: wellnessAlternatives['claritin'].alternatives,
+    sleep_anxiety: wellnessAlternatives['benadryl'].alternatives
+  };
+  
+  // Try to guess category from product name
+  if (searchTerm.includes('pain') || searchTerm.includes('ache')) {
+    return categoryDefaults.pain_relief;
+  }
+  if (searchTerm.includes('stomach') || searchTerm.includes('digest') || searchTerm.includes('acid')) {
+    return categoryDefaults.digestive;
+  }
+  if (searchTerm.includes('allergy') || searchTerm.includes('histamine')) {
+    return categoryDefaults.allergy;
+  }
+  if (searchTerm.includes('sleep') || searchTerm.includes('calm')) {
+    return categoryDefaults.sleep_anxiety;
+  }
+  
+  // Default wellness suggestions
+  return [
+    {
+      name: 'Consult a Wellness Professional',
+      effectiveness: 'Varies',
+      description: 'For personalized natural alternatives to your specific needs',
+      benefits: ['Personalized advice', 'Safe recommendations', 'Holistic approach']
+    },
+    {
+      name: 'Lifestyle Modifications',
+      effectiveness: 'Varies',
+      description: 'Diet, exercise, and stress management can address many health concerns',
+      benefits: ['Long-term health benefits', 'No side effects', 'Improves overall wellbeing']
+    }
+  ];
+}
+
+module.exports = {
+  wellnessAlternatives,
+  getWellnessAlternatives
+};

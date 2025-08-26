@@ -1,0 +1,9 @@
+// Mock for expo-web-browser
+const WebBrowser = {
+  openBrowserAsync: jest.fn().mockResolvedValue({ type: 'success' }),
+  closeBrowserAsync: jest.fn().mockResolvedValue({ type: 'success' }),
+  openAuthSessionAsync: jest.fn().mockResolvedValue({ type: 'success' }),
+  dismissBrowser: jest.fn().mockResolvedValue({ type: 'success' }),
+};
+
+export default WebBrowser; 

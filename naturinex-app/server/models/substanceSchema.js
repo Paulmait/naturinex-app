@@ -1,0 +1,323 @@
+// Unified Substance Schema for all natural alternatives
+// This provides a consistent data structure across all external sources
+
+const substanceSchema = {
+  // Core identification
+  id: String, // Unique identifier (e.g., "herb_ashwagandha", "compound_curcumin")
+  type: String, // 'herb', 'compound', 'extract', 'mineral', 'vitamin'
+  
+  // Names and identifiers
+  names: {
+    common: String, // e.g., "Ashwagandha"
+    scientific: String, // e.g., "Withania somnifera"
+    traditional: [String], // e.g., ["Indian Ginseng", "Winter Cherry"]
+    trademarked: [String] // e.g., ["KSM-66", "Sensoril"]
+  },
+  
+  // Chemical information (from PubChem)
+  chemical: {
+    pubchemCid: String,
+    molecularFormula: String,
+    molecularWeight: Number,
+    inchiKey: String,
+    activeCompounds: [{
+      name: String,
+      percentage: String,
+      pubchemCid: String
+    }],
+    fingerprint: String // For similarity matching
+  },
+  
+  // Medical uses and evidence
+  medicalUses: [{
+    condition: String, // e.g., "anxiety"
+    effectiveness: String, // 'high', 'moderate', 'low', 'traditional'
+    evidenceLevel: String, // 'systematic-review', 'rct', 'observational', 'traditional'
+    description: String,
+    references: [{
+      type: String, // 'pubmed', 'doi', 'traditional-text'
+      id: String,
+      title: String,
+      year: Number
+    }]
+  }],
+  
+  // Dosage and administration
+  dosage: {
+    standard: {
+      amount: String, // e.g., "300-600mg"
+      frequency: String, // e.g., "twice daily"
+      form: String, // e.g., "standardized extract"
+      duration: String // e.g., "8-12 weeks"
+    },
+    therapeutic: [{
+      condition: String,
+      amount: String,
+      notes: String
+    }],
+    maxSafe: String
+  },
+  
+  // Safety and interactions
+  safety: {
+    sideEffects: {
+      common: [String], // >10% incidence
+      occasional: [String], // 1-10% incidence
+      rare: [String] // <1% incidence
+    },
+    contraindications: [String],
+    pregnancyCategory: String, // 'safe', 'possibly-safe', 'insufficient-data', 'avoid'
+    lactationSafety: String,
+    pediatricUse: String,
+    elderlyConsiderations: String
+  },
+  
+  // Drug interactions
+  interactions: [{
+    severity: String, // 'major', 'moderate', 'minor'
+    drug: String,
+    mechanism: String,
+    management: String
+  }],
+  
+  // Mechanism of action
+  mechanism: {
+    primary: String,
+    pathways: [String],
+    receptors: [String],
+    enzymes: [String]
+  },
+  
+  // Sourcing and quality
+  sourcing: {
+    nativeTo: [String], // Geographic regions
+    cultivation: String, // 'wild', 'cultivated', 'both'
+    harvestTime: String,
+    plantParts: [String], // e.g., ['root', 'leaf']
+    sustainability: String // 'sustainable', 'threatened', 'endangered'
+  },
+  
+  // Quality markers
+  quality: {
+    standardization: [{
+      compound: String,
+      percentage: String
+    }],
+    authentication: [String], // Testing methods
+    contaminants: [String] // Things to test for
+  },
+  
+  // Traditional use (from WHO)
+  traditional: {
+    systems: [String], // e.g., ['ayurveda', 'tcm', 'unani']
+    history: String,
+    preparation: [String],
+    culturalNotes: String
+  },
+  
+  // Commercial information
+  commercial: {
+    forms: [String], // e.g., ['capsule', 'tincture', 'tea']
+    brands: [{
+      name: String,
+      quality: String,
+      notes: String
+    }],
+    priceRange: String
+  },
+  
+  // Metadata
+  metadata: {
+    created: Date,
+    lastUpdated: Date,
+    lastValidated: Date,
+    sources: [{
+      name: String, // 'pubchem', 'who', 'mskcc'
+      lastSync: Date,
+      version: String
+    }],
+    qualityScore: Number, // 0-100 based on completeness
+    reviewStatus: String // 'reviewed', 'pending', 'needs-update'
+  },
+  
+  // Search optimization
+  searchTerms: [String], // All possible search terms
+  relatedSubstances: [String], // IDs of related substances
+  alternatives: [String] // IDs of alternative substances
+};
+
+// Firestore-optimized version (flattened)
+const firestoreSubstanceSchema = {
+  // Document ID: substance ID (e.g., "herb_ashwagandha")
+  
+  // Basic fields (top level for easy querying)
+  commonName: String,
+  scientificName: String,
+  type: String,
+  effectiveness: [String], // Array of conditions it's effective for
+  safetyLevel: String, // 'safe', 'caution', 'avoid'
+  
+  // Nested data
+  names: Object,
+  chemical: Object,
+  medicalUses: Array,
+  dosage: Object,
+  safety: Object,
+  interactions: Array,
+  traditional: Object,
+  
+  // Metadata
+  lastUpdated: Date,
+  qualityScore: Number,
+  sources: Array,
+  
+  // Full-text search field
+  searchText: String // Concatenated searchable content
+};
+
+// Validation function
+function validateSubstance(data) {
+  const required = ['id', 'type', 'names.common', 'names.scientific'];
+  const errors = [];
+  
+  for (const field of required) {
+    const value = field.split('.').reduce((obj, key) => obj?.[key], data);
+    if (!value) {
+      errors.push(`Missing required field: ${field}`);
+    }
+  }
+  
+  // Validate effectiveness values
+  if (data.medicalUses) {
+    for (const use of data.medicalUses) {
+      if (!['high', 'moderate', 'low', 'traditional'].includes(use.effectiveness)) {
+        errors.push(`Invalid effectiveness value: ${use.effectiveness}`);
+      }
+    }
+  }
+  
+  return { valid: errors.length === 0, errors };
+}
+
+// Transform functions for each source
+const transformers = {
+  // Transform PubChem data to unified schema
+  pubchem: (pubchemData) => ({
+    chemical: {
+      pubchemCid: pubchemData.cid,
+      molecularFormula: pubchemData.properties?.MolecularFormula,
+      molecularWeight: pubchemData.properties?.MolecularWeight,
+      inchiKey: pubchemData.properties?.InChIKey
+    }
+  }),
+  
+  // Transform WHO traditional medicine data
+  who: (whoData) => ({
+    traditional: {
+      systems: whoData.systems || [],
+      history: whoData.traditionalUse,
+      preparation: whoData.preparation ? [whoData.preparation] : []
+    },
+    dosage: {
+      standard: {
+        amount: whoData.dosage,
+        form: 'traditional preparation'
+      }
+    }
+  }),
+  
+  // Transform MSKCC data
+  mskcc: (mskccData) => ({
+    medicalUses: mskccData.commonUses?.map(use => ({
+      condition: use.toLowerCase(),
+      effectiveness: mskccData.clinicalEvidence?.includes('Good') ? 'high' : 'moderate',
+      evidenceLevel: 'systematic-review',
+      description: mskccData.mechanism
+    })) || [],
+    safety: {
+      sideEffects: {
+        common: mskccData.sideEffects || []
+      },
+      contraindications: mskccData.contraindications || []
+    },
+    interactions: mskccData.interactions?.map(int => ({
+      severity: 'moderate',
+      drug: int,
+      mechanism: 'See MSKCC database'
+    })) || []
+  })
+};
+
+// Merge data from multiple sources
+function mergeSubstanceData(sources) {
+  const merged = {
+    id: sources[0]?.id,
+    type: sources[0]?.type || 'herb',
+    names: {},
+    medicalUses: [],
+    metadata: {
+      created: new Date(),
+      lastUpdated: new Date(),
+      sources: []
+    }
+  };
+  
+  // Merge each source
+  for (const source of sources) {
+    // Deep merge logic here
+    Object.keys(source).forEach(key => {
+      if (Array.isArray(merged[key]) && Array.isArray(source[key])) {
+        // Merge arrays (remove duplicates)
+        merged[key] = [...new Set([...merged[key], ...source[key]])];
+      } else if (typeof merged[key] === 'object' && typeof source[key] === 'object') {
+        // Merge objects
+        merged[key] = { ...merged[key], ...source[key] };
+      } else if (!merged[key]) {
+        // Set if not exists
+        merged[key] = source[key];
+      }
+    });
+  }
+  
+  // Calculate quality score
+  merged.metadata.qualityScore = calculateQualityScore(merged);
+  
+  return merged;
+}
+
+// Calculate quality score based on data completeness
+function calculateQualityScore(substance) {
+  let score = 0;
+  const weights = {
+    names: 10,
+    chemical: 15,
+    medicalUses: 20,
+    dosage: 15,
+    safety: 20,
+    interactions: 10,
+    references: 10
+  };
+  
+  // Check each section
+  if (substance.names?.scientific) score += weights.names;
+  if (substance.chemical?.pubchemCid) score += weights.chemical;
+  if (substance.medicalUses?.length > 0) score += weights.medicalUses;
+  if (substance.dosage?.standard) score += weights.dosage;
+  if (substance.safety?.sideEffects) score += weights.safety;
+  if (substance.interactions?.length > 0) score += weights.interactions;
+  
+  // Check for references
+  const hasReferences = substance.medicalUses?.some(use => use.references?.length > 0);
+  if (hasReferences) score += weights.references;
+  
+  return Math.min(score, 100);
+}
+
+module.exports = {
+  substanceSchema,
+  firestoreSubstanceSchema,
+  validateSubstance,
+  transformers,
+  mergeSubstanceData,
+  calculateQualityScore
+};

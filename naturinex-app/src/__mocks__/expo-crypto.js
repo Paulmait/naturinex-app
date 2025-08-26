@@ -1,0 +1,7 @@
+// Mock for expo-crypto
+const Crypto = {
+  digestStringAsync: jest.fn().mockResolvedValue('mock-hash'),
+  randomUUID: jest.fn().mockReturnValue('mock-uuid')
+};
+
+export default Crypto; 

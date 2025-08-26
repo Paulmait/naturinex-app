@@ -23,7 +23,7 @@ function Onboarding({ user, onComplete }) {
     {
       id: 'welcome',
       title: '👋 Welcome to Naturinex',
-      subtitle: 'Your personal medication companion',
+      subtitle: 'Your natural wellness guide',
       component: WelcomeStep
     },
     {
@@ -40,7 +40,7 @@ function Onboarding({ user, onComplete }) {
     },
     {
       id: 'health',
-      title: '💊 Health & Wellness',
+      title: '🌿 Natural Wellness',
       subtitle: 'What are your health goals?',
       component: HealthStep
     },
@@ -198,12 +198,12 @@ function Onboarding({ user, onComplete }) {
 function WelcomeStep({ onNext, stepData }) {
   return (
     <div style={{ textAlign: 'center', flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-      <div style={{ fontSize: '64px', marginBottom: '20px' }}>💊</div>
+      <div style={{ fontSize: '64px', marginBottom: '20px' }}>🌿</div>
       <h1 style={{ color: '#2c5530', marginBottom: '15px', fontSize: '28px' }}>
         {stepData.title}
       </h1>
       <p style={{ color: '#666', fontSize: '18px', marginBottom: '30px', lineHeight: '1.6' }}>
-        Discover natural alternatives to your medications with AI-powered insights.
+        Discover natural wellness alternatives with AI-powered insights.
         Join thousands who've already improved their wellness journey.
       </p>
       
@@ -504,7 +504,7 @@ function HealthStep({ userData, updateUserData, onNext, onBack, onSkip, stepData
   return (
     <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
       <div style={{ textAlign: 'center', marginBottom: '25px' }}>
-        <div style={{ fontSize: '48px', marginBottom: '15px' }}>💊</div>
+        <div style={{ fontSize: '48px', marginBottom: '15px' }}>🌿</div>
         <h2 style={{ color: '#2c5530', marginBottom: '10px' }}>{stepData.title}</h2>
         <p style={{ color: '#666' }}>{stepData.subtitle}</p>
       </div>

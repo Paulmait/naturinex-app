@@ -1,0 +1,167 @@
+import { Platform, Alert } from 'react-native';
+import * as StoreReview from 'expo-store-review';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import appConfig from '../config/appConfig';
+import { safeOpenURL } from './safeOpenURL';
+
+const REVIEW_PROMPT_KEY = 'review_prompt_data';
+const MIN_SCANS_FOR_PROMPT = 5;
+const MIN_DAYS_SINCE_INSTALL = 3;
+const MIN_DAYS_BETWEEN_PROMPTS = 30;
+
+class ReviewPromptManager {
+  constructor() {
+    this.promptData = null;
+    this.loadPromptData();
+  }
+
+  async loadPromptData() {
+    try {
+      const data = await AsyncStorage.getItem(REVIEW_PROMPT_KEY);
+      this.promptData = data ? JSON.parse(data) : {
+        installDate: Date.now(),
+        totalScans: 0,
+        lastPromptDate: null,
+        hasRated: false,
+        declinedCount: 0
+      };
+    } catch (error) {
+      // Error loading review prompt data
+      this.promptData = {
+        installDate: Date.now(),
+        totalScans: 0,
+        lastPromptDate: null,
+        hasRated: false,
+        declinedCount: 0
+      };
+    }
+  }
+
+  async savePromptData() {
+    try {
+      await AsyncStorage.setItem(REVIEW_PROMPT_KEY, JSON.stringify(this.promptData));
+    } catch (error) {
+      // Error saving review prompt data
+    }
+  }
+
+  async incrementScanCount() {
+    if (!this.promptData) await this.loadPromptData();
+    
+    this.promptData.totalScans++;
+    await this.savePromptData();
+    
+    // Check if we should show the prompt
+    await this.checkAndShowPrompt();
+  }
+
+  async checkAndShowPrompt() {
+    if (!this.promptData) await this.loadPromptData();
+
+    // Don't prompt if user has already rated or declined too many times
+    if (this.promptData.hasRated || this.promptData.declinedCount >= 3) {
+      return;
+    }
+
+    // Check minimum scans
+    if (this.promptData.totalScans < MIN_SCANS_FOR_PROMPT) {
+      return;
+    }
+
+    // Check minimum days since install
+    const daysSinceInstall = (Date.now() - this.promptData.installDate) / (1000 * 60 * 60 * 24);
+    if (daysSinceInstall < MIN_DAYS_SINCE_INSTALL) {
+      return;
+    }
+
+    // Check minimum days since last prompt
+    if (this.promptData.lastPromptDate) {
+      const daysSinceLastPrompt = (Date.now() - this.promptData.lastPromptDate) / (1000 * 60 * 60 * 24);
+      if (daysSinceLastPrompt < MIN_DAYS_BETWEEN_PROMPTS) {
+        return;
+      }
+    }
+
+    // All conditions met - show the prompt
+    await this.showReviewPrompt();
+  }
+
+  async showReviewPrompt() {
+    // Update last prompt date
+    this.promptData.lastPromptDate = Date.now();
+    await this.savePromptData();
+
+    // Check if in-app review is available
+    const isAvailable = await StoreReview.isAvailableAsync();
+    
+    if (isAvailable) {
+      // Use native in-app review
+      await StoreReview.requestReview();
+      
+      // We can't know if they actually rated, but assume they did if they saw the prompt
+      setTimeout(() => {
+        this.promptData.hasRated = true;
+        this.savePromptData();
+      }, 5000);
+    } else {
+      // Fallback to custom alert
+      Alert.alert(
+        '🌟 Enjoying Naturinex?',
+        'We\'d love to hear your feedback! Would you mind taking a moment to rate us on the app store?',
+        [
+          {
+            text: 'Not Now',
+            onPress: () => {
+              this.promptData.declinedCount++;
+              this.savePromptData();
+            },
+            style: 'cancel'
+          },
+          {
+            text: 'Rate Now',
+            onPress: () => {
+              this.promptData.hasRated = true;
+              this.savePromptData();
+              this.openStoreReview();
+            }
+          }
+        ],
+        { cancelable: true }
+      );
+    }
+  }
+
+  async openStoreReview() {
+    const storeUrl = Platform.select({
+      ios: `https://apps.apple.com/app/id${appConfig.APP_CONFIG.appStoreId}?action=write-review`,
+      android: `https://play.google.com/store/apps/details?id=${appConfig.APP_CONFIG.playStoreId}&showAllReviews=true`
+    });
+
+    if (await StoreReview.hasAction()) {
+      await StoreReview.requestReview();
+    } else {
+      // Open store URL as fallback
+      safeOpenURL(storeUrl);
+    }
+  }
+
+  async resetPromptData() {
+    // For testing purposes
+    this.promptData = {
+      installDate: Date.now(),
+      totalScans: 0,
+      lastPromptDate: null,
+      hasRated: false,
+      declinedCount: 0
+    };
+    await this.savePromptData();
+  }
+
+  async markAsRated() {
+    if (!this.promptData) await this.loadPromptData();
+    this.promptData.hasRated = true;
+    await this.savePromptData();
+  }
+}
+
+export default new ReviewPromptManager();

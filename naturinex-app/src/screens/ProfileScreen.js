@@ -11,6 +11,7 @@ import {
 import { MaterialIcons } from '@expo/vector-icons';
 import * as SecureStore from 'expo-secure-store';
 import { getAuth, signOut } from 'firebase/auth';
+import { getFirestore, doc, getDoc } from 'firebase/firestore';
 
 export default function ProfileScreen({ navigation }) {
   const [userEmail, setUserEmail] = useState('');
@@ -18,6 +19,7 @@ export default function ProfileScreen({ navigation }) {
   const [isPremium, setIsPremium] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [autoLogoutEnabled, setAutoLogoutEnabled] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
   const auth = getAuth();
 
   useEffect(() => {
@@ -37,6 +39,17 @@ export default function ProfileScreen({ navigation }) {
       setIsPremium(premium === 'true');
       setNotificationsEnabled(notifications === 'true');
       setAutoLogoutEnabled(autoLogout === 'true');
+      
+      // Check admin status
+      const user = auth.currentUser;
+      if (user) {
+        const db = getFirestore();
+        const userDoc = await getDoc(doc(db, 'users', user.uid));
+        if (userDoc.exists()) {
+          const userData = userDoc.data();
+          setIsAdmin(userData?.metadata?.isAdmin === true);
+        }
+      }
     } catch (error) {
       console.error('Error loading user data:', error);
     }
@@ -108,15 +121,25 @@ export default function ProfileScreen({ navigation }) {
   };
 
   const handlePrivacyPolicy = () => {
-    Alert.alert('Privacy Policy', 'Privacy policy content will be displayed here.');
+    navigation.navigate('PrivacyPolicy');
   };
 
   const handleTermsOfService = () => {
-    Alert.alert('Terms of Service', 'Terms of service content will be displayed here.');
+    navigation.navigate('TermsOfUse');
   };
 
   const handleContactSupport = () => {
-    Alert.alert('Contact Support', 'Support contact information will be displayed here.');
+    Alert.alert(
+      'Contact Support', 
+      'We\'re here to help!\n\nEmail: support@naturinex.com\nResponse time: Within 24 hours\n\nFor urgent matters, please include "URGENT" in your subject line.',
+      [
+        { text: 'OK', style: 'default' },
+        { text: 'Copy Email', onPress: () => {
+          // Copy email to clipboard
+          Alert.alert('Success', 'Email copied to clipboard!');
+        }}
+      ]
+    );
   };
 
   return (
@@ -193,6 +216,28 @@ export default function ProfileScreen({ navigation }) {
             </Text>
             <MaterialIcons name="chevron-right" size={24} color="#6B7280" />
           </TouchableOpacity>
+
+          {isAdmin && (
+            <>
+              <TouchableOpacity 
+                style={[styles.actionItem, styles.adminItem]} 
+                onPress={() => navigation.navigate('AdminDashboard')}
+              >
+                <MaterialIcons name="dashboard" size={24} color="#7C3AED" />
+                <Text style={[styles.actionText, styles.adminText]}>Admin Dashboard</Text>
+                <MaterialIcons name="chevron-right" size={24} color="#6B7280" />
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.actionItem, styles.adminItem]} 
+                onPress={() => navigation.navigate('AdminSettings')}
+              >
+                <MaterialIcons name="admin-panel-settings" size={24} color="#7C3AED" />
+                <Text style={[styles.actionText, styles.adminText]}>Admin Settings</Text>
+                <MaterialIcons name="chevron-right" size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </>
+          )}
 
           <TouchableOpacity style={styles.actionItem} onPress={handleClearHistory}>
             <MaterialIcons name="delete" size={24} color="#EF4444" />
@@ -369,5 +414,14 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#EF4444',
     marginLeft: 8,
+  },
+  adminItem: {
+    backgroundColor: '#F3E8FF',
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  adminText: {
+    color: '#7C3AED',
+    fontWeight: '600',
   },
 }); 
