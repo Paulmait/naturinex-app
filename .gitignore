@@ -14,6 +14,12 @@ nul
 .env.test.local
 .env.production.local
 
+# Admin secrets and sensitive configs
+admin.config.js
+.admin.secret
+**/admin-secret.json
+ADMIN_SECRET_SETUP.md
+
 # Build outputs
 build/
 dist/
