@@ -15,10 +15,12 @@ require('dotenv').config();
 const HealthMonitor = require('./health-monitor');
 const ErrorTracker = require('./error-tracker');
 const CacheManager = require('./cache-manager');
+const { TierManager, tierMiddleware, requirePremium } = require('./tier-middleware');
 
 // Initialize enhancement systems
 const healthMonitor = new HealthMonitor();
 const errorTracker = new ErrorTracker();
+const tierManager = new TierManager();
 const cacheManager = new CacheManager({
   ttl: 3600000, // 1 hour default
   maxSize: 1000
@@ -216,18 +218,19 @@ app.get('/health', (req, res) => {
   });
 });
 
-// Main suggestion endpoint with caching
-app.post('/suggest', 
+// Main suggestion endpoint with tier enforcement
+app.post('/suggest',
+  tierMiddleware('naturalAlternatives'), // Require natural alternatives feature
   // Apply caching for similar requests
   (req, res, next) => {
     const cacheKey = cacheManager.generateKey('suggest', {
       medication: req.body.medicationName?.toLowerCase(),
-      tier: req.body.userTier
+      tier: req.userTier // Use tier from middleware
     });
     
     const cached = cacheManager.get(cacheKey);
-    if (cached) {
-      console.log('Returning cached suggestion');
+    if (cached && cached.tier === req.userTier) {
+      console.log('Returning cached suggestion for tier:', req.userTier);
       return res.json(cached);
     }
     
@@ -241,43 +244,188 @@ app.post('/suggest',
       .escape()
       .matches(/^[a-zA-Z0-9\s\-\.\/]+$/)
       .withMessage('Invalid medication name'),
-    body('userTier')
-      .optional()
-      .isIn(['free', 'basic', 'premium', 'professional'])
-      .withMessage('Invalid user tier'),
     validateInput
   ],
   async (req, res, next) => {
     try {
-      const { medicationName, userTier = 'free' } = req.body;
+      const { medicationName } = req.body;
+      const userTier = req.userTier; // Get tier from middleware
       
       // Check API key
       if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_api_key_here') {
         throw new Error('AI service not configured properly');
       }
 
-      // Enhanced prompt based on user tier
+      // Enhanced prompt based on actual user tier
       const tierFeatures = {
-        free: 'Basic natural alternatives only',
-        basic: 'Natural alternatives with safety information',
+        free: 'Basic medication information only (no alternatives)',
+        basic: 'Natural alternatives with basic safety information',
         premium: 'Comprehensive alternatives with interactions and scientific backing',
         professional: 'Complete analysis with clinical studies and professional recommendations'
       };
 
       const prompt = `Provide ${tierFeatures[userTier]} for ${medicationName}. 
         Include disclaimer about consulting healthcare providers.
-        Format response in clear sections with safety warnings.`;
+        Format response in clear sections with safety warnings.
+        ${userTier === 'free' ? 'Do NOT include natural alternatives.' : ''}`;
 
       const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
       const result = await model.generateContent(prompt);
       const response = await result.response;
       const suggestions = response.text();
 
-      // Cache the response
-      const responseData = { suggestions, tier: userTier, timestamp: new Date().toISOString() };
+      // Filter response based on tier
+      const responseData = await req.tierManager.filterResponseByTier({
+        suggestions,
+        medicationName,
+        timestamp: new Date().toISOString()
+      }, userTier);
+      
+      // Cache the filtered response
       cacheManager.set(req.cacheKey, responseData);
 
       res.json(responseData);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// Analyze endpoint with tier enforcement
+app.post('/api/analyze',
+  tierMiddleware(), // Apply tier checking
+  [
+    body('medicationName')
+      .optional()
+      .isLength({ min: 1, max: 100 })
+      .trim()
+      .withMessage('Invalid medication name'),
+    validateInput
+  ],
+  async (req, res, next) => {
+    try {
+      const { medicationName, imageData } = req.body;
+      const userTier = req.userTier;
+      
+      // Track scan for rate limiting
+      if (req.userId) {
+        const db = admin.firestore();
+        await db.collection('scans').add({
+          userId: req.userId,
+          medicationName,
+          userTier,
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+        });
+      }
+      
+      // Prepare response based on tier
+      let analysis = {
+        medication: medicationName,
+        basicInfo: {
+          description: 'Common medication for pain relief',
+          commonUses: ['Pain', 'Fever', 'Inflammation']
+        }
+      };
+      
+      // Add features based on tier
+      if (tierManager.hasAccess(userTier, 'naturalAlternatives')) {
+        analysis.naturalAlternatives = [
+          'Turmeric for inflammation',
+          'Ginger for pain relief',
+          'Willow bark as natural aspirin'
+        ];
+      }
+      
+      if (tierManager.hasAccess(userTier, 'interactions')) {
+        analysis.drugInteractions = [
+          'May interact with blood thinners',
+          'Avoid with certain heart medications'
+        ];
+      }
+      
+      if (tierManager.hasAccess(userTier, 'detailedWarnings')) {
+        analysis.detailedWarnings = {
+          sideEffects: ['Stomach upset', 'Drowsiness', 'Allergic reactions'],
+          contraindications: ['Liver disease', 'Kidney problems'],
+          precautions: ['Take with food', 'Avoid alcohol']
+        };
+      }
+      
+      // Filter response through tier manager
+      const filteredResponse = await req.tierManager.filterResponseByTier(
+        analysis,
+        userTier
+      );
+      
+      res.json(filteredResponse);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// Analyze by name endpoint
+app.post('/api/analyze/name',
+  tierMiddleware(),
+  async (req, res, next) => {
+    try {
+      const { medicationName } = req.body;
+      const userTier = req.userTier;
+      
+      // Use medication database
+      const MedicationDatabase = require('./medication-database');
+      const medDb = new MedicationDatabase();
+      
+      // Initialize clinical studies fetcher for professional tier
+      const ClinicalStudiesFetcher = require('./clinical-studies-fetcher');
+      const studiesFetcher = new ClinicalStudiesFetcher();
+      
+      const searchResults = medDb.searchMedication(medicationName);
+      
+      if (searchResults.length === 0) {
+        return res.status(404).json({
+          error: 'Medication not found',
+          userTier,
+          suggestion: 'Try searching with a different name or brand'
+        });
+      }
+      
+      const medication = searchResults[0].medication;
+      const alternatives = medDb.getAlternatives(searchResults[0].key);
+      
+      let response = {
+        medication: medication.genericName,
+        brandNames: medication.brandNames,
+        category: medication.category,
+        uses: medication.uses,
+        warnings: medication.warnings
+      };
+      
+      // Add tier-specific content
+      if (tierManager.hasAccess(userTier, 'naturalAlternatives') && alternatives.length > 0) {
+        response.naturalAlternatives = alternatives;
+      }
+      
+      if (tierManager.hasAccess(userTier, 'detailedWarnings')) {
+        response.maxDailyDose = medication.maxDailyDose;
+        response.dosageForms = medication.dosageForms;
+        response.commonDosages = medication.commonDosages;
+      }
+      
+      // Add clinical studies for premium and professional tiers
+      if (userTier === 'premium' || userTier === 'professional') {
+        const studies = await studiesFetcher.getStudiesForUser(medicationName, userTier);
+        response.clinicalStudies = studies;
+      }
+      
+      // Filter through tier manager
+      const filteredResponse = await req.tierManager.filterResponseByTier(
+        response,
+        userTier
+      );
+      
+      res.json(filteredResponse);
     } catch (error) {
       next(error);
     }
