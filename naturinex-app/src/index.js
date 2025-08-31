@@ -1,17 +1,4 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import './index.css';
-import WebApp from './web/App.web';
-import reportWebVitals from './reportWebVitals';
-
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(
-  <React.StrictMode>
-    <WebApp />
-  </React.StrictMode>
-);
-
-// If you want to start measuring performance in your app, pass a function
-// to log results (for example: reportWebVitals(console.log))
-// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
-reportWebVitals();
+// Redirect to the actual server
+// This file exists because Render is ignoring our settings
+console.log('Redirecting to server...');
+require('../server/index.js');
