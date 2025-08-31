@@ -1,8 +1,11 @@
 {
-  "name": "naturinex-app",
+  "name": "naturinex-server",
   "version": "1.0.0",
-  "description": "Naturinex fullstack app",
+  "description": "Naturinex API Server",
   "main": "index.js",
+  "engines": {
+    "node": ">=18.0.0 <23.0.0"
+  },
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
