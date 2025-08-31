@@ -3,7 +3,7 @@ import { db } from '../firebase';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import Constants from 'expo-constants';
 
-const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app.onrender.com';
+const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-1.onrender.com';
 
 function Dashboard({ user }) {
   // const [file, setFile] = useState(null);

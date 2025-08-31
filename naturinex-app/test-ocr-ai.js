@@ -2,7 +2,7 @@ const axios = require('axios');
 const fs = require('fs');
 const FormData = require('form-data');
 
-const API_URL = 'https://naturinex-app.onrender.com';
+const API_URL = 'https://naturinex-app-1.onrender.com';
 
 // Color codes for output
 const colors = {

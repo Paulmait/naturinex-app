@@ -16,7 +16,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 
-const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app.onrender.com';
+const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-1.onrender.com';
 
 export default function SimpleCameraScreen({ navigation }) {
   const [capturedImage, setCapturedImage] = useState(null);

@@ -4,7 +4,7 @@ import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import Constants from 'expo-constants';
 
-const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app.onrender.com';
+const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-1.onrender.com';
 
 function Dashboard({ user }) {
   const [suggestions, setSuggestions] = useState("");

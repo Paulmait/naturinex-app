@@ -1,6 +1,6 @@
 const axios = require('axios');
 
-const API_URL = 'https://naturinex-app.onrender.com';
+const API_URL = 'https://naturinex-app-1.onrender.com';
 
 async function testEndpoints() {
   console.log('Testing actual production endpoints...\n');

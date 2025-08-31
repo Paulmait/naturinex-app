@@ -5,7 +5,7 @@ import React, { useState } from 'react';
 import { trackEvent } from '../utils/analytics';
 import Constants from 'expo-constants';
 
-const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app.onrender.com';
+const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-1.onrender.com';
 
 function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
   const [selectedPlan, setSelectedPlan] = useState('premium');

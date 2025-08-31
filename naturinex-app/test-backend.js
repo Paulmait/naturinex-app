@@ -1,5 +1,5 @@
 // Quick backend connectivity test
-const API_URL = 'https://naturinex-app.onrender.com';
+const API_URL = 'https://naturinex-app-1.onrender.com';
 
 console.log('Testing backend connectivity...\n');
 

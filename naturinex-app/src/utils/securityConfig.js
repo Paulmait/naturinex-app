@@ -36,7 +36,7 @@ export const cspConfig = {
     // Connect sources for API calls
     "connect-src": [
       "'self'",
-      "https://naturinex-app.onrender.com",
+      "https://naturinex-app-1.onrender.com",
       "https://api.stripe.com",
       "https://checkout.stripe.com",
       "https://naturinex.firebaseapp.com",

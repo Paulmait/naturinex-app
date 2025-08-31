@@ -4,7 +4,7 @@ import { db } from '../firebase';
 import getStripe from '../stripe';
 import Constants from 'expo-constants';
 
-const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app.onrender.com';
+const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-1.onrender.com';
 
 function PremiumCheckout({ user, onSuccess, onCancel }) {
   const [isLoading, setIsLoading] = useState(false);

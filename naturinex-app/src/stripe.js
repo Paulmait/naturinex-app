@@ -13,7 +13,7 @@ const getStripe = async () => {
         stripePromise = loadStripe(stripePublishableKey);
       } else {
         // Get the public key from our server as fallback
-        const apiUrl = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app.onrender.com';
+        const apiUrl = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-1.onrender.com';
         const response = await fetch(`${apiUrl}/stripe-config`);
         const { publicKey } = await response.json();
         stripePromise = loadStripe(publicKey);
