@@ -1,0 +1,270 @@
+import React, { useState } from 'react';
+import {
+  Box,
+  Container,
+  Card,
+  TextField,
+  Button,
+  Typography,
+  Divider,
+  Alert,
+  Link,
+  CircularProgress,
+} from '@mui/material';
+import { Google } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
+import {
+  getAuth,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+  sendPasswordResetEmail,
+} from 'firebase/auth';
+import { doc, setDoc, getDoc } from 'firebase/firestore';
+import { db } from '../../firebase.web';
+
+function WebLogin() {
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [resetEmailSent, setResetEmailSent] = useState(false);
+  
+  const navigate = useNavigate();
+  const auth = getAuth();
+
+  const handleEmailAuth = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      if (isSignUp) {
+        if (password !== confirmPassword) {
+          throw new Error('Passwords do not match');
+        }
+        if (password.length < 6) {
+          throw new Error('Password must be at least 6 characters');
+        }
+        
+        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+        
+        // Create user profile in Firestore
+        await setDoc(doc(db, 'users', userCredential.user.uid), {
+          email: userCredential.user.email,
+          createdAt: new Date().toISOString(),
+          subscriptionType: 'free',
+          dailyScans: 0,
+          lastScanReset: new Date().toISOString(),
+        });
+        
+        navigate('/dashboard');
+      } else {
+        await signInWithEmailAndPassword(auth, email, password);
+        navigate('/dashboard');
+      }
+    } catch (err) {
+      console.error('Auth error:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setError('');
+    setLoading(true);
+    
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      
+      // Check if user profile exists
+      const userDoc = await getDoc(doc(db, 'users', result.user.uid));
+      
+      if (!userDoc.exists()) {
+        // Create new user profile
+        await setDoc(doc(db, 'users', result.user.uid), {
+          email: result.user.email,
+          displayName: result.user.displayName,
+          photoURL: result.user.photoURL,
+          createdAt: new Date().toISOString(),
+          subscriptionType: 'free',
+          dailyScans: 0,
+          lastScanReset: new Date().toISOString(),
+        });
+      }
+      
+      navigate('/dashboard');
+    } catch (err) {
+      console.error('Google sign-in error:', err);
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    if (!email) {
+      setError('Please enter your email address');
+      return;
+    }
+    
+    setLoading(true);
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setResetEmailSent(true);
+      setError('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <Box
+      sx={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        background: 'linear-gradient(135deg, #10B981 0%, #34D399 100%)',
+      }}
+    >
+      <Container maxWidth="sm">
+        <Card sx={{ p: 4 }}>
+          <Typography variant="h4" align="center" fontWeight="bold" gutterBottom>
+            {isSignUp ? 'Create Account' : 'Welcome Back'}
+          </Typography>
+          <Typography variant="body1" align="center" color="text.secondary" sx={{ mb: 3 }}>
+            {isSignUp ? 'Start your wellness journey today' : 'Sign in to continue'}
+          </Typography>
+
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
+          )}
+
+          {resetEmailSent && (
+            <Alert severity="success" sx={{ mb: 2 }}>
+              Password reset email sent! Check your inbox.
+            </Alert>
+          )}
+
+          <form onSubmit={handleEmailAuth}>
+            <TextField
+              fullWidth
+              label="Email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              margin="normal"
+              required
+              autoComplete="email"
+            />
+            <TextField
+              fullWidth
+              label="Password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              margin="normal"
+              required
+              autoComplete={isSignUp ? 'new-password' : 'current-password'}
+            />
+            {isSignUp && (
+              <TextField
+                fullWidth
+                label="Confirm Password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                margin="normal"
+                required
+                autoComplete="new-password"
+              />
+            )}
+
+            {!isSignUp && (
+              <Box sx={{ textAlign: 'right', mt: 1 }}>
+                <Link
+                  component="button"
+                  type="button"
+                  variant="body2"
+                  onClick={handlePasswordReset}
+                  sx={{ cursor: 'pointer' }}
+                >
+                  Forgot password?
+                </Link>
+              </Box>
+            )}
+
+            <Button
+              type="submit"
+              fullWidth
+              variant="contained"
+              size="large"
+              disabled={loading}
+              sx={{ mt: 3, mb: 2 }}
+            >
+              {loading ? (
+                <CircularProgress size={24} color="inherit" />
+              ) : (
+                isSignUp ? 'Sign Up' : 'Sign In'
+              )}
+            </Button>
+          </form>
+
+          <Divider sx={{ my: 3 }}>OR</Divider>
+
+          <Button
+            fullWidth
+            variant="outlined"
+            size="large"
+            startIcon={<Google />}
+            onClick={handleGoogleSignIn}
+            disabled={loading}
+            sx={{ mb: 2 }}
+          >
+            Continue with Google
+          </Button>
+
+          <Typography align="center" variant="body2">
+            {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
+            <Link
+              component="button"
+              variant="body2"
+              onClick={() => {
+                setIsSignUp(!isSignUp);
+                setError('');
+                setResetEmailSent(false);
+              }}
+              sx={{ cursor: 'pointer', fontWeight: 'bold' }}
+            >
+              {isSignUp ? 'Sign In' : 'Sign Up'}
+            </Link>
+          </Typography>
+
+          <Box sx={{ mt: 3, textAlign: 'center' }}>
+            <Typography variant="caption" color="text.secondary">
+              By continuing, you agree to our{' '}
+              <Link href="/terms" target="_blank">
+                Terms of Service
+              </Link>{' '}
+              and{' '}
+              <Link href="/privacy" target="_blank">
+                Privacy Policy
+              </Link>
+            </Typography>
+          </Box>
+        </Card>
+      </Container>
+    </Box>
+  );
+}
+
+export default WebLogin;
