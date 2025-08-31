@@ -4,8 +4,8 @@ services:
     runtime: node
     region: oregon
     plan: free
-    buildCommand: cd server && npm install
-    startCommand: node index.js
+    buildCommand: rm -rf src/server && cd server && npm install
+    startCommand: bash start-server.sh
     envVars:
       - key: NODE_ENV
         value: production
