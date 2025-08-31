@@ -26,9 +26,6 @@ const DataIngestionOrchestrator = require('./services/dataIngestion/dataIngestio
 // const { handleIngestionTask, handleBatchIngestion } = require('./functions/cloudTasks');
 const dataIngestionRoutes = require('./routes/dataIngestionRoute');
 
-// Add environment checking endpoint for debugging
-const { addEnvCheckEndpoint } = require('./check-env');
-
 // Configure multer for image uploads
 const upload = multer({ 
   storage: multer.memoryStorage(),
@@ -366,9 +363,6 @@ app.get('/health', (req, res) => {
 
 // Admin routes (protected)
 app.use('/api/admin', adminRoutes);
-
-// Add environment check endpoint
-addEnvCheckEndpoint(app);
 
 // Data ingestion routes
 app.use('/api/data', dataIngestionRoutes);
