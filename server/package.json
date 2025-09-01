@@ -2,7 +2,5 @@
   "name": "naturinex-app",
   "version": "1.0.0",
   "description": "Naturinex fullstack app",
-  "main": "index.js",
-  "scripts": {
-  "dependencies": {}
+  "main": "index.js"
 }
