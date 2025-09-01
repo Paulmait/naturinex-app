@@ -4,26 +4,5 @@
   "description": "Naturinex fullstack app",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
-  },
-  "author": "Naturinex Team",
-  "license": "MIT",
-  "devDependencies": {
-    "concurrently": "^8.2.2"
-  },
-  "dependencies": {
-    "@google/generative-ai": "^0.24.1",
-    "compression": "^1.8.1",
-    "cors": "^2.8.5",
-    "csurf": "^1.11.0",
-    "dotenv": "^16.5.0",
-    "express": "^5.1.0",
-    "express-rate-limit": "^7.5.1",
-    "express-validator": "^7.2.1",
-    "firebase-admin": "^13.4.0",
-    "helmet": "^8.1.0",
-    "naturinex-app": "file:..",
-    "stripe": "^18.2.1"
-  }
+  "dependencies": {}
 }
