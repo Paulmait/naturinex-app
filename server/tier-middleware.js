@@ -116,7 +116,7 @@ class TierManager {
   /**
    * Filter response based on tier
    */
-  filterResponseByTier(response, tier) {
+  async filterResponseByTier(response, tier) {
     const filtered = { ...response };
     
     // Remove features not available in tier
@@ -143,12 +143,14 @@ class TierManager {
     
     // Add tier information to response
     filtered.userTier = tier;
+    let scansRemaining = 'unlimited';
+    if (tier !== 'professional') {
+      scansRemaining = await this.getRemainingScans(userId, tier);
+    }
     filtered.tierLimits = {
-      scansRemaining: tier === 'professional' ? 'unlimited' : 
-        await this.getRemainingScans(userId, tier),
+      scansRemaining,
       upgradeMessage: this.getUpgradeMessage(tier)
     };
-    
     return filtered;
   }
 
