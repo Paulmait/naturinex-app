@@ -1,6 +1,6 @@
 /**
- * Enhanced Production Server with Expert-Level Features
- * Includes monitoring, caching, error tracking, and security
+ * Naturinex Production Server
+ * AI-powered natural medication alternatives API
  */
 
 const express = require('express');
@@ -10,21 +10,6 @@ const helmet = require('helmet');
 const compression = require('compression');
 const { body, validationResult } = require('express-validator');
 require('dotenv').config();
-
-// Import enhancement modules
-const HealthMonitor = require('./health-monitor');
-const ErrorTracker = require('./error-tracker');
-const CacheManager = require('./cache-manager');
-const { TierManager, tierMiddleware, requirePremium } = require('./tier-middleware');
-
-// Initialize enhancement systems
-const healthMonitor = new HealthMonitor();
-const errorTracker = new ErrorTracker();
-const tierManager = new TierManager();
-const cacheManager = new CacheManager({
-  ttl: 3600000, // 1 hour default
-  maxSize: 1000
-});
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
@@ -44,7 +29,7 @@ if (missingEnvVars.length > 0) {
   process.exit(1);
 }
 
-// Initialize Firebase Admin SDK with enhanced error handling
+// Initialize Firebase Admin SDK
 if (!admin.apps.length) {
   try {
     if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
@@ -56,14 +41,15 @@ if (!admin.apps.length) {
         }),
       });
       console.log('🔥 Firebase Admin initialized successfully');
-    } else {
+    } else if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
       admin.initializeApp({
         credential: admin.credential.applicationDefault(),
       });
-      console.log('🔥 Firebase Admin initialized with default credentials');
+      console.log('🔥 Firebase Admin initialized with application default credentials');
+    } else {
+      console.warn('⚠️ Firebase Admin not initialized - no credentials provided');
     }
   } catch (error) {
-    errorTracker.captureError(error, { context: 'firebase_init' });
     console.warn('⚠️ Firebase Admin initialization failed:', error.message);
   }
 }
@@ -73,33 +59,15 @@ const app = express();
 // Trust proxy headers (required for cloud platforms)
 app.set('trust proxy', true);
 
-// Enable compression for better performance
+// Enable compression
 app.use(compression({
   level: 6,
-  threshold: 1024,
-  filter: (req, res) => {
-    if (req.headers['x-no-compression']) {
-      return false;
-    }
-    return compression.filter(req, res);
-  }
+  threshold: 1024
 }));
 
-// Apply health monitoring middleware
-app.use(healthMonitor.middleware());
-
-// Enhanced security headers
+// Security headers
 app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "https:"],
-      scriptSrc: ["'self'"],
-      connectSrc: ["'self'", "https://api.stripe.com"],
-      frameSrc: ["https://js.stripe.com"]
-    }
-  },
+  contentSecurityPolicy: false, // Disable for API server
   hsts: {
     maxAge: 31536000,
     includeSubDomains: true,
@@ -107,17 +75,20 @@ app.use(helmet({
   }
 }));
 
-// CORS configuration with specific origins
+// CORS configuration
 const corsOptions = {
   origin: function (origin, callback) {
     const allowedOrigins = [
       'https://naturinex-app.firebaseapp.com',
       'https://naturinex-app.web.app',
+      'https://naturinex.vercel.app',
       'http://localhost:3000',
+      'http://localhost:3002',
       'http://localhost:8081',
-      'exp://192.168.1.100:8081' // Expo development
+      'exp://192.168.1.100:8081'
     ];
     
+    // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -130,60 +101,40 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 
-// Enhanced rate limiting with different tiers
+// Rate limiting
 const createRateLimit = (windowMs, max, message) => {
   return rateLimit({
     windowMs,
     max,
     message: { error: message },
     standardHeaders: true,
-    legacyHeaders: false,
-    handler: (req, res) => {
-      errorTracker.captureError(new Error('Rate limit exceeded'), {
-        url: req.originalUrl,
-        method: req.method,
-        ip: req.ip
-      });
-      res.status(429).json({ error: message });
-    }
+    legacyHeaders: false
   });
 };
 
-// Apply different rate limits
+// Apply rate limits
 app.use('/api/', createRateLimit(15 * 60 * 1000, 100, 'Too many API requests'));
 app.use('/suggest', createRateLimit(60 * 1000, 10, 'Too many AI requests'));
-app.use('/webhook', createRateLimit(60 * 1000, 50, 'Too many webhook requests'));
+app.use('/api/analyze', createRateLimit(60 * 1000, 20, 'Too many analysis requests'));
 
-// Stripe webhook endpoints need raw body
+// Stripe webhook needs raw body
 app.use('/webhook', express.raw({ type: 'application/json' }));
 app.use('/webhooks/stripe', express.raw({ type: 'application/json' }));
 
-// JSON body parser with size limit
+// JSON body parser
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
-// Apply cache invalidation middleware
-app.use(cacheManager.invalidateOnChange());
-
-// Request logging with performance tracking
+// Request logging
 app.use((req, res, next) => {
-  req.startTime = Date.now();
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - IP: ${req.ip}`);
-  
-  res.on('finish', () => {
-    const duration = Date.now() - req.startTime;
-    if (duration > 3000) {
-      console.warn(`⚠️ Slow request: ${req.method} ${req.path} took ${duration}ms`);
-    }
-  });
-  
   next();
 });
 
 // Initialize Gemini AI
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-// Enhanced input validation
+// Input validation middleware
 const validateInput = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -195,245 +146,185 @@ const validateInput = (req, res, next) => {
   next();
 };
 
-// Health check endpoint with detailed metrics
+// Health check endpoint
 app.get('/health', (req, res) => {
-  const healthStatus = healthMonitor.getHealthStatus();
-  const cacheStats = cacheManager.getStats();
-  const errorStats = errorTracker.getStatistics();
-  
   res.json({
-    ...healthStatus,
-    cache: cacheStats,
-    errors: errorStats,
-    version: '3.0.0-enhanced',
-    features: [
-      'AI Analysis',
-      'Premium Tiers',
-      'Rate Limiting',
-      'Security Headers',
-      'Health Monitoring',
-      'Error Tracking',
-      'Response Caching'
-    ]
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    version: '2.0.0',
+    services: {
+      ai: !!process.env.GEMINI_API_KEY,
+      stripe: !!process.env.STRIPE_SECRET_KEY,
+      firebase: !!admin.apps.length
+    }
   });
 });
 
-// Main suggestion endpoint with tier enforcement
+// API health check
+app.get('/api/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Main AI suggestion endpoint
 app.post('/suggest',
-  tierMiddleware('naturalAlternatives'), // Require natural alternatives feature
-  // Apply caching for similar requests
-  (req, res, next) => {
-    const cacheKey = cacheManager.generateKey('suggest', {
-      medication: req.body.medicationName?.toLowerCase(),
-      tier: req.userTier // Use tier from middleware
-    });
-    
-    const cached = cacheManager.get(cacheKey);
-    if (cached && cached.tier === req.userTier) {
-      console.log('Returning cached suggestion for tier:', req.userTier);
-      return res.json(cached);
-    }
-    
-    req.cacheKey = cacheKey;
-    next();
-  },
   [
     body('medicationName')
       .isLength({ min: 1, max: 100 })
       .trim()
-      .escape()
       .matches(/^[a-zA-Z0-9\s\-\.\/]+$/)
       .withMessage('Invalid medication name'),
     validateInput
   ],
-  async (req, res, next) => {
+  async (req, res) => {
     try {
       const { medicationName } = req.body;
-      const userTier = req.userTier; // Get tier from middleware
       
-      // Check API key
       if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_api_key_here') {
         throw new Error('AI service not configured properly');
       }
 
-      // Enhanced prompt based on actual user tier
-      const tierFeatures = {
-        free: 'Basic medication information only (no alternatives)',
-        basic: 'Natural alternatives with basic safety information',
-        premium: 'Comprehensive alternatives with interactions and scientific backing',
-        professional: 'Complete analysis with clinical studies and professional recommendations'
-      };
-
-      const prompt = `Provide ${tierFeatures[userTier]} for ${medicationName}. 
-        Include disclaimer about consulting healthcare providers.
-        Format response in clear sections with safety warnings.
-        ${userTier === 'free' ? 'Do NOT include natural alternatives.' : ''}`;
+      const prompt = `As a healthcare information assistant, provide natural alternatives for ${medicationName}. 
+        Include:
+        1. Common natural alternatives with their benefits
+        2. Safety considerations and warnings
+        3. When to consult a healthcare provider
+        4. Important disclaimer about not replacing medical advice
+        
+        Format the response clearly with sections and be concise but comprehensive.`;
 
       const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
       const result = await model.generateContent(prompt);
       const response = await result.response;
       const suggestions = response.text();
 
-      // Filter response based on tier
-      const responseData = await req.tierManager.filterResponseByTier({
+      res.json({
         suggestions,
         medicationName,
-        timestamp: new Date().toISOString()
-      }, userTier);
-      
-      // Cache the filtered response
-      cacheManager.set(req.cacheKey, responseData);
-
-      res.json(responseData);
+        timestamp: new Date().toISOString(),
+        disclaimer: 'This information is for educational purposes only. Always consult with a healthcare provider before making changes to your medication regimen.'
+      });
     } catch (error) {
-      next(error);
+      console.error('AI suggestion error:', error);
+      res.status(500).json({ 
+        error: 'Failed to generate suggestions',
+        message: 'Please try again later'
+      });
     }
   }
 );
 
-// Analyze endpoint with tier enforcement
+// Analyze medication endpoint (supports OCR results from mobile)
 app.post('/api/analyze',
-  tierMiddleware(), // Apply tier checking
   [
     body('medicationName')
       .optional()
       .isLength({ min: 1, max: 100 })
       .trim()
       .withMessage('Invalid medication name'),
+    body('ocrText')
+      .optional()
+      .isString()
+      .withMessage('Invalid OCR text'),
     validateInput
   ],
-  async (req, res, next) => {
+  async (req, res) => {
     try {
-      const { medicationName, imageData } = req.body;
-      const userTier = req.userTier;
+      const { medicationName, ocrText, imageData } = req.body;
       
-      // Track scan for rate limiting
-      if (req.userId) {
-        const db = admin.firestore();
-        await db.collection('scans').add({
-          userId: req.userId,
-          medicationName,
-          userTier,
-          createdAt: admin.firestore.FieldValue.serverTimestamp(),
-          expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+      // Handle OCR text if provided (from mobile app scanning)
+      let medName = medicationName;
+      if (ocrText && !medName) {
+        // Extract medication name from OCR text
+        medName = ocrText.split('\n')[0].trim(); // Simple extraction, can be improved
+      }
+      
+      if (!medName) {
+        return res.status(400).json({ 
+          error: 'No medication name provided',
+          message: 'Please provide a medication name or scan text'
         });
       }
-      
-      // Prepare response based on tier
-      let analysis = {
-        medication: medicationName,
-        basicInfo: {
-          description: 'Common medication for pain relief',
-          commonUses: ['Pain', 'Fever', 'Inflammation']
-        }
-      };
-      
-      // Add features based on tier
-      if (tierManager.hasAccess(userTier, 'naturalAlternatives')) {
-        analysis.naturalAlternatives = [
-          'Turmeric for inflammation',
-          'Ginger for pain relief',
-          'Willow bark as natural aspirin'
-        ];
-      }
-      
-      if (tierManager.hasAccess(userTier, 'interactions')) {
-        analysis.drugInteractions = [
-          'May interact with blood thinners',
-          'Avoid with certain heart medications'
-        ];
-      }
-      
-      if (tierManager.hasAccess(userTier, 'detailedWarnings')) {
-        analysis.detailedWarnings = {
-          sideEffects: ['Stomach upset', 'Drowsiness', 'Allergic reactions'],
-          contraindications: ['Liver disease', 'Kidney problems'],
-          precautions: ['Take with food', 'Avoid alcohol']
-        };
-      }
-      
-      // Filter response through tier manager
-      const filteredResponse = await req.tierManager.filterResponseByTier(
+
+      const prompt = `Analyze the medication "${medName}" and provide:
+        1. What this medication is used for
+        2. Common side effects
+        3. Natural alternatives that may help with similar conditions
+        4. Important safety information
+        5. Drug interactions to be aware of
+        
+        If this appears to be OCR text, try to identify the medication name first.
+        Provide clear, accurate medical information with appropriate disclaimers.`;
+
+      const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const analysis = response.text();
+
+      res.json({
+        medication: medName,
         analysis,
-        userTier
-      );
-      
-      res.json(filteredResponse);
+        naturalAlternatives: true,
+        timestamp: new Date().toISOString(),
+        source: ocrText ? 'ocr_scan' : 'manual_input'
+      });
     } catch (error) {
-      next(error);
+      console.error('Analysis error:', error);
+      res.status(500).json({ 
+        error: 'Failed to analyze medication',
+        message: 'Please try again later'
+      });
     }
   }
 );
 
-// Analyze by name endpoint
+// Analyze by name endpoint (for direct medication lookup)
 app.post('/api/analyze/name',
-  tierMiddleware(),
-  async (req, res, next) => {
+  [
+    body('medicationName')
+      .isLength({ min: 1, max: 100 })
+      .trim()
+      .withMessage('Invalid medication name'),
+    validateInput
+  ],
+  async (req, res) => {
     try {
       const { medicationName } = req.body;
-      const userTier = req.userTier;
       
-      // Use medication database
-      const MedicationDatabase = require('./medication-database');
-      const medDb = new MedicationDatabase();
+      const prompt = `Provide comprehensive information about ${medicationName}:
+        1. Generic and brand names
+        2. Medical uses and conditions treated
+        3. How it works in the body
+        4. Natural alternatives for the conditions it treats
+        5. Lifestyle changes that may help
+        6. When natural alternatives are NOT appropriate
+        7. Important safety warnings
+        
+        Be thorough but clear, and always emphasize consulting healthcare providers.`;
+
+      const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
       
-      // Initialize clinical studies fetcher for professional tier
-      const ClinicalStudiesFetcher = require('./clinical-studies-fetcher');
-      const studiesFetcher = new ClinicalStudiesFetcher();
-      
-      const searchResults = medDb.searchMedication(medicationName);
-      
-      if (searchResults.length === 0) {
-        return res.status(404).json({
-          error: 'Medication not found',
-          userTier,
-          suggestion: 'Try searching with a different name or brand'
-        });
-      }
-      
-      const medication = searchResults[0].medication;
-      const alternatives = medDb.getAlternatives(searchResults[0].key);
-      
-      let response = {
-        medication: medication.genericName,
-        brandNames: medication.brandNames,
-        category: medication.category,
-        uses: medication.uses,
-        warnings: medication.warnings
-      };
-      
-      // Add tier-specific content
-      if (tierManager.hasAccess(userTier, 'naturalAlternatives') && alternatives.length > 0) {
-        response.naturalAlternatives = alternatives;
-      }
-      
-      if (tierManager.hasAccess(userTier, 'detailedWarnings')) {
-        response.maxDailyDose = medication.maxDailyDose;
-        response.dosageForms = medication.dosageForms;
-        response.commonDosages = medication.commonDosages;
-      }
-      
-      // Add clinical studies for premium and professional tiers
-      if (userTier === 'premium' || userTier === 'professional') {
-        const studies = await studiesFetcher.getStudiesForUser(medicationName, userTier);
-        response.clinicalStudies = studies;
-      }
-      
-      // Filter through tier manager
-      const filteredResponse = await req.tierManager.filterResponseByTier(
-        response,
-        userTier
-      );
-      
-      res.json(filteredResponse);
+      res.json({
+        medication: medicationName,
+        details: response.text(),
+        timestamp: new Date().toISOString()
+      });
     } catch (error) {
-      next(error);
+      console.error('Medication lookup error:', error);
+      res.status(500).json({ 
+        error: 'Failed to lookup medication',
+        message: 'Please try again later'
+      });
     }
   }
 );
 
-// Stripe webhook handler with signature verification
-app.post('/webhook', async (req, res, next) => {
+// Stripe webhook handler
+app.post('/webhook', async (req, res) => {
   const sig = req.headers['stripe-signature'];
   let event;
 
@@ -448,18 +339,24 @@ app.post('/webhook', async (req, res, next) => {
     switch (event.type) {
       case 'checkout.session.completed':
         const session = event.data.object;
-        await handleSuccessfulPayment(session);
-        break;
-      
-      case 'customer.subscription.created':
-      case 'customer.subscription.updated':
-        const subscription = event.data.object;
-        await updateSubscriptionStatus(subscription);
+        console.log('Payment successful:', session.id);
+        // Update user subscription in Firebase if needed
+        if (session.metadata?.userId && admin.apps.length) {
+          await admin.firestore()
+            .collection('users')
+            .doc(session.metadata.userId)
+            .update({
+              subscriptionStatus: 'active',
+              subscriptionTier: session.metadata?.tier || 'premium',
+              subscriptionUpdatedAt: admin.firestore.FieldValue.serverTimestamp()
+            });
+        }
         break;
       
       case 'customer.subscription.deleted':
-        const cancelledSub = event.data.object;
-        await handleSubscriptionCancellation(cancelledSub);
+        const subscription = event.data.object;
+        console.log('Subscription cancelled:', subscription.id);
+        // Update user subscription status if needed
         break;
       
       default:
@@ -468,159 +365,77 @@ app.post('/webhook', async (req, res, next) => {
 
     res.json({ received: true });
   } catch (error) {
-    errorTracker.captureError(error, { 
-      context: 'stripe_webhook',
-      eventType: event?.type 
+    console.error('Webhook error:', error.message);
+    res.status(400).send(`Webhook Error: ${error.message}`);
+  }
+});
+
+// Create checkout session endpoint
+app.post('/api/create-checkout-session', async (req, res) => {
+  try {
+    const { priceId, userId, successUrl, cancelUrl } = req.body;
+    
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [
+        {
+          price: priceId,
+          quantity: 1,
+        },
+      ],
+      mode: 'subscription',
+      success_url: successUrl || 'https://naturinex.com/success',
+      cancel_url: cancelUrl || 'https://naturinex.com/cancel',
+      metadata: {
+        userId: userId || 'anonymous'
+      }
     });
-    next(error);
+
+    res.json({ sessionId: session.id, url: session.url });
+  } catch (error) {
+    console.error('Checkout session error:', error);
+    res.status(500).json({ 
+      error: 'Failed to create checkout session',
+      message: error.message 
+    });
   }
 });
 
-// Helper functions for Stripe events
-async function handleSuccessfulPayment(session) {
-  try {
-    const userId = session.metadata?.userId;
-    if (!userId) return;
-
-    await admin.firestore()
-      .collection('users')
-      .doc(userId)
-      .update({
-        subscriptionStatus: 'active',
-        subscriptionTier: session.metadata?.tier || 'premium',
-        subscriptionUpdatedAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-  } catch (error) {
-    errorTracker.captureError(error, { context: 'payment_update' });
-  }
-}
-
-async function updateSubscriptionStatus(subscription) {
-  try {
-    const userId = subscription.metadata?.userId;
-    if (!userId) return;
-
-    await admin.firestore()
-      .collection('users')
-      .doc(userId)
-      .update({
-        subscriptionId: subscription.id,
-        subscriptionStatus: subscription.status,
-        currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-        subscriptionUpdatedAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-  } catch (error) {
-    errorTracker.captureError(error, { context: 'subscription_update' });
-  }
-}
-
-async function handleSubscriptionCancellation(subscription) {
-  try {
-    const userId = subscription.metadata?.userId;
-    if (!userId) return;
-
-    await admin.firestore()
-      .collection('users')
-      .doc(userId)
-      .update({
-        subscriptionStatus: 'cancelled',
-        subscriptionEndDate: new Date(subscription.canceled_at * 1000),
-        subscriptionUpdatedAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-  } catch (error) {
-    errorTracker.captureError(error, { context: 'subscription_cancellation' });
-  }
-}
-
-// Admin endpoint for monitoring
-app.get('/admin/metrics', async (req, res, next) => {
-  try {
-    // Verify admin authorization
-    const authHeader = req.headers.authorization;
-    if (!authHeader || authHeader !== `Bearer ${process.env.ADMIN_SECRET}`) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const metrics = {
-      health: healthMonitor.getHealthStatus(),
-      cache: cacheManager.getStats(),
-      errors: errorTracker.getStatistics(),
-      critical: healthMonitor.checkCriticalStatus()
-    };
-
-    res.json(metrics);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Clear cache endpoint (admin only)
-app.post('/admin/cache/clear', async (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader || authHeader !== `Bearer ${process.env.ADMIN_SECRET}`) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    cacheManager.clear(req.body.pattern);
-    res.json({ success: true, message: 'Cache cleared' });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Apply error handling middleware
-app.use(errorTracker.errorHandler());
-
-// Graceful shutdown handler
-const gracefulShutdown = async () => {
-  console.log('Starting graceful shutdown...');
-  
-  // Stop accepting new connections
-  server.close(() => {
-    console.log('HTTP server closed');
+// Error handling middleware
+app.use((err, req, res, next) => {
+  console.error('Server error:', err);
+  res.status(500).json({
+    error: 'Internal server error',
+    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
   });
+});
 
-  // Clean up resources
-  cacheManager.destroy();
-  
-  // Clean old error logs
-  await errorTracker.cleanOldLogs(30);
-  
-  // Close database connections
-  await admin.app().delete();
-  
-  console.log('Graceful shutdown complete');
-  process.exit(0);
-};
-
-// Handle shutdown signals
-process.on('SIGTERM', gracefulShutdown);
-process.on('SIGINT', gracefulShutdown);
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ 
+    error: 'Not found',
+    path: req.path 
+  });
+});
 
 // Start server
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => {
   console.log(`
-  🚀 Enhanced Production Server Running
+  🚀 Naturinex Server Running
   📍 Port: ${PORT}
   🔧 Environment: ${process.env.NODE_ENV || 'development'}
-  ✨ Features: Monitoring, Caching, Error Tracking
-  📊 Admin Metrics: /admin/metrics
-  🏥 Health Check: /health
+  🏥 Health Check: http://localhost:${PORT}/health
   `);
 });
 
-// Periodic health check
-setInterval(() => {
-  const critical = healthMonitor.checkCriticalStatus();
-  if (critical.restart) {
-    console.error(`🚨 Critical status detected: ${critical.reason}`);
-    errorTracker.captureError(new Error('Critical status - restart recommended'), {
-      reason: critical.reason,
-      health: healthMonitor.getHealthStatus()
-    });
-  }
-}, 60000); // Check every minute
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, closing server...');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
 
 module.exports = app;

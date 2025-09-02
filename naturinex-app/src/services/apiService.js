@@ -23,7 +23,26 @@ class ApiService {
     );
   }
 
-  async analyzeImage(imageBase64) {
+  async analyzeImage(imageBase64, ocrText = null) {
+    // If we have OCR text, send it directly
+    if (ocrText) {
+      return networkHandler.makeRequest(
+        `${API_URL}/api/analyze`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ ocrText }),
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        },
+        {
+          showOfflineAlert: true,
+          queueIfOffline: true
+        }
+      );
+    }
+    
+    // Otherwise send the image
     const formData = new FormData();
     formData.append('image', {
       uri: imageBase64,
@@ -79,7 +98,7 @@ class ApiService {
 
   async createCheckoutSession(priceId, userId) {
     return networkHandler.makeRequest(
-      `${API_URL}/create-checkout-session`,
+      `${API_URL}/api/create-checkout-session`,
       {
         method: 'POST',
         body: JSON.stringify({ priceId, userId })

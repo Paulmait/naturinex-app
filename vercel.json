@@ -1,35 +1,36 @@
 {
   "version": 2,
   "name": "naturinex-app",
-  "builds": [
+  "rewrites": [
     {
-      "src": "server/index.js",
-      "use": "@vercel/node"
+      "source": "/api/(.*)",
+      "destination": "/server/index.js"
     },
     {
-      "src": "client/package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "build"
-      }
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "server/index.js"
+      "source": "/suggest",
+      "destination": "/server/index.js"
     },
     {
-      "src": "/(.*)",
-      "dest": "client/$1"
+      "source": "/webhook",
+      "destination": "/server/index.js"
+    },
+    {
+      "source": "/webhooks/(.*)",
+      "destination": "/server/index.js"
+    },
+    {
+      "source": "/health",
+      "destination": "/server/index.js"
     }
   ],
-  "env": {
-    "NODE_ENV": "production"
-  },
   "functions": {
     "server/index.js": {
-      "maxDuration": 30
+      "maxDuration": 30,
+      "runtime": "nodejs20.x"
     }
-  }
-} 
+  },
+  "buildCommand": "cd naturinex-app && npm install && npm run build:web",
+  "outputDirectory": "naturinex-app/build",
+  "installCommand": "npm install && cd server && npm install && cd ../naturinex-app && npm install",
+  "framework": null
+}

@@ -39,7 +39,8 @@
       "Bash(firebase projects:list:*)",
       "Bash(firebase deploy:*)",
       "Bash(firebase functions:list:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(curl:*)"
     ],
     "deny": []
   }

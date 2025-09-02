@@ -1,6 +1,32 @@
 {
-  "name": "naturinex-app",
-  "version": "1.0.0",
-  "description": "Naturinex fullstack app",
-  "main": "index.js"
+  "name": "naturinex-server",
+  "version": "2.0.0",
+  "description": "Naturinex API server - AI-powered natural medication alternatives",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": ["naturinex", "api", "ai", "healthcare"],
+  "author": "Naturinex Team",
+  "license": "MIT",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "compression": "^1.8.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.5.0",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.1",
+    "express-validator": "^7.2.1",
+    "firebase-admin": "^13.4.0",
+    "helmet": "^8.1.0",
+    "stripe": "^18.2.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
 }

@@ -1,0 +1,46 @@
+services:
+  # Backend API Service
+  - type: web
+    name: naturinex-api
+    runtime: node
+    repo: https://github.com/YOUR_USERNAME/mediscan-app # Update with your repo
+    buildCommand: cd server && npm install
+    startCommand: cd server && node index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 5000
+      - key: GEMINI_API_KEY
+        sync: false # Set in Render dashboard
+      - key: STRIPE_SECRET_KEY
+        sync: false # Set in Render dashboard
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false # Set in Render dashboard
+      - key: FIREBASE_PROJECT_ID
+        value: naturinex-app
+      - key: FIREBASE_CLIENT_EMAIL
+        sync: false # Set in Render dashboard
+      - key: FIREBASE_PRIVATE_KEY
+        sync: false # Set in Render dashboard
+    healthCheckPath: /health
+    autoDeploy: false # Set to true for auto-deploy on git push
+
+  # Web App (Static Site)
+  - type: static
+    name: naturinex-web
+    repo: https://github.com/YOUR_USERNAME/mediscan-app # Update with your repo
+    buildCommand: cd naturinex-app && npm install && npm run build:web
+    staticPublishPath: ./naturinex-app/build
+    headers:
+      - path: /*
+        name: X-Frame-Options
+        value: SAMEORIGIN
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+    envVars:
+      - key: REACT_APP_API_URL
+        value: https://naturinex-api.onrender.com # Update after API deployment
+      - key: REACT_APP_STRIPE_KEY
+        value: pk_live_51QTj9RRqEPLAinmJX0Jgqr8GJZQKziNhHDMhHCRpNQbwfWJRKrPz7ZY48mJzV1rP1bDYJhRNJy1z5VXJ0e5G8t9K00lAC53L05

@@ -1,36 +1,17 @@
-#!/usr/bin/env node
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import './index.css';
+import WebApp from './web/App.web';
+import reportWebVitals from './reportWebVitals';
 
-/**
- * Entry point for Render deployment
- * Render is detecting this as the main entry due to package.json location
- */
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(
+  <React.StrictMode>
+    <WebApp />
+  </React.StrictMode>
+);
 
-const path = require('path');
-const { spawn } = require('child_process');
-
-console.log('=================================');
-console.log('Naturinex Server Starting...');
-console.log('=================================');
-console.log('Node version:', process.version);
-console.log('Current directory:', __dirname);
-console.log('Changing to server directory...');
-
-// Change to server directory
-const serverPath = path.join(__dirname, '..', 'server');
-process.chdir(serverPath);
-console.log('Now in:', process.cwd());
-
-// Start the actual server
-try {
-  require('./index.js');
-} catch (error) {
-  console.error('Failed to start server:', error.message);
-  console.error('Attempting direct require...');
-  
-  try {
-    require(path.join(serverPath, 'index.js'));
-  } catch (err2) {
-    console.error('Direct require also failed:', err2.message);
-    process.exit(1);
-  }
-}
+// If you want to start measuring performance in your app, pass a function
+// to log results (for example: reportWebVitals(console.log))
+// or send to an analytics endpoint. Learn more: https://bit.ly/CRA-vitals
+reportWebVitals();
