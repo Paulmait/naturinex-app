@@ -3,13 +3,13 @@ const webConfig = {
   API_URL: process.env.REACT_APP_API_URL || 'https://naturinex-app-zsga.onrender.com',
   STRIPE_PUBLISHABLE_KEY: process.env.REACT_APP_STRIPE_KEY || 'pk_live_51QTj9RRqEPLAinmJX0Jgqr8GJZQKziNhHDMhHCRpNQbwfWJRKrPz7ZY48mJzV1rP1bDYJhRNJy1z5VXJ0e5G8t9K00lAC53L05',
   FIREBASE_CONFIG: {
-    apiKey: "AIzaSyDjyig8VkzsaaoGLl2tg702FE-VRWenM0w",
-    authDomain: "naturinex-app.firebaseapp.com",
-    projectId: "naturinex-app",
-    storageBucket: "naturinex-app.firebasestorage.app",
-    messagingSenderId: "398613963385",
-    appId: "1:398613963385:web:91b3c8e67976c252f0aaa8",
-    measurementId: "G-04VE09YVEC"
+    apiKey: process.env.REACT_APP_FIREBASE_API_KEY || "YOUR_FIREBASE_API_KEY",
+    authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "naturinex-app.firebaseapp.com",
+    projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || "naturinex-app",
+    storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "naturinex-app.firebasestorage.app",
+    messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "398613963385",
+    appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:398613963385:web:91b3c8e67976c252f0aaa8",
+    measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID || "G-04VE09YVEC"
   }
 };
 
