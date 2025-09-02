@@ -78,6 +78,12 @@ app.use(helmet({
 // CORS configuration
 const corsOptions = {
   origin: function (origin, callback) {
+    // In development, allow all origins for testing
+    if (process.env.NODE_ENV === 'development') {
+      callback(null, true);
+      return;
+    }
+    
     const allowedOrigins = [
       'https://naturinex-app.firebaseapp.com',
       'https://naturinex-app.web.app',
@@ -85,14 +91,22 @@ const corsOptions = {
       'http://localhost:3000',
       'http://localhost:3002',
       'http://localhost:8081',
+      'http://localhost:8082',
+      'http://127.0.0.1:3000',
+      'http://127.0.0.1:8081',
       'exp://192.168.1.100:8081'
     ];
     
-    // Allow requests with no origin (mobile apps, Postman, etc.)
+    // Allow requests with no origin (mobile apps, Postman, curl, etc.)
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      // Also allow any localhost port for development
+      if (origin && (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:'))) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
     }
   },
   credentials: true,

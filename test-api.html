@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Naturinex API Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 3px solid #667eea;
+            padding-bottom: 10px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        .test-button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+            transition: all 0.3s;
+        }
+        .test-button:hover {
+            background: #5a67d8;
+            transform: translateY(-2px);
+        }
+        .result {
+            margin-top: 15px;
+            padding: 15px;
+            background: white;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .success {
+            border-color: #48bb78;
+            background: #f0fff4;
+        }
+        .error {
+            border-color: #f56565;
+            background: #fff5f5;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            border: 2px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 16px;
+        }
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-online {
+            background: #48bb78;
+            animation: pulse 2s infinite;
+        }
+        .status-offline {
+            background: #f56565;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .feature-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            border: 2px solid #e2e8f0;
+            text-align: center;
+        }
+        .feature-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Naturinex API Test Suite</h1>
+        
+        <div class="test-section">
+            <h2><span class="status-indicator" id="status"></span>Server Status</h2>
+            <button class="test-button" onclick="testHealth()">Test Health Endpoint</button>
+            <button class="test-button" onclick="testBackend()">Test Backend Connection</button>
+            <div id="health-result" class="result" style="display:none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>🤖 AI Medication Analysis</h2>
+            <input type="text" id="medication" placeholder="Enter medication name (e.g., aspirin, ibuprofen)" value="aspirin">
+            <button class="test-button" onclick="testAI()">Analyze Medication</button>
+            <button class="test-button" onclick="testSuggestion()">Get Natural Alternatives</button>
+            <div id="ai-result" class="result" style="display:none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>📷 OCR Text Analysis</h2>
+            <input type="text" id="ocrText" placeholder="Enter OCR text (e.g., Tylenol 500mg)" value="Tylenol 500mg">
+            <button class="test-button" onclick="testOCR()">Analyze OCR Text</button>
+            <div id="ocr-result" class="result" style="display:none;"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>✨ Features Status</h2>
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🔍</div>
+                    <h3>OCR Scanning</h3>
+                    <p id="ocr-status">Testing...</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🤖</div>
+                    <h3>AI Analysis</h3>
+                    <p id="ai-status">Testing...</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🌿</div>
+                    <h3>Natural Alternatives</h3>
+                    <p id="alt-status">Testing...</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">💳</div>
+                    <h3>Payment System</h3>
+                    <p id="payment-status">Testing...</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="test-section">
+            <h2>📊 API Endpoints</h2>
+            <ul>
+                <li>Health Check: <code>GET /health</code></li>
+                <li>Medication Analysis: <code>POST /api/analyze/name</code></li>
+                <li>OCR Analysis: <code>POST /api/analyze</code></li>
+                <li>Suggestions: <code>POST /suggest</code></li>
+                <li>Checkout: <code>POST /api/create-checkout-session</code></li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:5000';
+        
+        // Check server status on load
+        window.onload = () => {
+            testHealth();
+        };
+
+        async function testHealth() {
+            const resultDiv = document.getElementById('health-result');
+            const statusIndicator = document.getElementById('status');
+            
+            try {
+                const response = await fetch(`${API_URL}/health`);
+                const data = await response.json();
+                
+                resultDiv.style.display = 'block';
+                resultDiv.className = 'result success';
+                resultDiv.textContent = JSON.stringify(data, null, 2);
+                
+                statusIndicator.className = 'status-indicator status-online';
+                
+                // Update feature status
+                document.getElementById('ai-status').textContent = data.services.ai ? '✅ Active' : '❌ Inactive';
+                document.getElementById('payment-status').textContent = data.services.stripe ? '✅ Active' : '❌ Inactive';
+                document.getElementById('ocr-status').textContent = '✅ Client-side ready';
+                document.getElementById('alt-status').textContent = data.services.ai ? '✅ Active' : '❌ Inactive';
+            } catch (error) {
+                resultDiv.style.display = 'block';
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+                statusIndicator.className = 'status-indicator status-offline';
+            }
+        }
+
+        async function testBackend() {
+            const resultDiv = document.getElementById('health-result');
+            
+            try {
+                const response = await fetch(`${API_URL}/api/health`);
+                const data = await response.json();
+                
+                resultDiv.style.display = 'block';
+                resultDiv.className = 'result success';
+                resultDiv.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                resultDiv.style.display = 'block';
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        async function testAI() {
+            const medication = document.getElementById('medication').value;
+            const resultDiv = document.getElementById('ai-result');
+            
+            if (!medication) {
+                alert('Please enter a medication name');
+                return;
+            }
+            
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Analyzing...';
+            
+            try {
+                const response = await fetch(`${API_URL}/api/analyze/name`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ medicationName: medication })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = JSON.stringify(data, null, 2);
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = `Error: ${data.error || data.message}`;
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        async function testSuggestion() {
+            const medication = document.getElementById('medication').value;
+            const resultDiv = document.getElementById('ai-result');
+            
+            if (!medication) {
+                alert('Please enter a medication name');
+                return;
+            }
+            
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Getting natural alternatives...';
+            
+            try {
+                const response = await fetch(`${API_URL}/suggest`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ medicationName: medication })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.className = 'result success';
+                    resultDiv.innerHTML = `
+                        <strong>Natural Alternatives for ${medication}:</strong>\n\n
+                        ${data.suggestions || 'No suggestions available'}
+                        \n\n<em>${data.disclaimer || ''}</em>
+                    `;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = `Error: ${data.error || data.message}`;
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        async function testOCR() {
+            const ocrText = document.getElementById('ocrText').value;
+            const resultDiv = document.getElementById('ocr-result');
+            
+            if (!ocrText) {
+                alert('Please enter OCR text');
+                return;
+            }
+            
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = 'Analyzing OCR text...';
+            
+            try {
+                const response = await fetch(`${API_URL}/api/analyze`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ 
+                        ocrText: ocrText,
+                        medicationName: ocrText.split(' ')[0] 
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = JSON.stringify(data, null, 2);
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = `Error: ${data.error || data.message}`;
+                }
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `Error: ${error.message}`;
+            }
+        }
+    </script>
+</body>
+</html>
