@@ -14,39 +14,32 @@ const firebaseConfig = {
   appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:398613963385:web:91b3c8e67976c252f0aaa8"
 };
 
-// Debug logging
-console.log('Firebase Config Debug:', {
-  hasApiKey: !!process.env.REACT_APP_FIREBASE_API_KEY,
-  apiKeyFromEnv: process.env.REACT_APP_FIREBASE_API_KEY ? '***' + process.env.REACT_APP_FIREBASE_API_KEY.slice(-4) : 'NOT SET',
-  projectId: firebaseConfig.projectId,
-  authDomain: firebaseConfig.authDomain,
-  usingFallback: !process.env.REACT_APP_FIREBASE_API_KEY
-});
+// Debug logging only in development
+if (process.env.NODE_ENV === 'development') {
+  console.log('Firebase Config Debug:', {
+    hasApiKey: !!process.env.REACT_APP_FIREBASE_API_KEY,
+    projectId: firebaseConfig.projectId,
+    authDomain: firebaseConfig.authDomain
+  });
+}
 
 // Validate configuration
 if (!firebaseConfig.apiKey || firebaseConfig.apiKey === 'undefined') {
-  console.error('Firebase API Key is missing! Using fallback configuration.');
-  // Use hardcoded fallback for naturinex-app
-  firebaseConfig.apiKey = "AIzaSyDjyig8VkzsaaoGLl2tg702FE-VRWenM0w";
+  throw new Error('Firebase configuration is missing. Please set environment variables.');
 }
 
 // Initialize Firebase
 let app;
 try {
   app = initializeApp(firebaseConfig);
-  console.log('Firebase initialized successfully with project:', firebaseConfig.projectId);
+  if (process.env.NODE_ENV === 'development') {
+    console.log('Firebase initialized successfully');
+  }
 } catch (error) {
-  console.error('Firebase initialization error:', error);
-  // Try with fallback config
-  const fallbackConfig = {
-    apiKey: "AIzaSyDjyig8VkzsaaoGLl2tg702FE-VRWenM0w",
-    authDomain: "naturinex-app.firebaseapp.com",
-    projectId: "naturinex-app",
-    storageBucket: "naturinex-app.appspot.com",
-    messagingSenderId: "398613963385",
-    appId: "1:398613963385:web:91b3c8e67976c252f0aaa8"
-  };
-  app = initializeApp(fallbackConfig);
+  if (process.env.NODE_ENV === 'development') {
+    console.error('Firebase initialization error:', error);
+  }
+  throw new Error('Failed to initialize Firebase. Please check your configuration.');
 }
 
 // Initialize Auth (web uses default persistence)

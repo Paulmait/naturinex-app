@@ -34,18 +34,34 @@ function WebLogin() {
   
   const navigate = useNavigate();
 
+  const validateEmail = (email) => {
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(email);
+  };
+
+  const validatePassword = (password) => {
+    // At least 8 characters, 1 uppercase, 1 lowercase, 1 number
+    const re = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]{8,}$/;
+    return re.test(password);
+  };
+
   const handleEmailAuth = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
     try {
+      // Input validation
+      if (!validateEmail(email)) {
+        throw new Error('Please enter a valid email address');
+      }
+
       if (isSignUp) {
         if (password !== confirmPassword) {
           throw new Error('Passwords do not match');
         }
-        if (password.length < 6) {
-          throw new Error('Password must be at least 6 characters');
+        if (!validatePassword(password)) {
+          throw new Error('Password must be at least 8 characters with uppercase, lowercase, and number');
         }
         
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -65,7 +81,9 @@ function WebLogin() {
         navigate('/dashboard');
       }
     } catch (err) {
-      console.error('Auth error:', err);
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Auth error:', err);
+      }
       setError(err.message);
     } finally {
       setLoading(false);
@@ -87,9 +105,13 @@ function WebLogin() {
         prompt: 'select_account'
       });
       
-      console.log('Starting Google sign-in...');
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Starting Google sign-in...');
+      }
       const result = await signInWithPopup(auth, provider);
-      console.log('Google sign-in successful:', result.user.email);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Google sign-in successful:', result.user.email);
+      }
       
       // Check if user profile exists
       const userDoc = await getDoc(doc(db, 'users', result.user.uid));
@@ -109,7 +131,9 @@ function WebLogin() {
       
       navigate('/dashboard');
     } catch (err) {
-      console.error('Google sign-in error:', err);
+      if (process.env.NODE_ENV === 'development') {
+        console.error('Google sign-in error:', err);
+      }
       // Provide more specific error messages
       if (err.code === 'auth/popup-blocked') {
         setError('Popup was blocked. Please allow popups for this site.');

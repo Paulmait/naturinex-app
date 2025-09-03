@@ -177,7 +177,7 @@ function WebHome() {
           </Typography>
           <Grid container spacing={4} sx={{ mt: 4 }}>
             <Grid item xs={12} md={6}>
-              <Card sx={{ p: 4 }}>
+              <Card sx={{ p: 4, mt: 2 }}>
                 <Typography variant="h4" fontWeight="bold" gutterBottom>
                   Free
                 </Typography>
@@ -210,12 +210,14 @@ function WebHome() {
                   border: '2px solid',
                   borderColor: 'primary.main',
                   position: 'relative',
+                  overflow: 'visible',
+                  mt: 2,
                 }}
               >
                 <Box
                   sx={{
                     position: 'absolute',
-                    top: -12,
+                    top: -14,
                     left: '50%',
                     transform: 'translateX(-50%)',
                     bgcolor: 'primary.main',
@@ -225,7 +227,8 @@ function WebHome() {
                     borderRadius: 1,
                     fontSize: '0.875rem',
                     fontWeight: 'bold',
-                    zIndex: 1,
+                    zIndex: 10,
+                    whiteSpace: 'nowrap',
                   }}
                 >
                   MOST POPULAR
