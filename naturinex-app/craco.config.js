@@ -1,100 +1,83 @@
 const path = require('path');
+const webpack = require('webpack');
 
 module.exports = {
   webpack: {
     configure: (webpackConfig, { env, paths }) => {
-      // CRITICAL: Completely ignore EventEmitter and other problematic RN modules
-      webpackConfig.module.rules.unshift({
-        test: /EventEmitter\.js$/,
-        use: 'null-loader'
-      });
-
-      // Ignore all React Navigation and related modules for web
-      webpackConfig.module.rules.unshift({
-        test: /\.(js|jsx|ts|tsx)$/,
-        include: [
-          /node_modules[\\\/]react-native-screens/,
-          /node_modules[\\\/]react-native-safe-area-context/,
-          /node_modules[\\\/]@react-navigation/,
-          /node_modules[\\\/]react-native-reanimated/,
-          /node_modules[\\\/]react-native-gesture-handler/,
-          /node_modules[\\\/]@react-native-community/,
-          /node_modules[\\\/]react-native[\\\/]Libraries[\\\/]EventEmitter/,
-          /node_modules[\\\/]react-native[\\\/]Libraries[\\\/]vendor[\\\/]emitter/
-        ],
-        use: 'null-loader'
-      });
-
-      // Handle other React Native modules by converting to react-native-web
-      const babelLoaderRule = webpackConfig.module.rules.find(
-        rule => rule.oneOf
-      );
+      // Find the babel-loader rule
+      const oneOfRule = webpackConfig.module.rules.find(rule => rule.oneOf);
       
-      if (babelLoaderRule && babelLoaderRule.oneOf) {
-        // Insert before the file-loader (which is usually last)
-        babelLoaderRule.oneOf.splice(babelLoaderRule.oneOf.length - 1, 0, {
-          test: /\.(js|jsx)$/,
-          include: /node_modules[\\\/](react-native|expo)/,
-          exclude: [
-            /node_modules[\\\/]react-native[\\\/]Libraries[\\\/]EventEmitter/,
-            /node_modules[\\\/]react-native-screens/,
-            /node_modules[\\\/]react-native-safe-area-context/,
-            /node_modules[\\\/]@react-navigation/
-          ],
+      if (oneOfRule) {
+        // Add a specific loader for React Native modules BEFORE other loaders
+        oneOfRule.oneOf.unshift({
+          test: /\.(js|jsx|ts|tsx)$/,
+          include: /node_modules[\\\/]react-native/,
           use: {
             loader: 'babel-loader',
             options: {
-              presets: ['babel-preset-expo'],
-              plugins: [
-                '@babel/plugin-transform-flow-strip-types'
+              presets: [
+                '@babel/preset-react',
+                '@babel/preset-flow'
               ],
-              cacheDirectory: true
+              plugins: [
+                '@babel/plugin-transform-flow-strip-types',
+                ['@babel/plugin-proposal-class-properties', { loose: true }],
+                '@babel/plugin-proposal-export-namespace-from',
+                '@babel/plugin-proposal-export-default-from',
+                '@babel/plugin-syntax-dynamic-import',
+                '@babel/plugin-transform-modules-commonjs'
+              ]
             }
           }
         });
       }
 
-      // Add fallbacks for Node.js core modules
+      // Use webpack's IgnorePlugin to skip problematic modules entirely
+      webpackConfig.plugins.push(
+        new webpack.IgnorePlugin({
+          resourceRegExp: /^react-native-screens$/
+        }),
+        new webpack.IgnorePlugin({
+          resourceRegExp: /^react-native-safe-area-context$/
+        }),
+        new webpack.IgnorePlugin({
+          resourceRegExp: /^@react-navigation\/native$/
+        }),
+        new webpack.IgnorePlugin({
+          resourceRegExp: /^@react-navigation\/native-stack$/
+        }),
+        new webpack.IgnorePlugin({
+          resourceRegExp: /^react-native-gesture-handler$/
+        }),
+        new webpack.IgnorePlugin({
+          resourceRegExp: /^react-native-reanimated$/
+        })
+      );
+
+      // Add fallbacks
       webpackConfig.resolve.fallback = {
         ...webpackConfig.resolve.fallback,
         "crypto": false,
         "stream": false,
-        "buffer": false,
-        "util": false,
         "assert": false,
         "http": false,
         "https": false,
         "os": false,
         "url": false,
-        "path": false,
-        "fs": false,
-        "events": require.resolve('events/'),
-        "process": false
+        "fs": false
       };
 
-      // Comprehensive aliases
+      // Critical aliases
       webpackConfig.resolve.alias = {
         ...webpackConfig.resolve.alias,
         'react-native$': 'react-native-web',
-        'react-native/Libraries/EventEmitter/EventEmitter': 'events',
-        'react-native/Libraries/EventEmitter/NativeEventEmitter': 'events',
-        'react-native/Libraries/vendor/emitter/EventEmitter': 'events',
-        '@react-native-async-storage/async-storage': '@react-native-async-storage/async-storage/lib/commonjs/AsyncStorage.web.js',
-        'expo-camera$': false,
-        'expo-media-library$': false,
-        'expo-image-picker$': false,
-        'expo-file-system$': false,
-        'expo-sharing$': false,
-        '@stripe/stripe-react-native$': false,
-        'react-native-screens$': false,
-        'react-native-safe-area-context$': false,
-        '@react-navigation/native$': false,
-        '@react-navigation/native-stack$': false,
-        'react-native-gesture-handler$': false,
-        'react-native-reanimated$': false
+        'react-native/Libraries/EventEmitter/NativeEventEmitter': 
+          path.resolve(__dirname, 'src/web/mocks/NativeEventEmitter.js'),
+        '@react-native-async-storage/async-storage': 
+          '@react-native-async-storage/async-storage/lib/commonjs/AsyncStorage.web.js'
       };
 
-      // Add web-specific extensions first
+      // Extensions
       webpackConfig.resolve.extensions = [
         '.web.js',
         '.web.jsx',
@@ -106,26 +89,21 @@ module.exports = {
       // Ignore warnings
       webpackConfig.ignoreWarnings = [
         /Failed to parse source map/,
-        /Module not found.*react-native/,
-        /export .* was not found in/,
-        /Can't resolve/
-      ];
-
-      // Ensure we have events package for EventEmitter fallback
-      webpackConfig.resolve.modules = [
-        ...webpackConfig.resolve.modules,
-        path.resolve(__dirname, 'node_modules')
+        /Module not found/,
+        /export .* was not found/
       ];
 
       return webpackConfig;
     }
   },
   babel: {
+    presets: [
+      '@babel/preset-react',
+      '@babel/preset-flow'
+    ],
     plugins: [
       '@babel/plugin-transform-flow-strip-types',
-      ['@babel/plugin-proposal-class-properties', { loose: true }],
-      ['@babel/plugin-proposal-private-methods', { loose: true }],
-      ['@babel/plugin-proposal-private-property-in-object', { loose: true }]
+      ['@babel/plugin-proposal-class-properties', { loose: true }]
     ]
   }
 };
