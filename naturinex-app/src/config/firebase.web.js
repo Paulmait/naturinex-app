@@ -2,7 +2,7 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
-import appConfig from './appConfig.js';
+import appConfig from './appConfig.web.js';
 
 // Get the config by calling the function
 const config = appConfig();
