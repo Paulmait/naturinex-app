@@ -423,8 +423,24 @@ const DrugInteractionChecker = require('./modules/drugInteractions');
 const HealthProfileManager = require('./modules/healthProfiles');
 const AffiliateSystem = require('./modules/affiliateSystem');
 
-// Initialize drug interaction checker
+// Import killer feature modules
+const PillIdentifier = require('./modules/pillIdentifier');
+const PriceComparisonEngine = require('./modules/priceComparison');
+const PredictiveHealthAI = require('./modules/predictiveHealthAI');
+const SmartNotifications = require('./modules/smartNotifications');
+const DoctorNetwork = require('./modules/doctorNetwork');
+const GamificationSystem = require('./modules/gamification');
+const EmailService = require('./modules/emailService');
+
+// Initialize modules
 const interactionChecker = new DrugInteractionChecker(process.env.GEMINI_API_KEY);
+const pillIdentifier = new PillIdentifier();
+const priceComparison = new PriceComparisonEngine();
+const predictiveAI = new PredictiveHealthAI();
+const notifications = new SmartNotifications();
+const doctorNetwork = new DoctorNetwork();
+const gamification = new GamificationSystem();
+const emailService = new EmailService();
 
 // Middleware to check usage limits
 const checkUsageLimits = async (req, res, next) => {
@@ -769,6 +785,603 @@ app.get('/api/usage/:userId', async (req, res) => {
     });
   }
 });
+
+// ===== KILLER FEATURES API ENDPOINTS =====
+
+// Visual Pill Identifier
+app.post('/api/pill/identify',
+  [
+    body('imageData').isString().withMessage('Image data required'),
+    body('userId').optional().isString(),
+    validateInput
+  ],
+  checkUsageLimits,
+  async (req, res) => {
+    try {
+      const { imageData, metadata, userId } = req.body;
+      
+      // Check if user has Pro features for enhanced accuracy
+      const enhancedMode = TierSystem.hasFeatureAccess(req.userTier, 'pillIdentifier');
+      
+      const result = await pillIdentifier.identifyPill(imageData, {
+        ...metadata,
+        enhancedMode,
+        userId
+      });
+      
+      // Add price comparison if pill identified
+      if (result.success && result.topMatch) {
+        result.priceComparison = await priceComparison.comparePrices(
+          result.topMatch.name,
+          result.topMatch.dosage,
+          30,
+          req.body.location
+        );
+        
+        // Send price drop alert if significant savings found
+        if (result.priceComparison.savings?.potential > 30 && req.body.email) {
+          await emailService.sendPriceDropAlert(
+            { email: req.body.email, name: req.body.userName || 'User' },
+            { 
+              name: result.topMatch.name,
+              pharmacy: result.priceComparison.savings.bestPharmacy,
+              id: result.topMatch.id 
+            },
+            result.priceComparison.savings.highestPrice,
+            result.priceComparison.savings.lowestPrice
+          );
+        }
+      }
+      
+      // Track achievement
+      if (userId && result.success) {
+        await gamification.trackAchievement(userId, 'PILL_SCAN');
+      }
+      
+      await TierSystem.incrementUsage(userId, 'pillScan');
+      res.json(result);
+    } catch (error) {
+      console.error('Pill identification error:', error);
+      res.status(500).json({
+        error: 'Failed to identify pill',
+        message: error.message
+      });
+    }
+  }
+);
+
+// Price Comparison
+app.post('/api/price/compare',
+  [
+    body('medicationName').isString(),
+    body('dosage').isString(),
+    body('quantity').isNumeric(),
+    validateInput
+  ],
+  async (req, res) => {
+    try {
+      const { medicationName, dosage, quantity, location, userId } = req.body;
+      
+      const result = await priceComparison.comparePrices(
+        medicationName,
+        dosage,
+        quantity,
+        location
+      );
+      
+      // Track achievement for saving money
+      if (userId && result.savings?.potential > 20) {
+        await gamification.trackAchievement(userId, 'PRICE_SAVER');
+      }
+      
+      res.json(result);
+    } catch (error) {
+      console.error('Price comparison error:', error);
+      res.status(500).json({
+        error: 'Failed to compare prices',
+        message: error.message
+      });
+    }
+  }
+);
+
+// Predictive Health AI
+app.post('/api/predict/side-effects',
+  [
+    body('userId').isString(),
+    body('medicationName').isString(),
+    validateInput
+  ],
+  checkUsageLimits,
+  async (req, res) => {
+    try {
+      const { userId, medicationName } = req.body;
+      
+      // Get user profile
+      const profileResult = await HealthProfileManager.getHealthProfiles(userId);
+      const userProfile = profileResult.profiles?.[0];
+      
+      const predictions = await predictiveAI.predictSideEffects(
+        userId,
+        medicationName,
+        userProfile
+      );
+      
+      res.json(predictions);
+    } catch (error) {
+      console.error('Prediction error:', error);
+      res.status(500).json({
+        error: 'Failed to predict side effects',
+        message: error.message
+      });
+    }
+  }
+);
+
+app.post('/api/predict/adherence',
+  [
+    body('userId').isString(),
+    body('medicationPlan').isObject(),
+    validateInput
+  ],
+  async (req, res) => {
+    try {
+      const { userId, medicationPlan } = req.body;
+      
+      const prediction = await predictiveAI.predictAdherence(userId, medicationPlan);
+      
+      // Create personalized reminders if adherence is low
+      if (prediction.probability < 0.7) {
+        await notifications.scheduleSmartReminders(userId, [{
+          ...medicationPlan,
+          adherenceBoost: true
+        }]);
+      }
+      
+      res.json(prediction);
+    } catch (error) {
+      console.error('Adherence prediction error:', error);
+      res.status(500).json({
+        error: 'Failed to predict adherence',
+        message: error.message
+      });
+    }
+  }
+);
+
+// Smart Notifications
+app.post('/api/notifications/schedule',
+  [
+    body('userId').isString(),
+    body('medications').isArray(),
+    validateInput
+  ],
+  async (req, res) => {
+    try {
+      const { userId, medications } = req.body;
+      
+      const result = await notifications.scheduleSmartReminders(userId, medications);
+      
+      res.json(result);
+    } catch (error) {
+      console.error('Notification scheduling error:', error);
+      res.status(500).json({
+        error: 'Failed to schedule notifications',
+        message: error.message
+      });
+    }
+  }
+);
+
+app.get('/api/notifications/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const activeNotifications = await notifications.getActiveReminders(userId);
+    
+    res.json({ notifications: activeNotifications });
+  } catch (error) {
+    console.error('Get notifications error:', error);
+    res.status(500).json({
+      error: 'Failed to get notifications',
+      message: error.message
+    });
+  }
+});
+
+// Doctor Network
+app.get('/api/doctors/available', async (req, res) => {
+  try {
+    const { specialty, urgency } = req.query;
+    
+    const doctors = await doctorNetwork.getAvailableDoctors(specialty, urgency);
+    
+    res.json(doctors);
+  } catch (error) {
+    console.error('Get doctors error:', error);
+    res.status(500).json({
+      error: 'Failed to get available doctors',
+      message: error.message
+    });
+  }
+});
+
+app.post('/api/doctors/book',
+  [
+    body('userId').isString(),
+    body('doctorId').isString(),
+    body('type').isString(),
+    body('details').isObject(),
+    validateInput
+  ],
+  checkUsageLimits,
+  async (req, res) => {
+    try {
+      const { userId, doctorId, type, details } = req.body;
+      
+      const booking = await doctorNetwork.bookConsultation(
+        userId,
+        doctorId,
+        type,
+        details
+      );
+      
+      // Track achievement and send confirmation email
+      if (booking.success) {
+        await gamification.trackAchievement(userId, 'FIRST_CONSULTATION');
+        
+        // Send appointment confirmation email
+        if (req.body.email) {
+          await emailService.sendAppointmentConfirmation(
+            { email: req.body.email, name: req.body.userName || 'Patient' },
+            {
+              id: booking.consultation.id,
+              doctorName: req.body.doctorName || 'Doctor',
+              type: type,
+              date: new Date(details.scheduledTime).toLocaleDateString(),
+              time: new Date(details.scheduledTime).toLocaleTimeString(),
+              videoLink: booking.session?.videoToken ? `https://naturinex.com/video/${booking.consultation.id}` : null,
+              location: details.location
+            }
+          );
+        }
+      }
+      
+      res.json(booking);
+    } catch (error) {
+      console.error('Booking error:', error);
+      res.status(500).json({
+        error: 'Failed to book consultation',
+        message: error.message
+      });
+    }
+  }
+);
+
+app.post('/api/doctors/question',
+  [
+    body('userId').isString(),
+    body('question').isString(),
+    body('category').isString(),
+    validateInput
+  ],
+  async (req, res) => {
+    try {
+      const { userId, question, category } = req.body;
+      
+      const result = await doctorNetwork.submitQuestion(userId, question, category);
+      
+      res.json(result);
+    } catch (error) {
+      console.error('Question submission error:', error);
+      res.status(500).json({
+        error: 'Failed to submit question',
+        message: error.message
+      });
+    }
+  }
+);
+
+// Gamification
+app.get('/api/gamification/profile/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    const profile = await gamification.getUserProfile(userId);
+    
+    res.json(profile);
+  } catch (error) {
+    console.error('Get gamification profile error:', error);
+    res.status(500).json({
+      error: 'Failed to get gamification profile',
+      message: error.message
+    });
+  }
+});
+
+app.post('/api/gamification/achievement',
+  [
+    body('userId').isString(),
+    body('achievementType').isString(),
+    validateInput
+  ],
+  async (req, res) => {
+    try {
+      const { userId, achievementType } = req.body;
+      
+      const result = await gamification.trackAchievement(userId, achievementType);
+      
+      // Send achievement email notification
+      if (result.newAchievement && req.body.email) {
+        await emailService.sendAchievementUnlocked(
+          { 
+            email: req.body.email, 
+            name: req.body.userName || 'Player',
+            level: result.level,
+            totalPoints: result.totalPoints
+          },
+          result.newAchievement
+        );
+      }
+      
+      res.json(result);
+    } catch (error) {
+      console.error('Track achievement error:', error);
+      res.status(500).json({
+        error: 'Failed to track achievement',
+        message: error.message
+      });
+    }
+  }
+);
+
+app.get('/api/gamification/challenges', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    
+    const challenges = await gamification.getActiveChallenges(userId);
+    
+    res.json({ challenges });
+  } catch (error) {
+    console.error('Get challenges error:', error);
+    res.status(500).json({
+      error: 'Failed to get challenges',
+      message: error.message
+    });
+  }
+});
+
+app.get('/api/gamification/leaderboard', async (req, res) => {
+  try {
+    const { type = 'weekly', limit = 10 } = req.query;
+    
+    const leaderboard = await gamification.getLeaderboard(type, limit);
+    
+    res.json({ leaderboard });
+  } catch (error) {
+    console.error('Get leaderboard error:', error);
+    res.status(500).json({
+      error: 'Failed to get leaderboard',
+      message: error.message
+    });
+  }
+});
+
+// Health Insights Dashboard
+app.get('/api/insights/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Combine data from multiple sources
+    const [
+      healthTrajectory,
+      gamificationProfile,
+      medicationHistory,
+      upcomingReminders
+    ] = await Promise.all([
+      predictiveAI.predictHealthTrajectory(userId),
+      gamification.getUserProfile(userId),
+      HealthProfileManager.getMedicationHistory(userId, { limit: 10 }),
+      notifications.getActiveReminders(userId)
+    ]);
+    
+    res.json({
+      healthScore: healthTrajectory.currentScore,
+      trajectory: healthTrajectory.trajectory,
+      level: gamificationProfile.level,
+      points: gamificationProfile.totalPoints,
+      streak: gamificationProfile.streak,
+      recentMedications: medicationHistory.history,
+      upcomingReminders,
+      recommendations: healthTrajectory.recommendations
+    });
+  } catch (error) {
+    console.error('Get insights error:', error);
+    res.status(500).json({
+      error: 'Failed to get health insights',
+      message: error.message
+    });
+  }
+});
+
+// ===== EMAIL SERVICE ENDPOINTS =====
+
+// Send welcome email on user registration
+app.post('/api/email/welcome',
+  [
+    body('userId').isString(),
+    body('email').isEmail(),
+    body('name').isString(),
+    validateInput
+  ],
+  async (req, res) => {
+    try {
+      const { userId, email, name } = req.body;
+      
+      const result = await emailService.sendWelcomeEmail({
+        id: userId,
+        email,
+        name
+      });
+      
+      res.json(result);
+    } catch (error) {
+      console.error('Welcome email error:', error);
+      res.status(500).json({
+        error: 'Failed to send welcome email',
+        message: error.message
+      });
+    }
+  }
+);
+
+// Schedule medication reminders
+app.post('/api/email/medication-reminders',
+  [
+    body('userId').isString(),
+    body('enabled').isBoolean(),
+    validateInput
+  ],
+  async (req, res) => {
+    try {
+      const { userId, enabled } = req.body;
+      
+      // Check if user has premium subscription
+      const userTier = await TierSystem.getUserTier(userId);
+      if (!TierSystem.hasFeatureAccess(userTier, 'emailReminders')) {
+        return res.status(402).json({
+          error: 'Premium feature',
+          message: 'Email reminders require Basic subscription or higher',
+          upgradeOptions: TierSystem.getUpgradeOptions(userTier)
+        });
+      }
+      
+      // Schedule daily reminders
+      if (enabled) {
+        await notifications.scheduleEmailReminders(userId);
+      } else {
+        await notifications.cancelEmailReminders(userId);
+      }
+      
+      res.json({
+        success: true,
+        message: enabled ? 'Email reminders enabled' : 'Email reminders disabled'
+      });
+    } catch (error) {
+      console.error('Medication reminder setup error:', error);
+      res.status(500).json({
+        error: 'Failed to configure email reminders',
+        message: error.message
+      });
+    }
+  }
+);
+
+// Send weekly health report
+app.post('/api/email/weekly-report/:userId', 
+  checkUsageLimits,
+  async (req, res) => {
+    try {
+      const { userId } = req.params;
+      
+      // Check premium access
+      if (!TierSystem.hasFeatureAccess(req.userTier, 'weeklyReports')) {
+        return res.status(402).json({
+          error: 'Premium feature',
+          message: 'Weekly reports require Pro subscription or higher'
+        });
+      }
+      
+      // Gather report data
+      const [
+        userData,
+        medicationHistory,
+        achievements,
+        healthTrajectory,
+        savings
+      ] = await Promise.all([
+        HealthProfileManager.getHealthProfiles(userId),
+        HealthProfileManager.getMedicationHistory(userId, { days: 7 }),
+        gamification.getUserProfile(userId),
+        predictiveAI.predictHealthTrajectory(userId),
+        TierSystem.getUserSavings(userId)
+      ]);
+      
+      const reportData = {
+        adherenceRate: medicationHistory.adherenceRate || 85,
+        streak: achievements.streak || 0,
+        achievements: achievements.recentAchievements || [],
+        weekSavings: savings.week || 0,
+        totalSavings: savings.total || 0,
+        healthScore: healthTrajectory.currentScore || 75,
+        trend: healthTrajectory.trend || 'improving',
+        refillsNeeded: medicationHistory.refillsNeeded || 0,
+        appointments: userData.upcomingAppointments || 0
+      };
+      
+      const result = await emailService.sendWeeklyReport(
+        { id: userId, email: req.body.email, name: req.body.name },
+        reportData
+      );
+      
+      res.json(result);
+    } catch (error) {
+      console.error('Weekly report error:', error);
+      res.status(500).json({
+        error: 'Failed to send weekly report',
+        message: error.message
+      });
+    }
+  }
+);
+
+// Email preferences
+app.post('/api/email/preferences',
+  [
+    body('userId').isString(),
+    body('preferences').isObject(),
+    validateInput
+  ],
+  async (req, res) => {
+    try {
+      const { userId, preferences } = req.body;
+      
+      // Save email preferences
+      if (admin.apps.length) {
+        await admin.firestore()
+          .collection('users')
+          .doc(userId)
+          .update({
+            emailPreferences: {
+              medicationReminders: preferences.medicationReminders || false,
+              refillAlerts: preferences.refillAlerts || true,
+              priceDrops: preferences.priceDrops || true,
+              weeklyReports: preferences.weeklyReports || false,
+              achievements: preferences.achievements || true,
+              appointments: preferences.appointments || true,
+              promotions: preferences.promotions || false
+            },
+            updatedAt: admin.firestore.FieldValue.serverTimestamp()
+          });
+      }
+      
+      res.json({
+        success: true,
+        message: 'Email preferences updated'
+      });
+    } catch (error) {
+      console.error('Preferences error:', error);
+      res.status(500).json({
+        error: 'Failed to update preferences',
+        message: error.message
+      });
+    }
+  }
+);
+
+// ===== END OF EMAIL SERVICE =====
+
+// ===== END OF KILLER FEATURES =====
 
 // ===== END OF NEW FEATURES =====
 
