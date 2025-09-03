@@ -1,6 +1,6 @@
 {
   "short_name": "Naturinex",
-  "name": "Naturinex - Natural Medication Alternatives",
+  "name": "Naturinex Wellness Guide",
   "icons": [
     {
       "src": "favicon.ico",
@@ -20,6 +20,6 @@
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#2c5530",
+  "theme_color": "#10B981",
   "background_color": "#ffffff"
 }
