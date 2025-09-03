@@ -22,9 +22,9 @@ import {
   Delete,
   MoreVert,
 } from '@mui/icons-material';
-import { getAuth } from 'firebase/auth';
+// Firebase auth imported from firebase.web
 import { collection, query, where, orderBy, getDocs, deleteDoc, doc } from 'firebase/firestore';
-import { db } from '../../firebase.web';
+import { auth, db } from '../../firebase.web';
 
 function WebHistory() {
   const [scans, setScans] = useState([]);
@@ -35,8 +35,6 @@ function WebHistory() {
   const [loading, setLoading] = useState(true);
   const [anchorEl, setAnchorEl] = useState(null);
   const [selectedScan, setSelectedScan] = useState(null);
-  
-  const auth = getAuth();
   const user = auth.currentUser;
   const itemsPerPage = 10;
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material';
-import { getAuth, onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged } from 'firebase/auth';
 
 // Import web components
 import WebNavigation from './components/WebNavigation';
@@ -17,7 +17,7 @@ import WebTerms from './pages/WebTerms';
 import WebPayment from './pages/WebPayment';
 
 // Import Firebase config for web
-import '../firebase.web';
+import { auth } from '../firebase.web';
 
 const theme = createTheme({
   palette: {
@@ -84,7 +84,6 @@ const theme = createTheme({
 function WebApp() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const auth = getAuth();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {

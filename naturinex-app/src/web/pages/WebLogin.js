@@ -14,7 +14,6 @@ import {
 import { Google } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import {
-  getAuth,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInWithPopup,
@@ -22,7 +21,7 @@ import {
   sendPasswordResetEmail,
 } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { db } from '../../firebase.web';
+import { auth, db } from '../../firebase.web';
 
 function WebLogin() {
   const [isSignUp, setIsSignUp] = useState(false);
@@ -34,7 +33,6 @@ function WebLogin() {
   const [resetEmailSent, setResetEmailSent] = useState(false);
   
   const navigate = useNavigate();
-  const auth = getAuth();
 
   const handleEmailAuth = async (e) => {
     e.preventDefault();

@@ -22,9 +22,9 @@ import {
   Refresh,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { getAuth } from 'firebase/auth';
+import { } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
-import { db } from '../../firebase.web';
+import { auth, db } from '../../firebase.web';
 
 function WebDashboard() {
   const [userData, setUserData] = useState(null);
@@ -37,7 +37,6 @@ function WebDashboard() {
   const [loading, setLoading] = useState(true);
   
   const navigate = useNavigate();
-  const auth = getAuth();
   const user = auth.currentUser;
 
   useEffect(() => {

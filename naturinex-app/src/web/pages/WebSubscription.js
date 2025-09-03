@@ -24,9 +24,9 @@ import {
   Star,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { getAuth } from 'firebase/auth';
+// Firebase auth imported from firebase.web
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
-import { db } from '../../firebase.web';
+import { auth, db } from '../../firebase.web';
 import webConfig from '../../config/webConfig';
 
 function WebSubscription() {
@@ -36,7 +36,6 @@ function WebSubscription() {
   const [cancelling, setCancelling] = useState(false);
   
   const navigate = useNavigate();
-  const auth = getAuth();
   const user = auth.currentUser;
   
   const API_URL = webConfig.API_URL;

@@ -14,9 +14,9 @@ import {
 } from '@mui/material';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
-import { getAuth } from 'firebase/auth';
+import { } from 'firebase/auth';
 import { doc, updateDoc } from 'firebase/firestore';
-import { db } from '../../firebase.web';
+import { auth, db } from '../../firebase.web';
 import { useNavigate } from 'react-router-dom';
 import webConfig from '../../config/webConfig';
 
@@ -30,8 +30,6 @@ function CheckoutForm({ priceId, onSuccess }) {
   const [succeeded, setSucceeded] = useState(false);
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
-  
-  const auth = getAuth();
   const user = auth.currentUser;
   const navigate = useNavigate();
   

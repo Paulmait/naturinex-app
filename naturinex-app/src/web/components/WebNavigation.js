@@ -29,7 +29,8 @@ import {
   Settings,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
-import { getAuth, signOut } from 'firebase/auth';
+import { signOut } from 'firebase/auth';
+import { auth } from '../../firebase.web';
 
 function WebNavigation({ user }) {
   const [anchorEl, setAnchorEl] = useState(null);
@@ -37,7 +38,6 @@ function WebNavigation({ user }) {
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const auth = getAuth();
 
   const handleMenu = (event) => {
     setAnchorEl(event.currentTarget);

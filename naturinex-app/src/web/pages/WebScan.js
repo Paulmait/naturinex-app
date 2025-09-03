@@ -25,9 +25,9 @@ import {
   CheckCircle,
   Warning,
 } from '@mui/icons-material';
-import { getAuth } from 'firebase/auth';
+// Firebase auth imported from firebase.web
 import { collection, addDoc, doc, getDoc, updateDoc } from 'firebase/firestore';
-import { db } from '../../firebase.web';
+import { auth, db } from '../../firebase.web';
 // import webConfig from '../../config/webConfig';
 import Tesseract from 'tesseract.js';
 
@@ -47,7 +47,6 @@ function WebScan() {
   const fileInputRef = useRef(null);
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const auth = getAuth();
   const user = auth.currentUser;
 
   // Use Render backend URL

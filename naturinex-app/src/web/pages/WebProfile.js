@@ -27,9 +27,9 @@ import {
   Delete,
   Logout,
 } from '@mui/icons-material';
-import { getAuth, updateProfile, updatePassword, deleteUser, signOut } from 'firebase/auth';
+import { updateProfile, updatePassword, deleteUser, signOut } from 'firebase/auth';
 import { doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { db } from '../../firebase.web';
+import { auth, db } from '../../firebase.web';
 import { useNavigate } from 'react-router-dom';
 
 function WebProfile() {
@@ -55,7 +55,6 @@ function WebProfile() {
   });
   
   const navigate = useNavigate();
-  const auth = getAuth();
   const user = auth.currentUser;
 
   useEffect(() => {
