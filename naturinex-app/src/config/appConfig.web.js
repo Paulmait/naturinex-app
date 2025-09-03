@@ -2,6 +2,17 @@
 const getConfig = () => {
   const isDev = process.env.NODE_ENV === 'development';
   
+  // Firebase configuration - CRITICAL: These must match your Firebase project exactly
+  const firebaseConfig = {
+    apiKey: process.env.REACT_APP_FIREBASE_API_KEY || "AIzaSyD6X93iVLw92V58oAvMJdrhnW-tFxMcmZA",
+    authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "mediscan-b6252.firebaseapp.com",
+    projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || "mediscan-b6252",
+    storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "mediscan-b6252.appspot.com",
+    messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "1076876259650",
+    appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:1076876259650:web:f37e5ec88aba25cc8c3f35",
+    measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID || "G-BVDBZFQYF1"
+  };
+  
   return {
     // API Configuration
     API_URL: process.env.REACT_APP_API_URL || 'https://naturinex-app-zsga.onrender.com',
@@ -9,16 +20,8 @@ const getConfig = () => {
     // Stripe Configuration (public key is safe to expose)
     STRIPE_PUBLISHABLE_KEY: process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY || 'pk_live_51QTj9RRqEPLAinmJX0Jgqr8GJZQKziNhHDMhHCRpNQbwfWJRKrPz7ZY48mJzV1rP1bDYJhRNJy1z5VXJ0e5G8t9K00lAC53L05',
     
-    // Firebase Configuration (these are client-side keys, safe to expose but should be restricted by domain)
-    FIREBASE_CONFIG: {
-      apiKey: process.env.REACT_APP_FIREBASE_API_KEY || "AIzaSyD6X93iVLw92V58oAvMJdrhnW-tFxMcmZA",
-      authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "mediscan-b6252.firebaseapp.com",
-      projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || "mediscan-b6252",
-      storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "mediscan-b6252.appspot.com",
-      messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "1076876259650",
-      appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:1076876259650:web:f37e5ec88aba25cc8c3f35",
-      measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID || "G-BVDBZFQYF1"
-    },
+    // Firebase Configuration
+    FIREBASE_CONFIG: firebaseConfig,
     
     // Google OAuth Configuration
     GOOGLE_CONFIG: {
@@ -31,13 +34,13 @@ const getConfig = () => {
       privacyPolicyUrl: 'https://naturinex.com/privacy-policy',
       termsOfServiceUrl: 'https://naturinex.com/terms-of-service',
       supportEmail: 'support@naturinex.com',
-      appStoreId: 'YOUR_APP_STORE_ID', // Update after app store submission
+      appStoreId: 'YOUR_APP_STORE_ID',
       playStoreId: 'com.naturinex.app'
     },
     
     // Feature Flags
     FEATURES: {
-      enableOfflineMode: false, // Web doesn't support offline mode yet
+      enableOfflineMode: false,
       enableAnalytics: !isDev,
       enableCrashReporting: !isDev,
       requireAgeVerification: true,
