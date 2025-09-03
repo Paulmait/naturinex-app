@@ -1,129 +1,141 @@
-# Vercel Deployment Guide for Naturinex
+# Vercel Deployment Guide with GoDaddy Domain
 
-## Quick Deployment Steps
+## Step 1: Deploy to Vercel
 
-### 1. Sign up for Vercel
-- Go to [vercel.com](https://vercel.com)
-- Sign up with your GitHub account (recommended)
-- This will allow automatic deployments
+### A. Using Vercel Dashboard (Recommended)
+1. Go to [https://vercel.com](https://vercel.com)
+2. Sign in with your GitHub account
+3. Click "Add New..." → "Project"
+4. Import `naturinex-app` repository
+5. Configure project:
+   - **Framework Preset**: Other
+   - **Root Directory**: `./` (leave as is)
+   - **Build Command**: Already configured in vercel.json
+   - **Output Directory**: Already configured in vercel.json
 
-### 2. Deploy via GitHub (Recommended)
+### B. Add Environment Variables in Vercel
+Click "Environment Variables" and add:
 
-Since your code is already on GitHub:
-
-1. **In Vercel Dashboard:**
-   - Click "Add New Project"
-   - Import your GitHub repository: `naturinex-app`
-   - Select the repository
-
-2. **Configure Build Settings:**
-   - Framework Preset: `Create React App`
-   - Root Directory: `client` (important!)
-   - Build Command: `npm run build`
-   - Output Directory: `build`
-
-3. **Add Environment Variables:**
-   Click "Environment Variables" and add:
-   ```
-   REACT_APP_FIREBASE_API_KEY=AIzaSyBxwcFSu18M8YHDFT_eTrV73amrDXv20Tg
-   REACT_APP_FIREBASE_AUTH_DOMAIN=mediscan-b6252.firebaseapp.com
-   REACT_APP_FIREBASE_PROJECT_ID=mediscan-b6252
-   REACT_APP_FIREBASE_STORAGE_BUCKET=mediscan-b6252.appspot.com
-   REACT_APP_FIREBASE_MESSAGING_SENDER_ID=558707650938
-   REACT_APP_FIREBASE_APP_ID=1:558707650938:web:5d5f7f1234567890abcdef
-   REACT_APP_API_URL=https://naturinex-app.onrender.com
-   REACT_APP_STRIPE_PUBLISHABLE_KEY=pk_test_51234567890abcdefghijklmnopqrstuvwxyz
-   ```
-
-4. **Click "Deploy"**
-   - Vercel will build and deploy your app
-   - You'll get a URL like: `naturinex-app.vercel.app`
-
-### 3. Connect Your Custom Domain
-
-After deployment:
-
-1. **In Vercel Dashboard:**
-   - Go to your project settings
-   - Click "Domains"
-   - Add `naturinex.com` and `www.naturinex.com`
-
-2. **Vercel will show you DNS records to add**
-
-3. **In GoDaddy DNS:**
-   - Delete the current A record pointing to WebsiteBuilder
-   - Add the records Vercel provides:
-     - Usually an A record pointing to `76.76.21.21`
-     - And a CNAME for www pointing to `cname.vercel-dns.com`
-
-### 4. Alternative: Deploy via Vercel CLI
-
-If you prefer command line:
-
-```bash
-# Install Vercel CLI
-npm install -g vercel
-
-# In your client directory
-cd C:\Users\maito\mediscan-app\client
-
-# Login to Vercel
-vercel login
-
-# Deploy
-vercel
-
-# Follow the prompts:
-# - Set up and deploy: Y
-# - Which scope: Select your account
-# - Link to existing project: N
-# - Project name: naturinex-app
-# - Directory: ./
-# - Override settings: N
+```
+GEMINI_API_KEY=your_gemini_api_key
+STRIPE_SECRET_KEY=your_stripe_secret_key
+STRIPE_WEBHOOK_SECRET=your_webhook_secret
+RESEND_API_KEY=your_resend_api_key (optional)
+GOOGLE_VISION_API_KEY=your_vision_api_key (optional)
 ```
 
-## Post-Deployment
+### C. Deploy
+Click "Deploy" and wait for deployment to complete (3-5 minutes)
 
-1. **Test your deployment:**
-   - Visit your Vercel URL
-   - Test all features
-   - Check console for any errors
+Your app will be available at: `https://naturinex-app.vercel.app`
 
-2. **Set up automatic deployments:**
-   - Every push to GitHub will trigger a new deployment
-   - Preview deployments for pull requests
+## Step 2: Configure Custom Domain in Vercel
 
-3. **Monitor your app:**
-   - Vercel provides analytics and performance monitoring
-   - Check the Functions tab for API logs
+1. In your Vercel project dashboard, go to "Settings" → "Domains"
+2. Add your domain: `naturinex.com` (or your domain)
+3. Vercel will show you DNS records to add
 
-## Environment Variables Reference
+## Step 3: Configure GoDaddy DNS
 
-Make sure these are set in Vercel:
+### Login to GoDaddy
+1. Go to [https://www.godaddy.com](https://www.godaddy.com)
+2. Sign in to your account
+3. Go to "My Products" → "Domains"
+4. Click "DNS" next to your domain
 
-- `REACT_APP_FIREBASE_API_KEY` - Your Firebase API key
-- `REACT_APP_FIREBASE_AUTH_DOMAIN` - Firebase auth domain
-- `REACT_APP_FIREBASE_PROJECT_ID` - Firebase project ID
-- `REACT_APP_FIREBASE_STORAGE_BUCKET` - Firebase storage bucket
-- `REACT_APP_FIREBASE_MESSAGING_SENDER_ID` - Firebase messaging sender ID
-- `REACT_APP_FIREBASE_APP_ID` - Firebase app ID
-- `REACT_APP_API_URL` - Your backend URL (https://naturinex-app.onrender.com)
-- `REACT_APP_STRIPE_PUBLISHABLE_KEY` - Stripe publishable key
+### Remove Existing Records
+Delete any existing A records and CNAME records for @ and www
+
+### Add Vercel DNS Records
+
+#### For Root Domain (naturinex.com):
+**Type**: A  
+**Name**: @  
+**Value**: 76.76.21.21  
+**TTL**: 600
+
+#### For WWW Subdomain:
+**Type**: CNAME  
+**Name**: www  
+**Value**: cname.vercel-dns.com  
+**TTL**: 600
+
+### Alternative: Using Vercel's Nameservers (Faster)
+Instead of individual records, you can change nameservers in GoDaddy:
+
+1. In GoDaddy, go to "Nameservers"
+2. Click "Change"
+3. Select "Custom"
+4. Add Vercel's nameservers:
+   - ns1.vercel-dns.com
+   - ns2.vercel-dns.com
+
+## Step 4: Configure Backend API URL
+
+Since your backend is on Render, update the API URL in your frontend:
+
+1. In Vercel dashboard, go to "Settings" → "Environment Variables"
+2. Add: `REACT_APP_API_URL=https://your-render-backend.onrender.com`
+3. Redeploy to apply changes
+
+## Step 5: Verify Deployment
+
+### Check these endpoints:
+- Main site: `https://naturinex.com`
+- API Health: `https://naturinex.com/api/health`
+- Subscription tiers: `https://naturinex.com/api/subscriptions/tiers`
+
+### DNS Propagation
+DNS changes can take 5 minutes to 48 hours to propagate globally.
+Check status at: [https://www.whatsmydns.net](https://www.whatsmydns.net)
+
+## Step 6: Configure Stripe Webhook
+
+1. Go to Stripe Dashboard → Webhooks
+2. Add endpoint: `https://naturinex.com/webhook`
+3. Select events:
+   - checkout.session.completed
+   - customer.subscription.deleted
+4. Copy the signing secret
+5. Add to Vercel env vars: `STRIPE_WEBHOOK_SECRET=whsec_...`
 
 ## Troubleshooting
 
-**Build Fails:**
-- Make sure root directory is set to `client`
-- Check build logs for specific errors
+### Domain Not Working?
+- Check DNS propagation status
+- Verify records in GoDaddy match exactly
+- Clear browser cache
+- Try in incognito mode
 
-**404 Errors:**
-- The vercel.json file handles this
-- Make sure it's in the client directory
+### API Calls Failing?
+- Check CORS settings in backend
+- Verify API URL in environment variables
+- Check Render backend is running
 
-**API Calls Failing:**
-- Verify REACT_APP_API_URL is set correctly
-- Check CORS settings on backend
+### Build Failing?
+- Check build logs in Vercel dashboard
+- Verify all dependencies are in package.json
+- Check Node version compatibility
 
-**Domain Not Working:**
-- DNS changes can take up to 48 hours
-- Use DNS checker tools to verify propagation
+## Support Resources
+
+- **Vercel Docs**: [https://vercel.com/docs](https://vercel.com/docs)
+- **GoDaddy Support**: [https://www.godaddy.com/help](https://www.godaddy.com/help)
+- **DNS Checker**: [https://www.whatsmydns.net](https://www.whatsmydns.net)
+
+## Post-Deployment Checklist
+
+- [ ] Site loads on custom domain
+- [ ] API endpoints working
+- [ ] Stripe payments functional
+- [ ] Email service sending (if configured)
+- [ ] Mobile app can connect to API
+- [ ] SSL certificate active (automatic with Vercel)
+- [ ] Analytics/monitoring setup
+
+## Estimated Time
+- Vercel deployment: 5 minutes
+- DNS configuration: 10 minutes
+- DNS propagation: 5 minutes to 48 hours (usually < 1 hour)
+
+Your site is now LIVE! 🚀
