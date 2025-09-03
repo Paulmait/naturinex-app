@@ -169,95 +169,76 @@ function WebHome() {
         </Grid>
       </Container>
 
-      {/* Pricing Section */}
-      <Box sx={{ bgcolor: 'grey.100', py: 8 }}>
+      {/* CTA Section */}
+      <Box sx={{ 
+        background: 'linear-gradient(135deg, #10B981 0%, #34D399 100%)', 
+        py: 8,
+        color: 'white'
+      }}>
         <Container maxWidth="lg">
           <Typography variant="h3" align="center" fontWeight="bold" gutterBottom>
-            Simple, Transparent Pricing
+            Ready to Take Control of Your Health?
           </Typography>
+          <Typography variant="h5" align="center" sx={{ mb: 4, opacity: 0.95 }}>
+            Join thousands of users making informed medication decisions
+          </Typography>
+          <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, flexWrap: 'wrap' }}>
+            <Button
+              variant="contained"
+              size="large"
+              onClick={() => navigate('/login')}
+              sx={{
+                bgcolor: 'white',
+                color: 'primary.main',
+                px: 4,
+                py: 1.5,
+                fontSize: '1.1rem',
+                '&:hover': {
+                  bgcolor: 'grey.100',
+                },
+              }}
+            >
+              Get Started Free
+            </Button>
+            <Button
+              variant="outlined"
+              size="large"
+              onClick={() => navigate('/login')}
+              sx={{
+                borderColor: 'white',
+                color: 'white',
+                px: 4,
+                py: 1.5,
+                fontSize: '1.1rem',
+                '&:hover': {
+                  borderColor: 'white',
+                  bgcolor: 'rgba(255,255,255,0.1)',
+                },
+              }}
+            >
+              View Plans
+            </Button>
+          </Box>
+          
+          {/* Trust Indicators */}
           <Grid container spacing={4} sx={{ mt: 4 }}>
-            <Grid item xs={12} md={6}>
-              <Card sx={{ p: 4, mt: 2 }}>
-                <Typography variant="h4" fontWeight="bold" gutterBottom>
-                  Free
-                </Typography>
-                <Typography variant="h2" fontWeight="bold" color="primary">
-                  $0
-                  <Typography component="span" variant="h6" color="text.secondary">
-                    /month
-                  </Typography>
-                </Typography>
-                <Box sx={{ my: 3 }}>
-                  <Typography>✓ 3 medication lookups per day</Typography>
-                  <Typography>✓ Basic medication information</Typography>
-                  <Typography>✓ Save search history</Typography>
-                  <Typography>✓ Text-based search</Typography>
-                </Box>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  size="large"
-                  onClick={() => navigate('/login')}
-                >
-                  Start Free
-                </Button>
-              </Card>
+            <Grid item xs={12} md={4}>
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="h4" fontWeight="bold">10,000+</Typography>
+                <Typography>Active Users</Typography>
+              </Box>
             </Grid>
-            <Grid item xs={12} md={6}>
-              <Card
-                sx={{
-                  p: 4,
-                  border: '2px solid',
-                  borderColor: 'primary.main',
-                  position: 'relative',
-                  overflow: 'visible',
-                  mt: 2,
-                }}
-              >
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: -14,
-                    left: '50%',
-                    transform: 'translateX(-50%)',
-                    bgcolor: 'primary.main',
-                    color: 'white',
-                    px: 2,
-                    py: 0.5,
-                    borderRadius: 1,
-                    fontSize: '0.875rem',
-                    fontWeight: 'bold',
-                    zIndex: 10,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  MOST POPULAR
-                </Box>
-                <Typography variant="h4" fontWeight="bold" gutterBottom>
-                  Premium
-                </Typography>
-                <Typography variant="h2" fontWeight="bold" color="primary">
-                  $9.99
-                  <Typography component="span" variant="h6" color="text.secondary">
-                    /month
-                  </Typography>
-                </Typography>
-                <Box sx={{ my: 3 }}>
-                  <Typography>✓ Unlimited medication lookups</Typography>
-                  <Typography>✓ Detailed medication analysis</Typography>
-                  <Typography>✓ OCR text from images</Typography>
-                  <Typography>✓ Export search history</Typography>
-                  <Typography>✓ Ad-free experience</Typography>
-                </Box>
-                <Button
-                  fullWidth
-                  variant="contained"
-                  size="large"
-                  onClick={() => navigate('/login')}
-                >
-                  Start Premium
-                </Button>
-              </Card>
+            <Grid item xs={12} md={4}>
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="h4" fontWeight="bold">50,000+</Typography>
+                <Typography>Medications Analyzed</Typography>
+              </Box>
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography variant="h4" fontWeight="bold">4.8/5</Typography>
+                <Typography>User Rating</Typography>
+              </Box>
             </Grid>
           </Grid>
         </Container>
