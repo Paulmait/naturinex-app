@@ -56,6 +56,7 @@
     "react-scripts": "5.0.1",
     "stripe": "^18.5.0",
     "tesseract.js": "^6.0.1",
+    "typescript": "~5.3.3",
     "web-vitals": "^2.1.4"
   },
   "scripts": {
@@ -66,7 +67,7 @@
     "build:ios": "eas build -p ios",
     "build:android": "eas build -p android",
     "build:all": "eas build -p all",
-    "build:web": "set GENERATE_SOURCEMAP=false&& craco build",
+    "build:web": "GENERATE_SOURCEMAP=false craco build",
     "submit:ios": "eas submit -p ios",
     "submit:android": "eas submit -p android",
     "test": "react-scripts test",
@@ -107,7 +108,6 @@
     "process": "^0.11.10",
     "react-app-rewired": "^2.2.1",
     "stream-browserify": "^3.0.0",
-    "typescript": "~5.3.3",
     "util": "^0.12.5"
   }
 }
