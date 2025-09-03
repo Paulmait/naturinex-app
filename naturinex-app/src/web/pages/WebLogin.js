@@ -78,7 +78,18 @@ function WebLogin() {
     
     try {
       const provider = new GoogleAuthProvider();
+      // Add scopes for better user experience
+      provider.addScope('profile');
+      provider.addScope('email');
+      
+      // Set custom parameters
+      provider.setCustomParameters({
+        prompt: 'select_account'
+      });
+      
+      console.log('Starting Google sign-in...');
       const result = await signInWithPopup(auth, provider);
+      console.log('Google sign-in successful:', result.user.email);
       
       // Check if user profile exists
       const userDoc = await getDoc(doc(db, 'users', result.user.uid));
@@ -99,7 +110,16 @@ function WebLogin() {
       navigate('/dashboard');
     } catch (err) {
       console.error('Google sign-in error:', err);
-      setError(err.message);
+      // Provide more specific error messages
+      if (err.code === 'auth/popup-blocked') {
+        setError('Popup was blocked. Please allow popups for this site.');
+      } else if (err.code === 'auth/popup-closed-by-user') {
+        setError('Sign-in cancelled. Please try again.');
+      } else if (err.code === 'auth/unauthorized-domain') {
+        setError('This domain is not authorized for Google sign-in. Please contact support.');
+      } else {
+        setError(err.message || 'Failed to sign in with Google');
+      }
     } finally {
       setLoading(false);
     }

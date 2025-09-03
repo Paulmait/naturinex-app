@@ -216,7 +216,8 @@ function WebHome() {
                   sx={{
                     position: 'absolute',
                     top: -12,
-                    right: 20,
+                    left: '50%',
+                    transform: 'translateX(-50%)',
                     bgcolor: 'primary.main',
                     color: 'white',
                     px: 2,
@@ -224,6 +225,7 @@ function WebHome() {
                     borderRadius: 1,
                     fontSize: '0.875rem',
                     fontWeight: 'bold',
+                    zIndex: 1,
                   }}
                 >
                   MOST POPULAR

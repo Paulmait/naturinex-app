@@ -14,13 +14,14 @@ const firebaseConfig = {
   appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:398613963385:web:91b3c8e67976c252f0aaa8"
 };
 
-// Debug logging in development
-if (process.env.NODE_ENV === 'development') {
-  console.log('Firebase Config:', {
-    ...firebaseConfig,
-    apiKey: firebaseConfig.apiKey ? '***' + firebaseConfig.apiKey.slice(-4) : 'MISSING'
-  });
-}
+// Debug logging
+console.log('Firebase Config Debug:', {
+  hasApiKey: !!process.env.REACT_APP_FIREBASE_API_KEY,
+  apiKeyFromEnv: process.env.REACT_APP_FIREBASE_API_KEY ? '***' + process.env.REACT_APP_FIREBASE_API_KEY.slice(-4) : 'NOT SET',
+  projectId: firebaseConfig.projectId,
+  authDomain: firebaseConfig.authDomain,
+  usingFallback: !process.env.REACT_APP_FIREBASE_API_KEY
+});
 
 // Validate configuration
 if (!firebaseConfig.apiKey || firebaseConfig.apiKey === 'undefined') {
