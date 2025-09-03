@@ -8,7 +8,13 @@ module.exports = {
       // This needs to be at the BEGINNING of the rules array
       webpackConfig.module.rules.unshift({
         test: /\.js$/,
-        include: /node_modules[\\\/](react-native|@react-native|expo|@expo|@react-navigation|@stripe[\\\/]stripe-react-native)/,
+        include: /node_modules[\\/](react-native|@react-native|expo|@expo|@react-navigation|@stripe[\\/]stripe-react-native)/,
+        use: 'null-loader'
+      });
+
+      // Add another rule specifically for the problematic EventEmitter file
+      webpackConfig.module.rules.unshift({
+        test: /NativeEventEmitter\.js$/,
         use: 'null-loader'
       });
 
@@ -26,6 +32,8 @@ module.exports = {
         ...webpackConfig.resolve.alias,
         // Replace react-native with react-native-web
         'react-native$': 'react-native-web',
+        // Replace specific problematic modules
+        'react-native/Libraries/EventEmitter/NativeEventEmitter': path.resolve(__dirname, 'src/web/mocks/empty.js'),
         // Replace AsyncStorage
         '@react-native-async-storage/async-storage': 
           '@react-native-async-storage/async-storage/lib/commonjs/AsyncStorage.web.js',
