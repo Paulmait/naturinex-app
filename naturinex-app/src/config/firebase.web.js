@@ -3,16 +3,15 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
-// Direct Firebase configuration - no dependency on appConfig
+// Direct Firebase configuration for naturinex-app project
 // These values are safe to expose as they're client-side keys
 const firebaseConfig = {
-  apiKey: process.env.REACT_APP_FIREBASE_API_KEY || "AIzaSyD6X93iVLw92V58oAvMJdrhnW-tFxMcmZA",
-  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "mediscan-b6252.firebaseapp.com",
-  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || "mediscan-b6252",
-  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "mediscan-b6252.appspot.com",
-  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "1076876259650",
-  appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:1076876259650:web:f37e5ec88aba25cc8c3f35",
-  measurementId: process.env.REACT_APP_FIREBASE_MEASUREMENT_ID || "G-BVDBZFQYF1"
+  apiKey: process.env.REACT_APP_FIREBASE_API_KEY || "AIzaSyDjyig8VkzsaaoGLl2tg702FE-VRWenM0w",
+  authDomain: process.env.REACT_APP_FIREBASE_AUTH_DOMAIN || "naturinex-app.firebaseapp.com",
+  projectId: process.env.REACT_APP_FIREBASE_PROJECT_ID || "naturinex-app",
+  storageBucket: process.env.REACT_APP_FIREBASE_STORAGE_BUCKET || "naturinex-app.appspot.com",
+  messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID || "398613963385",
+  appId: process.env.REACT_APP_FIREBASE_APP_ID || "1:398613963385:web:91b3c8e67976c252f0aaa8"
 };
 
 // Debug logging in development
@@ -26,25 +25,25 @@ if (process.env.NODE_ENV === 'development') {
 // Validate configuration
 if (!firebaseConfig.apiKey || firebaseConfig.apiKey === 'undefined') {
   console.error('Firebase API Key is missing! Using fallback configuration.');
-  // Use hardcoded fallback
-  firebaseConfig.apiKey = "AIzaSyD6X93iVLw92V58oAvMJdrhnW-tFxMcmZA";
+  // Use hardcoded fallback for naturinex-app
+  firebaseConfig.apiKey = "AIzaSyDjyig8VkzsaaoGLl2tg702FE-VRWenM0w";
 }
 
 // Initialize Firebase
 let app;
 try {
   app = initializeApp(firebaseConfig);
+  console.log('Firebase initialized successfully with project:', firebaseConfig.projectId);
 } catch (error) {
   console.error('Firebase initialization error:', error);
   // Try with fallback config
   const fallbackConfig = {
-    apiKey: "AIzaSyD6X93iVLw92V58oAvMJdrhnW-tFxMcmZA",
-    authDomain: "mediscan-b6252.firebaseapp.com",
-    projectId: "mediscan-b6252",
-    storageBucket: "mediscan-b6252.appspot.com",
-    messagingSenderId: "1076876259650",
-    appId: "1:1076876259650:web:f37e5ec88aba25cc8c3f35",
-    measurementId: "G-BVDBZFQYF1"
+    apiKey: "AIzaSyDjyig8VkzsaaoGLl2tg702FE-VRWenM0w",
+    authDomain: "naturinex-app.firebaseapp.com",
+    projectId: "naturinex-app",
+    storageBucket: "naturinex-app.appspot.com",
+    messagingSenderId: "398613963385",
+    appId: "1:398613963385:web:91b3c8e67976c252f0aaa8"
   };
   app = initializeApp(fallbackConfig);
 }
