@@ -95,21 +95,20 @@ function WebSubscription() {
   };
 
   const premiumFeatures = [
-    'Unlimited product scans',
-    'Advanced wellness insights',
-    'Natural alternatives database',
-    'Drug interaction checker',
-    'Personalized recommendations',
-    'Priority customer support',
-    'Export scan history',
-    'No advertisements',
+    'Unlimited medication lookups',
+    'Detailed medication analysis from AI',
+    'OCR text extraction from images',
+    'Export search history to CSV',
+    'Save unlimited search history',
+    'Ad-free experience',
+    'Early access to new features',
   ];
 
   const freeFeatures = [
-    '5 scans per day',
-    'Basic wellness information',
-    'Save scan history',
-    'Community support',
+    '3 medication lookups per day',
+    'Basic medication information',
+    'Save up to 10 searches',
+    'Text-based search only',
   ];
 
   if (loading) {
