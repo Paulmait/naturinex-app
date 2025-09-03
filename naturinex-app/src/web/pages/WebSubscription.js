@@ -8,7 +8,6 @@ import {
   Button,
   Grid,
   Chip,
-  Alert,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -22,8 +21,6 @@ import {
 import {
   CheckCircle,
   Cancel,
-  CreditCard,
-  LocalOffer,
   Star,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
@@ -149,7 +146,7 @@ function WebSubscription() {
           {isPremium ? (
             <Box>
               <Typography variant="body1" gutterBottom>
-                You're enjoying all premium features!
+                You&apos;re enjoying all premium features!
               </Typography>
               <Typography variant="body2" color="text.secondary" gutterBottom>
                 Next billing date: {new Date(userData.subscriptionStartDate).toLocaleDateString()}
@@ -329,7 +326,7 @@ function WebSubscription() {
         <DialogContent>
           <Typography>
             Are you sure you want to cancel your premium subscription?
-            You'll lose access to:
+            You&apos;ll lose access to:
           </Typography>
           <List>
             <ListItem>

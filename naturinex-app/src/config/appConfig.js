@@ -6,6 +6,7 @@ import Constants from 'expo-constants';
 // Consider implementing certificate pinning for additional security
 
 const getConfig = () => {
+  // eslint-disable-next-line no-undef
   const isDev = typeof __DEV__ !== 'undefined' ? __DEV__ : false;
   
   // Get values from app.json extra field or use defaults

@@ -3,7 +3,7 @@ import { Request, Response } from 'express';
 import Stripe from 'stripe';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2023-10-16',
+  apiVersion: '2025-08-27.basil',
 });
 
 /**
@@ -182,7 +182,7 @@ export async function completeReferral(
     if (referrerData?.stripeSubscriptionId) {
       try {
         await stripe.subscriptions.update(referrerData.stripeSubscriptionId, {
-          coupon: 'FRIEND15'
+          discounts: [{ coupon: 'FRIEND15' }]
         });
       } catch (error) {
         console.error('Error applying referrer discount:', error);

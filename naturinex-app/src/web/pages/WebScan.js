@@ -13,7 +13,6 @@ import {
   Paper,
   Divider,
   Chip,
-  IconButton,
   LinearProgress,
 } from '@mui/material';
 import {
@@ -29,12 +28,12 @@ import {
 import { getAuth } from 'firebase/auth';
 import { collection, addDoc, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase.web';
-import webConfig from '../../config/webConfig';
+// import webConfig from '../../config/webConfig';
 import Tesseract from 'tesseract.js';
 
 function WebScan() {
   const [scanMode, setScanMode] = useState('upload'); // 'upload', 'text', 'camera'
-  const [imageFile, setImageFile] = useState(null);
+  const [, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [textInput, setTextInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -306,7 +305,7 @@ function WebScan() {
     if (!text) return 'No alternatives available';
     
     // Look for natural alternatives section in the text
-    const alternativesMatch = text.match(/natural alternatives?:?(.*?)(?:\n\n|\z)/is);
+    const alternativesMatch = text.match(/natural alternatives?:?(.*?)(?:\n\n|$)/is);
     if (alternativesMatch) {
       return alternativesMatch[1].trim();
     }
@@ -374,7 +373,7 @@ function WebScan() {
       
       {scanLimitReached && (
         <Alert severity="warning" sx={{ mb: 3 }}>
-          You've reached your daily scan limit. Upgrade to Premium for unlimited scans!
+          You&apos;ve reached your daily scan limit. Upgrade to Premium for unlimited scans!
         </Alert>
       )}
       

@@ -33,7 +33,7 @@ import { db } from '../../firebase.web';
 import { useNavigate } from 'react-router-dom';
 
 function WebProfile() {
-  const [userData, setUserData] = useState(null);
+  const [, setUserData] = useState(null);
   const [editing, setEditing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
