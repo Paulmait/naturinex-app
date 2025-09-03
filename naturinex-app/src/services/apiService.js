@@ -7,6 +7,40 @@ const config = appConfig();
 const API_URL = config.API_URL;
 
 class ApiService {
+  // Method to make a simple GET request
+  async get(endpoint, options = {}) {
+    return networkHandler.makeRequest(
+      `${API_URL}${endpoint}`,
+      {
+        method: 'GET',
+        ...options
+      },
+      {
+        showOfflineAlert: true,
+        ...options
+      }
+    );
+  }
+
+  // Method to make a simple POST request
+  async post(endpoint, data, options = {}) {
+    return networkHandler.makeRequest(
+      `${API_URL}${endpoint}`,
+      {
+        method: 'POST',
+        body: JSON.stringify(data),
+        headers: {
+          'Content-Type': 'application/json',
+          ...options.headers
+        },
+        ...options
+      },
+      {
+        showOfflineAlert: true,
+        ...options
+      }
+    );
+  }
   async analyzeMedication(medicationName) {
     return networkHandler.makeRequest(
       `${API_URL}/api/analyze/name`,

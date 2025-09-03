@@ -415,6 +415,363 @@ app.post('/api/create-checkout-session', async (req, res) => {
   }
 });
 
+// ===== NEW REVENUE-GENERATING FEATURES =====
+
+// Import new modules
+const { TierSystem, SUBSCRIPTION_TIERS, CREDIT_PACKAGES } = require('./modules/tierSystem');
+const DrugInteractionChecker = require('./modules/drugInteractions');
+const HealthProfileManager = require('./modules/healthProfiles');
+const AffiliateSystem = require('./modules/affiliateSystem');
+
+// Initialize drug interaction checker
+const interactionChecker = new DrugInteractionChecker(process.env.GEMINI_API_KEY);
+
+// Middleware to check usage limits
+const checkUsageLimits = async (req, res, next) => {
+  try {
+    const userId = req.body.userId || req.query.userId || 'anonymous';
+    const action = req.body.action || 'scan';
+    
+    const check = await TierSystem.checkUsageLimits(userId, action);
+    
+    if (!check.allowed) {
+      return res.status(429).json({
+        error: 'Usage limit reached',
+        reason: check.reason,
+        limit: check.limit,
+        current: check.current,
+        tier: check.tier,
+        upgradeOptions: check.upgradeOptions,
+        creditPackages: check.creditPackages
+      });
+    }
+    
+    req.userTier = check.tier;
+    req.userId = userId;
+    req.userCredits = check.credits;
+    next();
+  } catch (error) {
+    console.error('Usage check error:', error);
+    next(); // Allow request on error
+  }
+};
+
+// Apply usage limits to existing endpoints
+app.post('/api/analyze', checkUsageLimits, async (req, res, next) => {
+  // Existing analyze logic...
+  // After successful analysis, increment usage
+  await TierSystem.incrementUsage(req.userId, 'scan');
+  next();
+});
+
+app.post('/api/analyze/name', checkUsageLimits, async (req, res, next) => {
+  // Existing analyze/name logic...
+  // After successful analysis, increment usage
+  await TierSystem.incrementUsage(req.userId, 'scan');
+  next();
+});
+
+// Drug Interaction Checker (Premium Feature)
+app.post('/api/interactions/check',
+  [
+    body('medications').isArray().withMessage('Medications must be an array'),
+    body('userId').optional().isString(),
+    validateInput
+  ],
+  checkUsageLimits,
+  async (req, res) => {
+    try {
+      const { medications, userId } = req.body;
+      
+      // Check if user has access to this feature
+      if (!TierSystem.hasFeatureAccess(req.userTier, 'drugInteractions')) {
+        // Check if they have credits
+        if (req.userCredits < 3) {
+          return res.status(402).json({
+            error: 'Premium feature',
+            message: 'Drug interaction checking requires Pro subscription or credits',
+            creditsRequired: 3,
+            currentCredits: req.userCredits,
+            upgradeOptions: TierSystem.getUpgradeOptions(req.userTier),
+            creditPackages: CREDIT_PACKAGES
+          });
+        }
+        // Deduct credits
+        await TierSystem.addCredits(userId, -3, 'drug_interaction');
+      }
+      
+      const result = await interactionChecker.checkInteractions(medications);
+      
+      // Track usage
+      await TierSystem.incrementUsage(userId, 'drugInteraction');
+      
+      // Add affiliate links if applicable
+      if (AffiliateSystem.shouldShowAffiliateOffers(req.userTier)) {
+        result.affiliateProducts = AffiliateSystem.generateAffiliateLinks(
+          'natural alternatives for drug interactions',
+          userId
+        );
+      }
+      
+      res.json(result);
+    } catch (error) {
+      console.error('Drug interaction error:', error);
+      res.status(500).json({
+        error: 'Failed to check interactions',
+        message: error.message
+      });
+    }
+  }
+);
+
+// Health Profile Management
+app.post('/api/health-profile',
+  [
+    body('userId').isString(),
+    body('profileData').isObject(),
+    validateInput
+  ],
+  async (req, res) => {
+    try {
+      const { userId, profileData } = req.body;
+      const result = await HealthProfileManager.createHealthProfile(userId, profileData);
+      res.json(result);
+    } catch (error) {
+      console.error('Health profile error:', error);
+      res.status(500).json({
+        error: 'Failed to create health profile',
+        message: error.message
+      });
+    }
+  }
+);
+
+app.get('/api/health-profile/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const result = await HealthProfileManager.getHealthProfiles(userId);
+    res.json(result);
+  } catch (error) {
+    console.error('Get profile error:', error);
+    res.status(500).json({
+      error: 'Failed to get health profiles',
+      message: error.message
+    });
+  }
+});
+
+// Medication History
+app.post('/api/medication-history',
+  [
+    body('userId').isString(),
+    body('medicationData').isObject(),
+    validateInput
+  ],
+  async (req, res) => {
+    try {
+      const { userId, medicationData } = req.body;
+      const result = await HealthProfileManager.addMedicationToHistory(userId, medicationData);
+      res.json(result);
+    } catch (error) {
+      console.error('Medication history error:', error);
+      res.status(500).json({
+        error: 'Failed to add medication to history',
+        message: error.message
+      });
+    }
+  }
+);
+
+app.get('/api/medication-history/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const result = await HealthProfileManager.getMedicationHistory(userId, req.query);
+    res.json(result);
+  } catch (error) {
+    console.error('Get history error:', error);
+    res.status(500).json({
+      error: 'Failed to get medication history',
+      message: error.message
+    });
+  }
+});
+
+// PDF Report Generation (Premium)
+app.get('/api/report/pdf/:userId', checkUsageLimits, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    
+    // Check if user has PDF export access
+    if (!TierSystem.hasFeatureAccess(req.userTier, 'pdfExport')) {
+      return res.status(402).json({
+        error: 'Premium feature',
+        message: 'PDF reports require Pro subscription or higher',
+        upgradeOptions: TierSystem.getUpgradeOptions(req.userTier)
+      });
+    }
+    
+    const result = await HealthProfileManager.generatePDFReport(userId, req.query);
+    
+    if (result.success) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename=${result.filename}`);
+      res.send(result.pdf);
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    console.error('PDF generation error:', error);
+    res.status(500).json({
+      error: 'Failed to generate PDF report',
+      message: error.message
+    });
+  }
+});
+
+// Credit System
+app.post('/api/credits/purchase',
+  [
+    body('userId').isString(),
+    body('packageId').isString(),
+    validateInput
+  ],
+  async (req, res) => {
+    try {
+      const { userId, packageId } = req.body;
+      const creditPackage = CREDIT_PACKAGES[packageId];
+      
+      if (!creditPackage) {
+        return res.status(400).json({
+          error: 'Invalid package',
+          availablePackages: CREDIT_PACKAGES
+        });
+      }
+      
+      // Create Stripe checkout for credits
+      const session = await stripe.checkout.sessions.create({
+        payment_method_types: ['card'],
+        line_items: [{
+          price_data: {
+            currency: 'usd',
+            product_data: {
+              name: `${creditPackage.credits} Credits`,
+              description: `${creditPackage.bonus} bonus credits included`
+            },
+            unit_amount: creditPackage.price * 100
+          },
+          quantity: 1
+        }],
+        mode: 'payment',
+        success_url: `${req.headers.origin}/credits/success`,
+        cancel_url: `${req.headers.origin}/credits/cancel`,
+        metadata: {
+          userId,
+          packageId,
+          credits: creditPackage.credits + creditPackage.bonus
+        }
+      });
+      
+      res.json({ sessionId: session.id, url: session.url });
+    } catch (error) {
+      console.error('Credit purchase error:', error);
+      res.status(500).json({
+        error: 'Failed to create checkout session',
+        message: error.message
+      });
+    }
+  }
+);
+
+app.get('/api/credits/balance/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const remaining = await TierSystem.getRemainingScans(userId);
+    res.json(remaining);
+  } catch (error) {
+    console.error('Get balance error:', error);
+    res.status(500).json({
+      error: 'Failed to get credit balance',
+      message: error.message
+    });
+  }
+});
+
+// Affiliate System
+app.post('/api/affiliate/track',
+  [
+    body('userId').isString(),
+    body('productData').isObject(),
+    validateInput
+  ],
+  async (req, res) => {
+    try {
+      const { userId, productData } = req.body;
+      const result = await AffiliateSystem.trackAffiliateClick(userId, productData);
+      res.json(result);
+    } catch (error) {
+      console.error('Affiliate tracking error:', error);
+      res.status(500).json({
+        error: 'Failed to track affiliate click',
+        message: error.message
+      });
+    }
+  }
+);
+
+app.get('/api/affiliate/products/:keyword', async (req, res) => {
+  try {
+    const { keyword } = req.params;
+    const userId = req.query.userId || 'anonymous';
+    const userTier = req.query.tier || 'FREE';
+    
+    if (!AffiliateSystem.shouldShowAffiliateOffers(userTier)) {
+      return res.json({ products: [], message: 'No ads for premium users' });
+    }
+    
+    const products = AffiliateSystem.generateAffiliateLinks(keyword, userId);
+    res.json({ products });
+  } catch (error) {
+    console.error('Get affiliate products error:', error);
+    res.status(500).json({
+      error: 'Failed to get affiliate products',
+      message: error.message
+    });
+  }
+});
+
+// Subscription Tiers Info
+app.get('/api/subscriptions/tiers', (req, res) => {
+  res.json({
+    tiers: SUBSCRIPTION_TIERS,
+    creditPackages: CREDIT_PACKAGES,
+    features: {
+      drugInteractions: 'Check interactions between multiple medications',
+      healthProfiles: 'Store health conditions and allergies',
+      medicationHistory: 'Track all scanned medications',
+      pdfReports: 'Export detailed health reports',
+      familyAccounts: 'Manage multiple family member profiles',
+      noAds: 'Remove affiliate product recommendations'
+    }
+  });
+});
+
+// Usage Statistics
+app.get('/api/usage/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const remaining = await TierSystem.getRemainingScans(userId);
+    res.json(remaining);
+  } catch (error) {
+    console.error('Get usage error:', error);
+    res.status(500).json({
+      error: 'Failed to get usage statistics',
+      message: error.message
+    });
+  }
+});
+
+// ===== END OF NEW FEATURES =====
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Server error:', err);
