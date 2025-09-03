@@ -88,11 +88,18 @@ const corsOptions = {
       'https://naturinex-app.firebaseapp.com',
       'https://naturinex-app.web.app',
       'https://naturinex.vercel.app',
+      'https://naturinex-webapp.vercel.app',
+      'https://naturinex-webapp-*.vercel.app',
+      'https://naturinex.com',
+      'https://www.naturinex.com',
+      'https://naturinex.ai',
+      'https://www.naturinex.ai',
       'http://localhost:3000',
       'http://localhost:3002',
       'http://localhost:8081',
       'http://localhost:8082',
       'http://127.0.0.1:3000',
+      'http://127.0.0.1:3002',
       'http://127.0.0.1:8081',
       'exp://192.168.1.100:8081'
     ];
@@ -307,6 +314,44 @@ app.post('/api/analyze/name',
     try {
       const { medicationName } = req.body;
       
+      // Check if we should use mock data (for testing without API key)
+      if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'YOUR_ACTUAL_GEMINI_API_KEY' || process.env.USE_MOCK_DATA === 'true') {
+        // Return mock data for testing
+        const mockResponse = `
+**${medicationName.toUpperCase()} - Medication Information**
+
+**Generic Name:** ${medicationName.toLowerCase()}
+**Brand Names:** Various brands available
+
+**Medical Uses:**
+- This medication is commonly used for treating various conditions
+- Please consult your healthcare provider for specific uses
+
+**How It Works:**
+- Works by interacting with specific receptors in the body
+- The exact mechanism depends on the medication class
+
+**Natural Alternatives:**
+- Lifestyle modifications including diet and exercise
+- Stress management techniques
+- Herbal supplements (consult healthcare provider first)
+- Physical therapy when appropriate
+
+**Important Safety Information:**
+⚠️ Always consult your healthcare provider before starting or stopping any medication
+⚠️ This is general information only - not medical advice
+⚠️ Individual responses to medications vary
+
+**Note:** This is test data. For actual medication information, please configure the Gemini API key.`;
+        
+        return res.json({
+          medication: medicationName,
+          details: mockResponse,
+          timestamp: new Date().toISOString(),
+          isMockData: true
+        });
+      }
+      
       const prompt = `Provide comprehensive information about ${medicationName}:
         1. Generic and brand names
         2. Medical uses and conditions treated
@@ -329,10 +374,20 @@ app.post('/api/analyze/name',
       });
     } catch (error) {
       console.error('Medication lookup error:', error);
-      res.status(500).json({ 
-        error: 'Failed to lookup medication',
-        message: 'Please try again later'
-      });
+      
+      // Return a more helpful error message
+      if (error.message && error.message.includes('API_KEY_INVALID')) {
+        res.status(500).json({ 
+          error: 'API configuration error',
+          message: 'The server is not properly configured. Please contact support.',
+          details: 'Gemini API key is invalid or missing'
+        });
+      } else {
+        res.status(500).json({ 
+          error: 'Failed to lookup medication',
+          message: 'Please try again later'
+        });
+      }
     }
   }
 );
