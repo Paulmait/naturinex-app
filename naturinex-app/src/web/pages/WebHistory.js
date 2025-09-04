@@ -23,7 +23,7 @@ import {
   MoreVert,
 } from '@mui/icons-material';
 // Firebase auth imported from firebase.web
-import { collection, query, where, orderBy, getDocs, deleteDoc, doc } from 'firebase/firestore';
+import { collection, query, where, orderBy, getDocs, deleteDoc, doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebase.web';
 
 function WebHistory() {
@@ -35,12 +35,26 @@ function WebHistory() {
   const [loading, setLoading] = useState(true);
   const [anchorEl, setAnchorEl] = useState(null);
   const [selectedScan, setSelectedScan] = useState(null);
+  const [userData, setUserData] = useState(null);
   const user = auth.currentUser;
   const itemsPerPage = 10;
 
   useEffect(() => {
     loadScans();
+    loadUserData();
   }, [user]);
+  
+  const loadUserData = async () => {
+    if (!user) return;
+    try {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      if (userDoc.exists()) {
+        setUserData(userDoc.data());
+      }
+    } catch (error) {
+      console.error('Error loading user data:', error);
+    }
+  };
 
   useEffect(() => {
     filterScans();
@@ -115,6 +129,12 @@ function WebHistory() {
   };
 
   const exportScans = () => {
+    // Check if user has premium subscription
+    if (userData?.subscriptionType !== 'premium') {
+      alert('Export to CSV is a Premium feature. Please upgrade to access this feature.');
+      return;
+    }
+    
     const data = filteredScans.map(scan => ({
       date: scan.timestamp.toLocaleDateString(),
       product: scan.productName,
@@ -159,8 +179,9 @@ function WebHistory() {
           startIcon={<Download />}
           onClick={exportScans}
           disabled={filteredScans.length === 0}
+          title={userData?.subscriptionType !== 'premium' ? 'Premium feature' : ''}
         >
-          Export
+          Export {userData?.subscriptionType !== 'premium' && '🔒'}
         </Button>
       </Box>
 

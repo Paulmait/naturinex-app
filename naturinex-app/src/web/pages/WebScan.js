@@ -43,6 +43,7 @@ function WebScan() {
   const [ocrProgress, setOcrProgress] = useState(0);
   const [ocrText, setOcrText] = useState('');
   const [isProcessingOCR, setIsProcessingOCR] = useState(false);
+  const [userData, setUserData] = useState(null);
   
   const fileInputRef = useRef(null);
   const videoRef = useRef(null);
@@ -51,6 +52,23 @@ function WebScan() {
 
   // Use Render backend URL
   const API_URL = process.env.REACT_APP_API_URL || 'https://naturinex-app-zsga.onrender.com';
+  
+  // Load user data on mount
+  useEffect(() => {
+    const loadUserData = async () => {
+      if (user) {
+        try {
+          const userDoc = await getDoc(doc(db, 'users', user.uid));
+          if (userDoc.exists()) {
+            setUserData(userDoc.data());
+          }
+        } catch (error) {
+          console.error('Error loading user data:', error);
+        }
+      }
+    };
+    loadUserData();
+  }, [user]);
 
   const checkScanLimit = async () => {
     if (!user) return true; // Allow anonymous users for testing
@@ -340,6 +358,25 @@ function WebScan() {
   };
 
   const shareResult = async () => {
+    // Check if user has premium subscription
+    if (!user) {
+      setError('Please log in to share results');
+      return;
+    }
+    
+    // Get user data to check subscription
+    try {
+      const userDoc = await getDoc(doc(db, 'users', user.uid));
+      const userData = userDoc.data();
+      
+      if (userData?.subscriptionType !== 'premium') {
+        setError('Sharing is a Premium feature. Please upgrade to share your results.');
+        return;
+      }
+    } catch (err) {
+      console.error('Error checking subscription:', err);
+    }
+    
     if (navigator.share && analysisResult) {
       try {
         await navigator.share({
@@ -350,6 +387,11 @@ function WebScan() {
       } catch (err) {
         console.error('Share failed:', err);
       }
+    } else {
+      // Fallback: Copy to clipboard
+      const text = `Medication: ${analysisResult.productName}\n\n${analysisResult.summary}`;
+      navigator.clipboard.writeText(text);
+      alert('Result copied to clipboard!');
     }
   };
 
@@ -625,7 +667,7 @@ function WebScan() {
                       startIcon={<Share />}
                       onClick={shareResult}
                     >
-                      Share
+                      Share {!user || userData?.subscriptionType !== 'premium' ? '🔒' : ''}
                     </Button>
                     <Button
                       variant="outlined"

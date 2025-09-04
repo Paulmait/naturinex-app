@@ -14,6 +14,8 @@ require('dotenv').config();
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
 const admin = require('firebase-admin');
+const ComplianceMonitor = require('./compliance-monitor');
+const authMiddleware = require('./auth-middleware');
 
 // Validate required environment variables
 const requiredEnvVars = [
@@ -138,9 +140,10 @@ app.use('/api/', createRateLimit(15 * 60 * 1000, 100, 'Too many API requests'));
 app.use('/suggest', createRateLimit(60 * 1000, 10, 'Too many AI requests'));
 app.use('/api/analyze', createRateLimit(60 * 1000, 20, 'Too many analysis requests'));
 
-// Stripe webhook needs raw body
+// Webhook handlers need raw body
 app.use('/webhook', express.raw({ type: 'application/json' }));
-app.use('/webhooks/stripe', express.raw({ type: 'application/json' }));
+app.use('/webhooks/*', express.raw({ type: 'application/json' }));
+app.use('/api/webhooks/*', express.raw({ type: 'application/json' }));
 
 // JSON body parser
 app.use(express.json({ limit: '10mb' }));
@@ -199,12 +202,28 @@ app.post('/suggest',
       .withMessage('Invalid medication name'),
     validateInput
   ],
+  authMiddleware.optionalAuth, // Optional auth for better experience
   async (req, res) => {
     try {
       const { medicationName } = req.body;
       
+      // Enhanced AI service validation
       if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_api_key_here') {
-        throw new Error('AI service not configured properly');
+        console.error('CRITICAL: Gemini API key not configured');
+        
+        // Log incident for compliance
+        await complianceMonitor.logSecurityIncident(
+          'AI_SERVICE_MISCONFIGURATION',
+          'HIGH',
+          { service: 'GEMINI', endpoint: '/api/suggestions' }
+        );
+        
+        // Return graceful error
+        return res.status(503).json({
+          error: 'Service temporarily unavailable',
+          message: 'AI service is being configured. Please try again later.',
+          code: 'AI_SERVICE_UNAVAILABLE'
+        });
       }
 
       const prompt = `As a healthcare information assistant, provide natural alternatives for ${medicationName}. 
@@ -216,22 +235,116 @@ app.post('/suggest',
         
         Format the response clearly with sections and be concise but comprehensive.`;
 
-      const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const suggestions = response.text();
+      // Retry logic for AI requests
+      let attempts = 0;
+      let suggestions = null;
+      const maxAttempts = 3;
+      
+      while (attempts < maxAttempts && !suggestions) {
+        try {
+          attempts++;
+          const model = genAI.getGenerativeModel({ 
+            model: 'gemini-pro',
+            generationConfig: {
+              temperature: 0.7,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 2048,
+            },
+            safetySettings: [
+              {
+                category: 'HARM_CATEGORY_HARASSMENT',
+                threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+              },
+              {
+                category: 'HARM_CATEGORY_HATE_SPEECH',
+                threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+              },
+              {
+                category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+                threshold: 'BLOCK_MEDIUM_AND_ABOVE'
+              },
+              {
+                category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+                threshold: 'BLOCK_ONLY_HIGH'
+              }
+            ]
+          });
+          
+          const result = await model.generateContent(prompt);
+          const response = await result.response;
+          suggestions = response.text();
+          
+          // Validate response
+          if (!suggestions || suggestions.length < 50) {
+            throw new Error('Invalid AI response');
+          }
+        } catch (aiError) {
+          console.error(`AI attempt ${attempts} failed:`, aiError.message);
+          if (attempts === maxAttempts) {
+            throw aiError;
+          }
+          // Wait before retry
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
+        }
+      }
 
+      // Log successful AI usage
+      if (req.user) {
+        await complianceMonitor.logDataAccess(
+          req.user.uid,
+          'AI_GENERATION',
+          'MEDICATION_SUGGESTIONS',
+          req.ip
+        );
+      }
+      
       res.json({
         suggestions,
         medicationName,
         timestamp: new Date().toISOString(),
-        disclaimer: 'This information is for educational purposes only. Always consult with a healthcare provider before making changes to your medication regimen.'
+        disclaimer: 'This information is for educational purposes only. Always consult with a healthcare provider before making changes to your medication regimen.',
+        metadata: {
+          aiModel: 'gemini-pro',
+          responseTime: Date.now() - req.startTime,
+          authenticated: !!req.user
+        }
       });
     } catch (error) {
       console.error('AI suggestion error:', error);
+      
+      // Log AI failures
+      await complianceMonitor.logSecurityIncident(
+        'AI_GENERATION_FAILURE',
+        'MEDIUM',
+        { 
+          error: error.message,
+          endpoint: '/api/suggestions',
+          medication: req.body.medicationName
+        }
+      );
+      
+      // Determine error type and response
+      if (error.message?.includes('SAFETY')) {
+        return res.status(400).json({ 
+          error: 'Content filtered',
+          message: 'The request was blocked due to safety concerns',
+          code: 'SAFETY_BLOCK'
+        });
+      }
+      
+      if (error.message?.includes('quota') || error.message?.includes('rate')) {
+        return res.status(429).json({ 
+          error: 'Rate limited',
+          message: 'Too many requests. Please try again later',
+          code: 'RATE_LIMIT'
+        });
+      }
+      
       res.status(500).json({ 
         error: 'Failed to generate suggestions',
-        message: 'Please try again later'
+        message: 'Please try again later',
+        code: 'AI_ERROR'
       });
     }
   }
@@ -269,20 +382,54 @@ app.post('/api/analyze',
         });
       }
 
-      const prompt = `Analyze the medication "${medName}" and provide:
-        1. What this medication is used for
-        2. Common side effects
-        3. Natural alternatives that may help with similar conditions
-        4. Important safety information
-        5. Drug interactions to be aware of
-        
-        If this appears to be OCR text, try to identify the medication name first.
-        Provide clear, accurate medical information with appropriate disclaimers.`;
+      // Check if we should use mock data (for testing without API key)
+      let analysis;
+      if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'YOUR_ACTUAL_GEMINI_API_KEY' || process.env.USE_MOCK_DATA === 'true') {
+        // Return mock data for testing
+        analysis = `
+**OCR Analysis Result for: ${medName}**
 
-      const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      const analysis = response.text();
+**Extracted Text:** ${ocrText || medName}
+
+**Medication Identified:** ${medName}
+
+**Uses:**
+- This medication is commonly prescribed for various conditions
+- Please consult your healthcare provider for specific uses
+
+**Common Side Effects:**
+- May cause mild side effects
+- Individual reactions vary
+- Monitor for any unusual symptoms
+
+**Natural Alternatives:**
+- Dietary modifications
+- Exercise and lifestyle changes  
+- Herbal supplements (consult doctor first)
+- Mind-body therapies
+
+**Important Safety Information:**
+⚠️ Always follow prescribed dosage
+⚠️ Do not discontinue without medical advice
+⚠️ Store properly as directed
+
+**Note:** This is test data. For actual medication analysis, configure the Gemini API key.`;
+      } else {
+        const prompt = `Analyze the medication "${medName}" and provide:
+          1. What this medication is used for
+          2. Common side effects
+          3. Natural alternatives that may help with similar conditions
+          4. Important safety information
+          5. Drug interactions to be aware of
+          
+          If this appears to be OCR text, try to identify the medication name first.
+          Provide clear, accurate medical information with appropriate disclaimers.`;
+
+        const model = genAI.getGenerativeModel({ model: 'gemini-pro' });
+        const result = await model.generateContent(prompt);
+        const response = await result.response;
+        analysis = response.text();
+      }
 
       res.json({
         medication: medName,
@@ -485,7 +632,12 @@ const PredictiveHealthAI = require('./modules/predictiveHealthAI');
 const SmartNotifications = require('./modules/smartNotifications');
 const DoctorNetwork = require('./modules/doctorNetwork');
 const GamificationSystem = require('./modules/gamification');
-const EmailService = require('./modules/emailService');
+
+// Import email and monitoring services
+const emailService = require('./services/email-service');
+const emailMonitor = require('./monitoring/email-monitor');
+const emailRoutes = require('./routes/email-routes');
+const webhookRoutes = require('./routes/webhook-routes');
 
 // Initialize modules
 const interactionChecker = new DrugInteractionChecker(process.env.GEMINI_API_KEY);
@@ -495,7 +647,18 @@ const predictiveAI = new PredictiveHealthAI();
 const notifications = new SmartNotifications();
 const doctorNetwork = new DoctorNetwork();
 const gamification = new GamificationSystem();
-const emailService = new EmailService();
+
+// Initialize Compliance Monitor
+const complianceMonitor = new ComplianceMonitor();
+global.complianceMonitor = complianceMonitor; // Make available globally for auth middleware
+
+// Initialize Data Retention Manager (only if DB is configured)
+let dataRetentionManager = null;
+if (process.env.DATABASE_URL) {
+  const DataRetentionManager = require('./database/data-retention-manager');
+  dataRetentionManager = new DataRetentionManager();
+  console.log('📊 Data Retention Manager initialized');
+}
 
 // Middleware to check usage limits
 const checkUsageLimits = async (req, res, next) => {
@@ -1259,6 +1422,10 @@ app.get('/api/insights/:userId', async (req, res) => {
   }
 });
 
+// Mount email and webhook routes
+app.use('/api/email', emailRoutes);
+app.use('/api/webhooks', webhookRoutes);
+
 // ===== EMAIL SERVICE ENDPOINTS =====
 
 // Send welcome email on user registration
@@ -1440,9 +1607,86 @@ app.post('/api/email/preferences',
 
 // ===== END OF NEW FEATURES =====
 
+// Privacy & Compliance API Endpoints
+app.get('/api/compliance/privacy-audit', async (req, res) => {
+  try {
+    const audit = await complianceMonitor.performPrivacyAudit();
+    res.json(audit);
+  } catch (error) {
+    console.error('Privacy audit error:', error);
+    res.status(500).json({ error: 'Failed to perform privacy audit' });
+  }
+});
+
+app.post('/api/compliance/data-request', async (req, res) => {
+  try {
+    const { requestType, userId, data } = req.body;
+    const request = await complianceMonitor.handleDataRequest(requestType, userId, data);
+    res.json(request);
+  } catch (error) {
+    console.error('Data request error:', error);
+    res.status(500).json({ error: 'Failed to process data request' });
+  }
+});
+
+app.post('/api/compliance/consent', async (req, res) => {
+  try {
+    const { userId, consentType, granted } = req.body;
+    const consent = await complianceMonitor.monitorConsent(userId, consentType, granted);
+    res.json(consent);
+  } catch (error) {
+    console.error('Consent monitoring error:', error);
+    res.status(500).json({ error: 'Failed to record consent' });
+  }
+});
+
+app.get('/api/compliance/report', async (req, res) => {
+  try {
+    const report = await complianceMonitor.generateComplianceReport();
+    res.json(report);
+  } catch (error) {
+    console.error('Compliance report error:', error);
+    res.status(500).json({ error: 'Failed to generate compliance report' });
+  }
+});
+
+app.get('/api/compliance/retention-policies', async (req, res) => {
+  try {
+    const policies = await complianceMonitor.checkDataRetention();
+    res.json(policies);
+  } catch (error) {
+    console.error('Retention policy error:', error);
+    res.status(500).json({ error: 'Failed to check retention policies' });
+  }
+});
+
+// Log compliance-related data access
+app.use((req, res, next) => {
+  if (req.path.includes('/api/') && req.method !== 'GET') {
+    const userId = req.body?.userId || req.query?.userId || 'anonymous';
+    const dataType = req.path.includes('health') ? 'HEALTH' : 
+                    req.path.includes('payment') ? 'PAYMENT' : 'GENERAL';
+    const ipAddress = req.ip || req.connection.remoteAddress;
+    
+    complianceMonitor.logDataAccess(userId, dataType, req.method, ipAddress)
+      .catch(err => console.error('Failed to log data access:', err));
+  }
+  next();
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Server error:', err);
+  
+  // Log security incidents for certain error types
+  if (err.code === 'EBADCSRFTOKEN' || err.type === 'entity.too.large' || err.status === 429) {
+    complianceMonitor.logSecurityIncident(
+      'SUSPICIOUS_ACTIVITY',
+      'MEDIUM',
+      { error: err.message, path: req.path, ip: req.ip }
+    ).catch(console.error);
+  }
+  
   res.status(500).json({
     error: 'Internal server error',
     message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
@@ -1457,7 +1701,7 @@ app.use((req, res) => {
   });
 });
 
-// Start server
+// Start server and monitoring
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => {
   console.log(`
@@ -1465,7 +1709,14 @@ const server = app.listen(PORT, () => {
   📍 Port: ${PORT}
   🔧 Environment: ${process.env.NODE_ENV || 'development'}
   🏥 Health Check: http://localhost:${PORT}/health
+  📧 Email Service: ${process.env.RESEND_API_KEY ? 'Active' : 'Not configured'}
   `);
+  
+  // Start email monitoring
+  if (process.env.RESEND_API_KEY) {
+    emailMonitor.startMonitoring(15); // Check every 15 minutes
+    console.log('📊 Email monitoring started');
+  }
 });
 
 // Graceful shutdown
