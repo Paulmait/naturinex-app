@@ -14,11 +14,17 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 class PillIdentifier {
   constructor() {
-    // Initialize Google Vision client
-    this.visionClient = process.env.GOOGLE_VISION_API_KEY ? 
-      new vision.ImageAnnotatorClient({
-        keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS
-      }) : null;
+    // Initialize Google Vision client only if available
+    this.visionClient = null;
+    if (vision && process.env.GOOGLE_VISION_API_KEY) {
+      try {
+        this.visionClient = new vision.ImageAnnotatorClient({
+          keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS
+        });
+      } catch (error) {
+        console.warn('Failed to initialize Vision client:', error.message);
+      }
+    }
     
     this.genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     

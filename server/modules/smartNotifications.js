@@ -72,11 +72,15 @@ class SmartNotificationSystem {
         const jobId = `${userId}_${medication.id}_${time}`;
         
         if (!this.scheduledJobs.has(jobId)) {
-          const job = schedule.scheduleJob(time, async () => {
-            await this.sendMedicationReminder(userId, medication);
-          });
-          
-          this.scheduledJobs.set(jobId, job);
+          if (schedule) {
+            const job = schedule.scheduleJob(time, async () => {
+              await this.sendMedicationReminder(userId, medication);
+            });
+            
+            this.scheduledJobs.set(jobId, job);
+          } else {
+            console.warn('Cannot schedule job - node-schedule not available');
+          }
         }
       });
 
