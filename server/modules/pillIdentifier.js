@@ -3,7 +3,12 @@
  * Uses Google Vision API and FDA database for 99% accurate pill identification
  */
 
-const vision = require('@google-cloud/vision');
+let vision;
+try {
+  vision = require('@google-cloud/vision');
+} catch (error) {
+  console.warn('Google Cloud Vision not installed - Visual pill identification disabled');
+}
 const axios = require('axios');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 

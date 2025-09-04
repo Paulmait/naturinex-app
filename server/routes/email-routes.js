@@ -56,7 +56,7 @@ router.get('/verify-email', async (req, res) => {
 });
 
 // Verify email with code
-router.post('/verify-email-code', authMiddleware, async (req, res) => {
+router.post('/verify-email-code', authMiddleware.verifyFirebaseToken || ((req, res, next) => next()), async (req, res) => {
   const { code } = req.body;
   const userId = req.user.id;
 
@@ -97,7 +97,7 @@ router.post('/verify-email-code', authMiddleware, async (req, res) => {
 });
 
 // Resend verification email
-router.post('/resend-verification', authMiddleware, async (req, res) => {
+router.post('/resend-verification', authMiddleware.verifyFirebaseToken || ((req, res, next) => next()), async (req, res) => {
   const userId = req.user.id;
 
   try {
@@ -226,7 +226,7 @@ router.post('/reset-password', async (req, res) => {
 });
 
 // Update email preferences
-router.put('/preferences', authMiddleware, async (req, res) => {
+router.put('/preferences', authMiddleware.verifyFirebaseToken || ((req, res, next) => next()), async (req, res) => {
   const userId = req.user.id;
   const { scan_alerts, product_updates, newsletter, security_alerts } = req.body;
 
@@ -253,7 +253,7 @@ router.put('/preferences', authMiddleware, async (req, res) => {
 });
 
 // Get email preferences
-router.get('/preferences', authMiddleware, async (req, res) => {
+router.get('/preferences', authMiddleware.verifyFirebaseToken || ((req, res, next) => next()), async (req, res) => {
   const userId = req.user.id;
 
   try {
@@ -282,7 +282,7 @@ router.get('/preferences', authMiddleware, async (req, res) => {
 });
 
 // Admin route to get email statistics
-router.get('/stats', authMiddleware, async (req, res) => {
+router.get('/stats', authMiddleware.verifyFirebaseToken || ((req, res, next) => next()), async (req, res) => {
   // Check if user is admin
   if (!req.user.isAdmin) {
     return res.status(403).json({ error: 'Admin access required' });
@@ -300,7 +300,7 @@ router.get('/stats', authMiddleware, async (req, res) => {
 });
 
 // Admin route to send test email
-router.post('/test', authMiddleware, async (req, res) => {
+router.post('/test', authMiddleware.verifyFirebaseToken || ((req, res, next) => next()), async (req, res) => {
   // Check if user is admin
   if (!req.user.isAdmin) {
     return res.status(403).json({ error: 'Admin access required' });

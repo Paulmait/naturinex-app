@@ -53,8 +53,8 @@ class ComplianceMonitor {
       await this.triggerIncidentResponse(incident);
     }
     
-    if (this.requiresBreach Notification(incident)) {
-      await this.initiateBreach Notification(incident);
+    if (this.requiresBreachNotification(incident)) {
+      await this.initiateBreachNotification(incident);
     }
     
     return incident.id;

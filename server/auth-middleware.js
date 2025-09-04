@@ -1,5 +1,18 @@
-const admin = require('firebase-admin');
-const jwt = require('jsonwebtoken');
+let admin;
+let jwt;
+
+try {
+  admin = require('firebase-admin');
+} catch (error) {
+  console.warn('Firebase Admin not available - Firebase auth disabled');
+}
+
+try {
+  jwt = require('jsonwebtoken');
+} catch (error) {
+  console.warn('JWT not available - JWT auth features limited');
+}
+
 const crypto = require('crypto');
 
 class AuthMiddleware {

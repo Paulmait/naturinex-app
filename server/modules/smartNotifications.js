@@ -4,7 +4,12 @@
  */
 
 const admin = require('firebase-admin');
-const schedule = require('node-schedule');
+let schedule;
+try {
+  schedule = require('node-schedule');
+} catch (error) {
+  console.warn('node-schedule not installed - Smart notifications scheduling disabled');
+}
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 class SmartNotificationSystem {
@@ -31,19 +36,21 @@ class SmartNotificationSystem {
    */
   initializeScheduler() {
     // Run every minute to check for pending notifications
-    schedule.scheduleJob('* * * * *', async () => {
-      await this.processPendingNotifications();
-    });
+    if (schedule) {
+      schedule.scheduleJob('* * * * *', async () => {
+        await this.processPendingNotifications();
+      });
 
-    // Daily health tips at 9 AM
-    schedule.scheduleJob('0 9 * * *', async () => {
-      await this.sendDailyHealthTips();
-    });
+      // Daily health tips at 9 AM
+      schedule.scheduleJob('0 9 * * *', async () => {
+        await this.sendDailyHealthTips();
+      });
 
-    // Weekly medication review on Sundays at 7 PM
-    schedule.scheduleJob('0 19 * * 0', async () => {
-      await this.sendWeeklyReview();
-    });
+      // Weekly medication review on Sundays at 7 PM
+      schedule.scheduleJob('0 19 * * 0', async () => {
+        await this.sendWeeklyReview();
+      });
+    }
   }
 
   /**

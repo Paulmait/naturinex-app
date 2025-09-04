@@ -4,7 +4,12 @@
  */
 
 const admin = require('firebase-admin');
-const PDFDocument = require('pdfkit');
+let PDFDocument;
+try {
+  PDFDocument = require('pdfkit');
+} catch (error) {
+  console.warn('PDFKit not installed - PDF export disabled');
+}
 const { SUBSCRIPTION_TIERS } = require('./tierSystem');
 
 class HealthProfileManager {
@@ -330,6 +335,14 @@ class HealthProfileManager {
       // Get health profiles
       const profilesResult = await this.getHealthProfiles(userId);
       const profiles = profilesResult.profiles;
+
+      // Check if PDFDocument is available
+      if (!PDFDocument) {
+        return {
+          success: false,
+          error: 'PDF generation not available. PDFKit library not installed.'
+        };
+      }
 
       // Create PDF document
       const doc = new PDFDocument();

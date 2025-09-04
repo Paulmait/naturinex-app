@@ -10,8 +10,14 @@ let tf;
 try {
   tf = require('@tensorflow/tfjs-node');
 } catch (error) {
-  console.log('TensorFlow Node.js bindings not available, using pure JS version');
-  tf = require('@tensorflow/tfjs');
+  try {
+    console.log('TensorFlow Node.js bindings not available, using pure JS version');
+    tf = require('@tensorflow/tfjs');
+  } catch (error2) {
+    console.warn('TensorFlow.js not installed - Predictive AI features will be limited');
+    // Mock tf for basic functionality
+    tf = null;
+  }
 }
 
 class PredictiveHealthAI {

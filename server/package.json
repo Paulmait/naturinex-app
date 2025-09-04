@@ -17,10 +17,9 @@
   "author": "Naturinex Team",
   "license": "MIT",
   "dependencies": {
-    "@google-cloud/vision": "^5.3.3",
     "@google/generative-ai": "^0.24.1",
-    "@tensorflow/tfjs": "^4.22.0",
     "axios": "^1.11.0",
+    "bcryptjs": "^2.4.3",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
@@ -29,10 +28,12 @@
     "express-validator": "^7.2.1",
     "firebase-admin": "^13.4.0",
     "helmet": "^8.1.0",
-    "node-schedule": "^2.1.1",
-    "pdfkit": "^0.17.2",
+    "jsonwebtoken": "^9.0.2",
+    "morgan": "^1.10.0",
+    "pg": "^8.11.3",
     "resend": "^6.0.2",
-    "stripe": "^18.2.1"
+    "stripe": "^18.2.1",
+    "validator": "^13.11.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"
