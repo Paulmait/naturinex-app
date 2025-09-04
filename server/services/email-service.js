@@ -3,7 +3,16 @@ const crypto = require('crypto');
 const { pool } = require('../database/db-config');
 
 // Initialize Resend with your API key
-const resend = new Resend(process.env.RESEND_API_KEY);
+const apiKey = process.env.RESEND_API_KEY || '';
+
+// Check if API key is valid
+if (!apiKey || apiKey === 're_your_resend_api_key' || apiKey.includes('your_')) {
+  console.warn('⚠️ Resend API key not properly configured');
+  console.log('Please set RESEND_API_KEY in your .env file');
+  console.log('Get your API key from: https://resend.com/api-keys');
+}
+
+const resend = apiKey && !apiKey.includes('your_') ? new Resend(apiKey) : null;
 
 // Email templates
 const templates = {
@@ -229,6 +238,30 @@ class EmailService {
 
   // Send email with retry logic
   async sendEmail(to, template, data, options = {}) {
+    // Check if Resend is configured
+    if (!resend) {
+      console.warn('Email service not configured - Resend API key missing');
+      
+      // Log the attempt
+      await this.logEmail(to, 'Email Service', 'skipped', 'API key not configured');
+      
+      // Return mock response in development
+      if (process.env.NODE_ENV === 'development' || process.env.USE_MOCK_DATA === 'true') {
+        console.log('📧 Mock email would be sent to:', to);
+        console.log('Template:', template);
+        return {
+          data: {
+            id: 'mock_' + crypto.randomUUID(),
+            from: process.env.RESEND_FROM_EMAIL || 'noreply@naturinex.com',
+            to: [to],
+            created_at: new Date().toISOString()
+          }
+        };
+      }
+      
+      throw new Error('Email service not configured. Please set RESEND_API_KEY in environment variables.');
+    }
+
     const maxRetries = options.retries || 3;
     const retryDelay = options.retryDelay || 1000;
 
@@ -266,6 +299,17 @@ class EmailService {
         return result;
       } catch (error) {
         console.error(`Email send attempt ${attempt} failed:`, error);
+        
+        // Check for authentication errors
+        if (error.message && (error.message.includes('401') || error.message.includes('Invalid API key'))) {
+          console.error('❌ Resend API authentication failed');
+          console.log('Please check your RESEND_API_KEY in environment variables');
+          console.log('Get a valid key from: https://resend.com/api-keys');
+          
+          // Don't retry on auth errors
+          await this.logEmail(to, template.subject || 'Unknown', 'failed', 'Authentication error');
+          throw new Error('Email service authentication failed. Please check API key configuration.');
+        }
         
         if (attempt === maxRetries) {
           await this.logEmail(to, template.subject || 'Unknown', 'failed', error.message);
