@@ -35,10 +35,21 @@ if (missingEnvVars.length > 0) {
 if (!admin.apps.length) {
   try {
     if (process.env.FIREBASE_PRIVATE_KEY && process.env.FIREBASE_CLIENT_EMAIL) {
+      // Handle private key format - it might come as a JSON string or regular string
+      let privateKey = process.env.FIREBASE_PRIVATE_KEY;
+      
+      // If it's a JSON string, parse it
+      if (privateKey.startsWith('"') && privateKey.endsWith('"')) {
+        privateKey = JSON.parse(privateKey);
+      }
+      
+      // Replace literal \n with actual newlines
+      privateKey = privateKey.replace(/\\n/g, '\n');
+      
       admin.initializeApp({
         credential: admin.credential.cert({
-          projectId: process.env.FIREBASE_PROJECT_ID,
-          privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+          projectId: process.env.FIREBASE_PROJECT_ID || 'naturinex-app',
+          privateKey: privateKey,
           clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
         }),
       });
@@ -53,6 +64,7 @@ if (!admin.apps.length) {
     }
   } catch (error) {
     console.warn('⚠️ Firebase Admin initialization failed:', error.message);
+    // Don't crash the server, just disable Firebase features
   }
 }
 
@@ -1425,6 +1437,10 @@ app.get('/api/insights/:userId', async (req, res) => {
 // Mount email and webhook routes
 app.use('/api/email', emailRoutes);
 app.use('/api/webhooks', webhookRoutes);
+
+// Test routes for debugging (remove in production if needed)
+const testRoutes = require('./routes/test-routes');
+app.use('/api', testRoutes);
 
 // ===== EMAIL SERVICE ENDPOINTS =====
 

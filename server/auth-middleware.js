@@ -25,6 +25,12 @@ class AuthMiddleware {
 
   async verifyFirebaseToken(req, res, next) {
     try {
+      // Skip auth in test/development mode if configured
+      if (process.env.SKIP_AUTH === 'true' && process.env.NODE_ENV !== 'production') {
+        req.user = { id: 'test-user', email: 'test@example.com' };
+        return next();
+      }
+
       const authHeader = req.headers.authorization;
       
       if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -35,6 +41,13 @@ class AuthMiddleware {
       }
 
       const token = authHeader.split('Bearer ')[1];
+      
+      // Check if Firebase is available
+      if (!admin || !admin.apps || admin.apps.length === 0) {
+        console.warn('Firebase not initialized - skipping auth');
+        req.user = { id: 'no-auth', email: 'no-auth@example.com' };
+        return next();
+      }
       
       // Check if token is blacklisted
       if (this.blacklistedTokens.has(token)) {

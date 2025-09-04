@@ -279,7 +279,7 @@ class EmailService {
         const emailContent = templates[template](data);
         
         const result = await resend.emails.send({
-          from: process.env.RESEND_FROM_EMAIL || 'NaturineX <noreply@naturinex.com>',
+          from: process.env.RESEND_FROM_EMAIL || 'Naturinex <support@naturinex.com>',
           to: [to],
           subject: emailContent.subject,
           html: emailContent.html,
