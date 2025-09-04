@@ -17,7 +17,7 @@ function WebPrivacy() {
         
         <Box sx={{ mt: 3 }}>
           <Typography paragraph>
-            Cien Rios LLC, doing business as Naturinex Wellness Guide ("Naturinex," "we," "our," or "us"), 
+            Cien Rios LLC, doing business as Naturinex Wellness Guide (&ldquo;Naturinex,&rdquo; &ldquo;we,&rdquo; &ldquo;our,&rdquo; or &ldquo;us&rdquo;), 
             respects your privacy and is committed to protecting your personal data. This Privacy Policy explains 
             how we collect, use, disclose, and safeguard your information when you use our web and mobile applications 
             in compliance with applicable data protection regulations including GDPR, CCPA, and HIPAA where applicable.
@@ -123,7 +123,7 @@ function WebPrivacy() {
             </ul>
           </Typography>
           <Typography variant="body2" sx={{ mt: 2 }}>
-            <strong>California Residents:</strong> Additional rights under CCPA including opt-out of "sale" (though we don't sell data) 
+            <strong>California Residents:</strong> Additional rights under CCPA including opt-out of &ldquo;sale&rdquo; (though we don&apos;t sell data) 
             and non-discrimination for exercising rights.<br/>
             <strong>EU/UK Residents:</strong> Lodge complaints with supervisory authorities. Our DPO contact: privacy@naturinex.com
           </Typography>
