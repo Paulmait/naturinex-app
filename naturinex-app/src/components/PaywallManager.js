@@ -1,0 +1,566 @@
+// Paywall Manager Component
+// Handles scan limits, upgrade prompts, and monetization
+
+import React, { useState, useEffect } from 'react';
+import {
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
+  Typography,
+  Box,
+  Chip,
+  LinearProgress,
+  Alert,
+  Card,
+  CardContent,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
+  Divider,
+  IconButton,
+  Snackbar,
+} from '@mui/material';
+import {
+  Lock,
+  CheckCircle,
+  Star,
+  TrendingUp,
+  Speed,
+  Family,
+  Science,
+  LocalOffer,
+  Timer,
+  Warning,
+  Close,
+} from '@mui/icons-material';
+import { loadStripe } from '@stripe/stripe-js';
+import { useAuth } from '../contexts/AuthContext';
+import { PRICING_TIERS, IN_APP_PURCHASES, CONVERSION_TRIGGERS, CAMPAIGNS, PricingUtils } from '../config/pricing';
+
+const stripePromise = loadStripe(process.env.REACT_APP_STRIPE_KEY);
+
+export default function PaywallManager({ children, onScanAttempt, feature }) {
+  const { currentUser, userProfile } = useAuth();
+  const [showPaywall, setShowPaywall] = useState(false);
+  const [paywallType, setPaywallType] = useState('scan_limit');
+  const [userStats, setUserStats] = useState({
+    scansToday: 0,
+    scansThisMonth: 0,
+    tier: 'FREE',
+    trialActive: false,
+    trialEnds: null,
+  });
+  const [selectedPlan, setSelectedPlan] = useState('PLUS');
+  const [billingPeriod, setBillingPeriod] = useState('yearly');
+  const [loading, setLoading] = useState(false);
+  const [promoCode, setPromoCode] = useState('');
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [limitedFeature, setLimitedFeature] = useState(null);
+
+  // Load user stats and check limits
+  useEffect(() => {
+    loadUserStats();
+  }, [currentUser]);
+
+  const loadUserStats = async () => {
+    if (!currentUser) return;
+
+    try {
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/user/stats`, {
+        headers: {
+          'Authorization': `Bearer ${await currentUser.getIdToken()}`,
+        },
+      });
+      const data = await response.json();
+
+      setUserStats({
+        scansToday: data.scansToday || 0,
+        scansThisMonth: data.scansThisMonth || 0,
+        tier: data.subscriptionTier || 'FREE',
+        trialActive: data.trialActive || false,
+        trialEnds: data.trialEnds,
+      });
+    } catch (error) {
+      console.error('Error loading user stats:', error);
+    }
+  };
+
+  // Check if user can access feature
+  const checkAccess = async (requestedFeature) => {
+    const hasAccess = PricingUtils.hasAccess(userStats.tier, requestedFeature || feature);
+
+    if (!hasAccess) {
+      // Determine which paywall to show
+      if (requestedFeature === 'scan' && userStats.scansThisMonth >= PRICING_TIERS.FREE.features.scansPerMonth) {
+        setPaywallType('scan_limit');
+      } else if (requestedFeature === 'aiInsights') {
+        setPaywallType('premium_insight');
+      } else if (requestedFeature === 'exportReports') {
+        setPaywallType('export_blocked');
+      } else if (requestedFeature === 'familySharing') {
+        setPaywallType('family_sharing');
+      } else if (requestedFeature === 'consultation') {
+        setPaywallType('expert_consultation');
+      } else {
+        setPaywallType('generic');
+      }
+
+      setLimitedFeature(requestedFeature);
+      setShowPaywall(true);
+      return false;
+    }
+
+    return true;
+  };
+
+  // Handle scan attempt
+  useEffect(() => {
+    if (onScanAttempt) {
+      onScanAttempt(checkAccess);
+    }
+  }, [onScanAttempt]);
+
+  // Create Stripe checkout session
+  const handleUpgrade = async () => {
+    setLoading(true);
+
+    try {
+      const stripe = await stripePromise;
+      const priceId = PRICING_TIERS[selectedPlan].stripePriceIds[billingPeriod];
+
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/create-checkout-session`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await currentUser.getIdToken()}`,
+        },
+        body: JSON.stringify({
+          priceId,
+          successUrl: `${window.location.origin}/success?session_id={CHECKOUT_SESSION_ID}`,
+          cancelUrl: `${window.location.origin}/pricing`,
+          promoCode: promoCode || getActivePromo(),
+          metadata: {
+            userId: currentUser.uid,
+            tier: selectedPlan,
+            billing: billingPeriod,
+          },
+        }),
+      });
+
+      const { sessionId } = await response.json();
+      const { error } = await stripe.redirectToCheckout({ sessionId });
+
+      if (error) {
+        console.error('Stripe error:', error);
+      }
+    } catch (error) {
+      console.error('Upgrade error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle one-time purchase
+  const handleOneTimePurchase = async (purchaseType) => {
+    setLoading(true);
+
+    try {
+      const purchase = IN_APP_PURCHASES[purchaseType];
+      const stripe = await stripePromise;
+
+      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/create-payment-intent`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${await currentUser.getIdToken()}`,
+        },
+        body: JSON.stringify({
+          amount: purchase.price * 100, // Convert to cents
+          description: purchase.description,
+          metadata: {
+            userId: currentUser.uid,
+            purchaseType,
+          },
+        }),
+      });
+
+      const { clientSecret } = await response.json();
+
+      // Confirm payment
+      const { error } = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: userProfile.defaultPaymentMethod, // Assumes saved payment method
+      });
+
+      if (!error) {
+        setShowSuccess(true);
+        setShowPaywall(false);
+
+        // Deliver the purchase
+        await deliverPurchase(purchaseType);
+      }
+    } catch (error) {
+      console.error('Purchase error:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Deliver purchased content
+  const deliverPurchase = async (purchaseType) => {
+    switch (purchaseType) {
+      case 'DETAILED_REPORT':
+        // Generate and download report
+        window.location.href = `/api/generate-report?token=${await currentUser.getIdToken()}`;
+        break;
+      case 'EXPERT_CONSULTATION':
+        // Redirect to booking page
+        window.location.href = '/book-consultation';
+        break;
+      case 'CUSTOM_PROTOCOL':
+        // Generate protocol
+        window.location.href = '/generate-protocol';
+        break;
+      default:
+        break;
+    }
+  };
+
+  // Get active promotional offer
+  const getActivePromo = () => {
+    const signupDate = new Date(currentUser.metadata.creationTime);
+    const daysSinceSignup = Math.floor((new Date() - signupDate) / (1000 * 60 * 60 * 24));
+
+    if (daysSinceSignup <= 30) {
+      return 'WELCOME50';
+    }
+
+    if (new Date() < new Date('2025-02-01')) {
+      return 'NATURAL2025';
+    }
+
+    return null;
+  };
+
+  // Calculate discounted price
+  const getDiscountedPrice = (tier, period) => {
+    const basePrice = PRICING_TIERS[tier].price[period];
+    const promo = getActivePromo();
+
+    if (promo && CAMPAIGNS[promo]) {
+      const discount = CAMPAIGNS[promo].discount;
+      return basePrice * (1 - discount);
+    }
+
+    return basePrice;
+  };
+
+  // Render paywall content based on type
+  const renderPaywallContent = () => {
+    const trigger = CONVERSION_TRIGGERS[paywallType.toUpperCase()] || {};
+
+    switch (paywallType) {
+      case 'scan_limit':
+        return (
+          <>
+            <Box textAlign="center" mb={3}>
+              <Warning color="warning" sx={{ fontSize: 60, mb: 2 }} />
+              <Typography variant="h5" gutterBottom>
+                {trigger.message || 'Monthly Scan Limit Reached'}
+              </Typography>
+              <Typography variant="body1" color="textSecondary" mb={2}>
+                You've used {userStats.scansThisMonth} of {PRICING_TIERS.FREE.features.scansPerMonth} free scans this month
+              </Typography>
+              <LinearProgress
+                variant="determinate"
+                value={100}
+                sx={{ height: 10, borderRadius: 5 }}
+              />
+            </Box>
+
+            <Alert severity="info" sx={{ mb: 3 }}>
+              <strong>🎉 Special Offer:</strong> Get 40% off your first year with code NATURAL2025
+            </Alert>
+          </>
+        );
+
+      case 'premium_insight':
+        return (
+          <>
+            <Box textAlign="center" mb={3}>
+              <Science color="primary" sx={{ fontSize: 60, mb: 2 }} />
+              <Typography variant="h5" gutterBottom>
+                AI-Powered Natural Alternatives
+              </Typography>
+              <Typography variant="body1" color="textSecondary">
+                Our advanced AI analyzes your medication and suggests the most effective natural alternatives based on scientific research
+              </Typography>
+            </Box>
+
+            <Card sx={{ mb: 3, bgcolor: '#f5f5f5' }}>
+              <CardContent>
+                <Typography variant="subtitle2" color="primary" gutterBottom>
+                  PREMIUM INSIGHT PREVIEW
+                </Typography>
+                <Typography variant="body2">
+                  "Based on your medication profile, we've identified 12 natural alternatives with
+                  clinical evidence. Upgrade to see personalized recommendations..."
+                </Typography>
+              </CardContent>
+            </Card>
+          </>
+        );
+
+      case 'expert_consultation':
+        return (
+          <>
+            <Box textAlign="center" mb={3}>
+              <Star color="primary" sx={{ fontSize: 60, mb: 2 }} />
+              <Typography variant="h5" gutterBottom>
+                Expert Naturopath Consultation
+              </Typography>
+              <Typography variant="body1" color="textSecondary">
+                Get personalized guidance from certified naturopaths
+              </Typography>
+            </Box>
+
+            <List>
+              <ListItem>
+                <ListItemIcon><CheckCircle color="success" /></ListItemIcon>
+                <ListItemText
+                  primary="30-minute video consultation"
+                  secondary="One-on-one with certified practitioner"
+                />
+              </ListItem>
+              <ListItem>
+                <ListItemIcon><CheckCircle color="success" /></ListItemIcon>
+                <ListItemText
+                  primary="Personalized protocol"
+                  secondary="Custom natural medication plan"
+                />
+              </ListItem>
+              <ListItem>
+                <ListItemIcon><CheckCircle color="success" /></ListItemIcon>
+                <ListItemText
+                  primary="Follow-up support"
+                  secondary="Email support for 30 days"
+                />
+              </ListItem>
+            </List>
+
+            <Box textAlign="center" mt={3}>
+              <Button
+                variant="contained"
+                color="secondary"
+                size="large"
+                onClick={() => handleOneTimePurchase('EXPERT_CONSULTATION')}
+                disabled={loading}
+              >
+                Book Consultation - ${IN_APP_PURCHASES.EXPERT_CONSULTATION.price}
+              </Button>
+            </Box>
+          </>
+        );
+
+      default:
+        return (
+          <Box textAlign="center" mb={3}>
+            <Lock color="action" sx={{ fontSize: 60, mb: 2 }} />
+            <Typography variant="h5" gutterBottom>
+              Unlock Premium Features
+            </Typography>
+            <Typography variant="body1" color="textSecondary">
+              Upgrade to access unlimited natural alternatives and advanced features
+            </Typography>
+          </Box>
+        );
+    }
+  };
+
+  // Render pricing cards
+  const renderPricingCards = () => (
+    <Box sx={{ mt: 3 }}>
+      <Box display="flex" justifyContent="center" mb={2}>
+        <Chip
+          label="Monthly"
+          onClick={() => setBillingPeriod('monthly')}
+          color={billingPeriod === 'monthly' ? 'primary' : 'default'}
+          sx={{ mr: 1 }}
+        />
+        <Chip
+          label="Yearly (Save 30%)"
+          onClick={() => setBillingPeriod('yearly')}
+          color={billingPeriod === 'yearly' ? 'primary' : 'default'}
+          icon={<LocalOffer />}
+        />
+      </Box>
+
+      {['PLUS', 'PRO'].map(tier => {
+        const tierData = PRICING_TIERS[tier];
+        const price = getDiscountedPrice(tier, billingPeriod);
+        const originalPrice = tierData.price[billingPeriod];
+
+        return (
+          <Card
+            key={tier}
+            sx={{
+              mb: 2,
+              border: selectedPlan === tier ? 2 : 0,
+              borderColor: 'primary.main',
+              position: 'relative',
+            }}
+            onClick={() => setSelectedPlan(tier)}
+          >
+            {tier === 'PRO' && (
+              <Chip
+                label="MOST POPULAR"
+                color="secondary"
+                size="small"
+                sx={{ position: 'absolute', top: 10, right: 10 }}
+              />
+            )}
+
+            <CardContent>
+              <Box display="flex" justifyContent="space-between" alignItems="center">
+                <Box>
+                  <Typography variant="h6">{tierData.name}</Typography>
+                  <Box display="flex" alignItems="baseline" gap={1}>
+                    <Typography variant="h4" color="primary">
+                      ${price.toFixed(2)}
+                    </Typography>
+                    {price < originalPrice && (
+                      <Typography variant="body2" sx={{ textDecoration: 'line-through' }}>
+                        ${originalPrice.toFixed(2)}
+                      </Typography>
+                    )}
+                    <Typography variant="body2" color="textSecondary">
+                      /{billingPeriod === 'monthly' ? 'mo' : 'year'}
+                    </Typography>
+                  </Box>
+                </Box>
+
+                <Box textAlign="right">
+                  {tier === 'PRO' && <Family color="action" />}
+                  {tier === 'PLUS' && <Speed color="action" />}
+                </Box>
+              </Box>
+
+              <List dense sx={{ mt: 2 }}>
+                {tier === 'PLUS' && (
+                  <>
+                    <ListItem>
+                      <ListItemIcon sx={{ minWidth: 30 }}>
+                        <CheckCircle color="success" fontSize="small" />
+                      </ListItemIcon>
+                      <ListItemText primary="Unlimited medication scans" />
+                    </ListItem>
+                    <ListItem>
+                      <ListItemIcon sx={{ minWidth: 30 }}>
+                        <CheckCircle color="success" fontSize="small" />
+                      </ListItemIcon>
+                      <ListItemText primary="AI natural alternatives" />
+                    </ListItem>
+                    <ListItem>
+                      <ListItemIcon sx={{ minWidth: 30 }}>
+                        <CheckCircle color="success" fontSize="small" />
+                      </ListItemIcon>
+                      <ListItemText primary="Export reports" />
+                    </ListItem>
+                  </>
+                )}
+
+                {tier === 'PRO' && (
+                  <>
+                    <ListItem>
+                      <ListItemIcon sx={{ minWidth: 30 }}>
+                        <CheckCircle color="success" fontSize="small" />
+                      </ListItemIcon>
+                      <ListItemText primary="Everything in Plus" />
+                    </ListItem>
+                    <ListItem>
+                      <ListItemIcon sx={{ minWidth: 30 }}>
+                        <CheckCircle color="success" fontSize="small" />
+                      </ListItemIcon>
+                      <ListItemText primary="Family sharing (5 accounts)" />
+                    </ListItem>
+                    <ListItem>
+                      <ListItemIcon sx={{ minWidth: 30 }}>
+                        <CheckCircle color="success" fontSize="small" />
+                      </ListItemIcon>
+                      <ListItemText primary="2 consultations/month" />
+                    </ListItem>
+                    <ListItem>
+                      <ListItemIcon sx={{ minWidth: 30 }}>
+                        <CheckCircle color="success" fontSize="small" />
+                      </ListItemIcon>
+                      <ListItemText primary="Priority support" />
+                    </ListItem>
+                  </>
+                )}
+              </List>
+            </CardContent>
+          </Card>
+        );
+      })}
+    </Box>
+  );
+
+  return (
+    <>
+      {children}
+
+      <Dialog
+        open={showPaywall}
+        onClose={() => setShowPaywall(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>
+          <Box display="flex" justifyContent="space-between" alignItems="center">
+            <Typography variant="h6">Upgrade to Premium</Typography>
+            <IconButton onClick={() => setShowPaywall(false)} size="small">
+              <Close />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+
+        <DialogContent>
+          {renderPaywallContent()}
+          <Divider sx={{ my: 3 }} />
+          {renderPricingCards()}
+
+          {getActivePromo() && (
+            <Alert severity="success" sx={{ mt: 2 }}>
+              <strong>Limited Time:</strong> {CAMPAIGNS[getActivePromo()].name} -
+              Save {(CAMPAIGNS[getActivePromo()].discount * 100).toFixed(0)}%!
+            </Alert>
+          )}
+        </DialogContent>
+
+        <DialogActions>
+          <Button onClick={() => setShowPaywall(false)}>
+            Maybe Later
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleUpgrade}
+            disabled={loading}
+            startIcon={loading && <Timer />}
+          >
+            {loading ? 'Processing...' : `Upgrade to ${PRICING_TIERS[selectedPlan].name}`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar
+        open={showSuccess}
+        autoHideDuration={6000}
+        onClose={() => setShowSuccess(false)}
+        message="Purchase successful! Thank you for upgrading."
+      />
+    </>
+  );
+}
