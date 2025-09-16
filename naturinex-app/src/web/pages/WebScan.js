@@ -44,6 +44,9 @@ function WebScan() {
   const [ocrText, setOcrText] = useState('');
   const [isProcessingOCR, setIsProcessingOCR] = useState(false);
   const [userData, setUserData] = useState(null);
+  const [remainingScans, setRemainingScans] = useState(null);
+  const [rateLimitInfo, setRateLimitInfo] = useState(null);
+  const [deviceId, setDeviceId] = useState(null);
   
   const fileInputRef = useRef(null);
   const videoRef = useRef(null);

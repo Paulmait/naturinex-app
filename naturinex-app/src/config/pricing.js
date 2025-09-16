@@ -2,12 +2,39 @@
 // Natural Medication Alternatives Platform
 
 export const PRICING_TIERS = {
+  // Anonymous users - not shown in pricing
+  ANONYMOUS: {
+    id: 'anonymous',
+    name: 'Anonymous',
+    price: 0,
+    features: {
+      scansPerDay: 3,
+      scansPerMonth: null,
+      saveHistory: false,
+      dataRetention: 'Not saved',
+      dataRetentionDays: 0,
+      basicAnalysis: true,
+      aiInsights: false,
+      naturalAlternatives: 2, // Limited to 2 alternatives
+      exportReports: false,
+      prioritySupport: false,
+    },
+    limits: {
+      dailyScans: 3,
+      monthlyScans: null,
+      message: '3 scans per day for anonymous users'
+    },
+  },
   FREE: {
     id: 'free',
-    name: 'Free',
+    name: 'Free Account',
     price: 0,
     features: {
       scansPerMonth: 5,
+      scansPerDay: null,
+      saveHistory: false, // NO DATA SAVING
+      dataRetention: 'Not saved',
+      dataRetentionDays: 0,
       basicAnalysis: true,
       aiInsights: false,
       naturalAlternatives: 3, // Limited to 3 alternatives
@@ -16,26 +43,36 @@ export const PRICING_TIERS = {
       familySharing: false,
       prioritySupport: false,
       affiliateAccess: false,
-      historyDays: 7,
     },
     limits: {
-      dailyScans: 2,
-      savedMedications: 10,
+      monthlyScans: 5,
+      dailyScans: null,
+      message: '5 scans per month, no data saving'
     },
+    description: 'Perfect for trying out the service',
+    benefits: [
+      '5 medication scans per month',
+      'Basic natural alternatives',
+      'No account data storage',
+    ],
   },
   PLUS: {
     id: 'plus',
     name: 'Naturinex Plus',
     price: {
       monthly: 6.99,
-      yearly: 59, // Special "New Year, New You" pricing
+      yearly: 69.99,
     },
     stripePriceIds: {
       monthly: 'price_naturinex_plus_monthly',
       yearly: 'price_naturinex_plus_yearly',
     },
     features: {
-      scansPerMonth: -1, // Unlimited
+      scansPerMonth: 100,
+      scansPerDay: null,
+      saveHistory: true, // 1 YEAR DATA RETENTION
+      dataRetention: '1 year',
+      dataRetentionDays: 365,
       basicAnalysis: true,
       aiInsights: true,
       naturalAlternatives: -1, // Unlimited alternatives
@@ -44,29 +81,40 @@ export const PRICING_TIERS = {
       familySharing: false,
       prioritySupport: false,
       affiliateAccess: true,
-      historyDays: -1, // Unlimited history
       customReports: true,
       dosageCalculator: true,
       interactionChecker: true,
     },
     limits: {
-      dailyScans: 50,
-      savedMedications: 500,
+      monthlyScans: 100,
+      dailyScans: null,
+      message: '100 scans per month, 1 year data retention'
     },
+    description: 'Great for regular users',
+    benefits: [
+      '100 medication scans per month',
+      'Save history for 1 year',
+      'AI-powered insights',
+      'Export your data',
+    ],
   },
   PRO: {
     id: 'pro',
     name: 'Naturinex Pro',
     price: {
       monthly: 12.99,
-      yearly: 99,
+      yearly: 129.99,
     },
     stripePriceIds: {
       monthly: 'price_naturinex_pro_monthly',
       yearly: 'price_naturinex_pro_yearly',
     },
     features: {
-      scansPerMonth: -1,
+      scansPerMonth: -1, // UNLIMITED
+      scansPerDay: -1,
+      saveHistory: true, // PERMANENT DATA STORAGE
+      dataRetention: 'Forever',
+      dataRetentionDays: null, // Never expires
       basicAnalysis: true,
       aiInsights: true,
       naturalAlternatives: -1,
@@ -75,7 +123,6 @@ export const PRICING_TIERS = {
       familySharing: true, // Up to 5 accounts
       prioritySupport: true,
       affiliateAccess: true,
-      historyDays: -1,
       customReports: true,
       dosageCalculator: true,
       interactionChecker: true,
@@ -85,10 +132,18 @@ export const PRICING_TIERS = {
       teamCollaboration: true,
     },
     limits: {
-      dailyScans: -1, // Unlimited
-      savedMedications: -1,
-      familyMembers: 5,
+      monthlyScans: -1, // Unlimited
+      dailyScans: -1,
+      message: 'Unlimited scans, permanent data storage'
     },
+    description: 'For healthcare professionals and power users',
+    benefits: [
+      'UNLIMITED medication scans',
+      'Permanent data storage',
+      'Priority support',
+      'API access',
+      'Family sharing (5 accounts)',
+    ],
   },
   ENTERPRISE: {
     id: 'enterprise',
