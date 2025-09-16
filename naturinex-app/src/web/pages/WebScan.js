@@ -51,7 +51,7 @@ function WebScan() {
   const user = auth.currentUser;
 
   // Use Render backend URL
-  const API_URL = process.env.REACT_APP_API_URL || 'https://naturinex-app-zsga.onrender.com';
+  const API_URL = process.env.REACT_APP_API_URL_SUPABASE || process.env.REACT_APP_API_URL || 'https://naturinex-app-zsga.onrender.com';
   
   // Load user data on mount
   useEffect(() => {
@@ -221,12 +221,13 @@ function WebScan() {
       // Use the text input (which may be from OCR or manual entry)
       if (textInput.trim()) {
         // Use the medication name endpoint
-        const response = await fetch(`${API_URL}/api/analyze/name`, {
+        const endpoint = API_URL.includes('supabase.co') ? `${API_URL}/analyze` : `${API_URL}/api/analyze/name`;
+        const response = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ medicationName: textInput.trim() }),
+          body: JSON.stringify({ medication: textInput.trim() }),
         });
         
         if (!response.ok) {
@@ -250,14 +251,14 @@ function WebScan() {
         
       } else if (ocrText) {
         // If we have OCR text but no manual input, use the OCR endpoint
-        const response = await fetch(`${API_URL}/api/analyze`, {
+        const endpoint = API_URL.includes('supabase.co') ? `${API_URL}/analyze` : `${API_URL}/api/analyze`;
+        const response = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ 
-            ocrText: ocrText,
-            medicationName: ocrText.split('\n')[0]
+          body: JSON.stringify({
+            medication: ocrText.split('\n')[0]
           }),
         });
         
