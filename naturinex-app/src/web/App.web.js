@@ -15,6 +15,7 @@ import WebProfile from './pages/WebProfile';
 import WebPrivacy from './pages/WebPrivacy';
 import WebTerms from './pages/WebTerms';
 import WebPayment from './pages/WebPayment';
+import AdminDashboard from './pages/AdminDashboard';
 
 // Import Firebase config for web
 import { auth } from '../firebase.web';
@@ -119,6 +120,7 @@ function WebApp() {
               <Route path="/payment" element={<PrivateRoute><WebPayment /></PrivateRoute>} />
               <Route path="/privacy" element={<WebPrivacy />} />
               <Route path="/terms" element={<WebTerms />} />
+              <Route path="/admin" element={<PrivateRoute><AdminDashboard /></PrivateRoute>} />
             </Routes>
           </main>
         </div>
