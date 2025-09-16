@@ -2,7 +2,14 @@
 id = "hxhbsxzkzarqwksbjpce"
 
 [functions.analyze]
-verify_jwt = false
+verify_jwt = true
 
 [functions.stripe-webhook]
-verify_jwt = false
+verify_jwt = false # Stripe webhook needs to bypass JWT for external calls
+
+[functions.analyze-production]
+verify_jwt = true
+
+[auth]
+enable_signup = true
+enable_anonymous_sign_ins = false

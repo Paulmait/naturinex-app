@@ -80,18 +80,8 @@
       "expo-secure-store"
     ],
     "extra": {
-      "apiUrl": "https://naturinex-app-zsga.onrender.com",
-      "stripePublishableKey": "pk_live_51QTj9RRqEPLAinmJX0Jgqr8GJZQKziNhHDMhHCRpNQbwfWJRKrPz7ZY48mJzV1rP1bDYJhRNJy1z5VXJ0e5G8t9K00lAC53L05",
-      "googleExpoClientId": "890126739800-52rneepkjkec2audauvoqkqp7d9i4jo5.apps.googleusercontent.com",
-      "googleIosClientId": "890126739800-09cqdk41biemj8fmo0p6053sf07v030j.apps.googleusercontent.com",
-      "googleAndroidClientId": "890126739800-52rneepkjkec2audauvoqkqp7d9i4jo5.apps.googleusercontent.com",
-      "firebaseApiKey": "AIzaSyDjyig8VkzsaaoGLl2tg702FE-VRWenM0w",
-      "firebaseAuthDomain": "naturinex-app.firebaseapp.com",
-      "firebaseProjectId": "naturinex-app",
-      "firebaseStorageBucket": "naturinex-app.firebasestorage.app",
-      "firebaseMessagingSenderId": "398613963385",
-      "firebaseAppId": "1:398613963385:web:91b3c8e67976c252f0aaa8",
-      "firebaseMeasurementId": "G-04VE09YVEC",
+      "apiUrl": "https://hxhbsxzkzarqwksbjpce.supabase.co",
+      "env": "production",
       "eas": {
         "projectId": "209a36db-b288-4ad5-80b2-a518c1a33f1a"
       }

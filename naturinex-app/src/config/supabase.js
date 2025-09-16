@@ -1,9 +1,13 @@
 // Supabase configuration for enterprise scale
 import { createClient } from '@supabase/supabase-js';
 
-// Supabase configuration
-const supabaseUrl = process.env.REACT_APP_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+// Supabase configuration - secure setup
+const supabaseUrl = process.env.REACT_APP_SUPABASE_URL ||
+  process.env.NEXT_PUBLIC_SUPABASE_URL ||
+  'https://hxhbsxzkzarqwksbjpce.supabase.co';
+const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY ||
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh4aGJzeHpremFycXdrc2JqcGNlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzY5NTg5NzIsImV4cCI6MjA1MjUzNDk3Mn0.QdKPEjlHu7yVqTqFvJFBvLZxGqXFMcWgQy4e6nQlykE';
 
 // Validate configuration
 if (!supabaseUrl || !supabaseAnonKey) {
