@@ -45,8 +45,11 @@ function WebScan() {
   const [isProcessingOCR, setIsProcessingOCR] = useState(false);
   const [userData, setUserData] = useState(null);
   const [remainingScans, setRemainingScans] = useState(null);
-  const [rateLimitInfo, setRateLimitInfo] = useState(null);
-  const [deviceId, setDeviceId] = useState(null);
+  const [, setRateLimitInfo] = useState(null); // Will be used for rate limit display
+  const [deviceId] = useState(() => {
+    // Generate a simple device ID for now
+    return 'web-' + Math.random().toString(36).substring(2, 15);
+  });
   
   const fileInputRef = useRef(null);
   const videoRef = useRef(null);
