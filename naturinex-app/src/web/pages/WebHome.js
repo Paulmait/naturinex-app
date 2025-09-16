@@ -307,7 +307,7 @@ function WebHome() {
             align="center"
             sx={{ mt: 4, pt: 2, borderTop: '1px solid rgba(255,255,255,0.1)' }}
           >
-            © 2024 Naturinex. All rights reserved.
+            © 2025 Naturinex. All rights reserved.
           </Typography>
         </Container>
       </Box>
