@@ -90,29 +90,15 @@ async function testSupabaseConnection() {
             }
         }
 
-        // Test 4: Test authentication
+        // Test 4: Test authentication system is configured
         console.log('\n5️⃣ Testing Authentication:');
-        const testEmail = 'test@naturinex.com';
-        const testPassword = 'TestPassword123!';
 
-        // Try to sign up (will fail if user exists, which is fine)
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-            email: testEmail,
-            password: testPassword,
-        });
-
-        if (signUpError && signUpError.message.includes('already registered')) {
-            console.log('   ✅ Auth system working (test user already exists)');
-        } else if (signUpData?.user) {
-            console.log('   ✅ Auth system working (test user created)');
-
-            // Clean up test user
-            if (supabaseServiceKey) {
-                await supabase.auth.admin.deleteUser(signUpData.user.id);
-                console.log('   🧹 Test user cleaned up');
-            }
-        } else {
-            console.log(`   ⚠️  Auth test inconclusive: ${signUpError?.message}`);
+        // Just check if auth is accessible without creating test users
+        try {
+            const { data: { session } } = await supabase.auth.getSession();
+            console.log(`   ✅ Auth system accessible (session: ${session ? 'active' : 'none'})`);
+        } catch (authError) {
+            console.log(`   ⚠️  Auth test inconclusive: ${authError?.message}`);
         }
 
         // Test 5: Test data insertion (if tables exist)

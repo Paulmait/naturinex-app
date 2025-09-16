@@ -120,47 +120,62 @@ export const useScan = (user, notifications) => {
         hasImage: !!selectedImage
       });
 
-      // Simulate AI processing (replace with actual API call)
-      const processingTime = Math.random() * 2000 + 1000; // 1-3 seconds
-      await new Promise(resolve => setTimeout(resolve, processingTime));
-      
-      // Mock AI response (replace with actual AI service)
-      const mockResults = {
-        medicationName: medicationName.trim(),
-        scannedAt: new Date(),
-        alternatives: [
-          {
-            name: 'Natural Alternative 1',
-            description: 'A natural supplement that may help with similar symptoms',
-            effectiveness: 'Moderate',
-            sideEffects: 'Minimal',
-            dosage: 'As directed'
+      // Call the actual API for natural alternatives
+      try {
+        const response = await fetch(`${process.env.REACT_APP_API_URL || 'https://naturinex-app.onrender.com'}/api/analyze`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': user ? `Bearer ${await user.getIdToken()}` : '',
           },
-          {
-            name: 'Natural Alternative 2',
-            description: 'Herbal remedy with traditional use for this condition',
-            effectiveness: 'High',
-            sideEffects: 'Rare',
-            dosage: '1-2 capsules daily'
-          }
-        ],
-        warnings: [
-          'Always consult with a healthcare provider before switching medications',
-          'Natural alternatives may not be suitable for all individuals',
-          'Results are for informational purposes only'
-        ]
-      };
-      
-      setScanResults(mockResults);
-      setScanningMessage('Analysis complete');
-      
-      await trackEvent(APP_CONFIG.ANALYTICS_EVENTS.SCAN_COMPLETED, {
-        medicationName: medicationName.trim(),
-        alternativesFound: mockResults.alternatives.length,
-        deviceId: navigator.userAgent
-      });
-      
-      return mockResults;
+          body: JSON.stringify({
+            medication: medicationName.trim(),
+            source: 'manual_input',
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error('Failed to analyze medication');
+        }
+
+        const results = await response.json();
+
+        // Format the results
+        const formattedResults = {
+          medicationName: medicationName.trim(),
+          scannedAt: new Date(),
+          alternatives: results.alternatives || [],
+          warnings: results.warnings || [
+            'Always consult with a healthcare provider before switching medications',
+            'Natural alternatives may not be suitable for all individuals',
+            'Results are for informational purposes only'
+          ],
+          research: results.research || [],
+          interactions: results.interactions || [],
+        };
+
+        setScanResults(formattedResults);
+        setScanningMessage('Analysis complete');
+
+        await trackEvent(APP_CONFIG.ANALYTICS_EVENTS.SCAN_COMPLETED, {
+          medicationName: medicationName.trim(),
+          alternativesFound: formattedResults.alternatives.length,
+          deviceId: navigator.userAgent
+        });
+
+        return formattedResults;
+      } catch (apiError) {
+        console.error('API call failed:', apiError);
+
+        // Fallback to basic data from naturalAlternativesService
+        const { naturalAlternativesService } = await import('../services/naturalAlternativesService');
+        const fallbackResults = naturalAlternativesService.getAlternatives(medicationName.trim());
+
+        setScanResults(fallbackResults);
+        setScanningMessage('Analysis complete (offline mode)');
+
+        return fallbackResults;
+      }
       
     } catch (error) {
       console.error('Scan processing error:', error);

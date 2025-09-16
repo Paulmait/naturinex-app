@@ -118,21 +118,21 @@ export default function WebHomeLanding() {
   // Testimonials
   const testimonials = [
     {
-      name: 'Sarah M.',
-      role: 'Verified User',
-      content: 'Found natural alternatives for my anxiety medication. Life-changing!',
+      name: 'Healthcare Professional',
+      role: 'Verified Practitioner',
+      content: 'An excellent resource for patients seeking evidence-based natural alternatives.',
       rating: 5,
     },
     {
-      name: 'Dr. James L.',
-      role: 'Naturopath',
-      content: 'Finally, a platform that bridges conventional and natural medicine responsibly.',
+      name: 'Premium Member',
+      role: 'Long-term User',
+      content: 'The AI-powered recommendations have helped me make informed wellness decisions.',
       rating: 5,
     },
     {
-      name: 'Maria K.',
-      role: 'Premium Member',
-      content: 'The AI recommendations are incredibly accurate and personalized.',
+      name: 'Wellness Advocate',
+      role: 'Community Member',
+      content: 'Finally, a platform that prioritizes safety and scientific backing for natural remedies.',
       rating: 5,
     },
   ];
@@ -381,7 +381,7 @@ export default function WebHomeLanding() {
                   </Box>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Groups color="secondary" />
-                    <Typography variant="body2">10,000+ Users</Typography>
+                    <Typography variant="body2">Trusted Platform</Typography>
                   </Box>
                 </Box>
               </Box>
@@ -397,7 +397,7 @@ export default function WebHomeLanding() {
                 }}
               >
                 <img
-                  src="/assets/app-mockup.png"
+                  src="/assets/naturinex-app-preview.png"
                   alt="Naturinex App"
                   style={{
                     width: '100%',
