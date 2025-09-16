@@ -2,6 +2,7 @@
 // Clean, safe, and user-friendly natural medication alternative platform
 
 import React, { useState } from 'react';
+import NaturinexLogo from '../../assets/logos/NaturinexLogo.png';
 import {
   Box,
   Container,
@@ -179,26 +180,25 @@ export default function WebHomeLanding() {
         }}
       >
         <Toolbar sx={{ justifyContent: 'space-between' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Spa sx={{ color: 'primary.main', fontSize: 32 }} />
+          <Box
+            sx={{ display: 'flex', alignItems: 'center', gap: 1, cursor: 'pointer' }}
+            onClick={() => navigate('/')}
+          >
+            <img
+              src={NaturinexLogo}
+              alt="Naturinex Logo"
+              style={{ height: 40, width: 'auto' }}
+            />
             <Typography
               variant="h6"
               sx={{
                 color: 'text.primary',
                 fontWeight: 700,
                 letterSpacing: '-0.5px',
-                cursor: 'pointer',
               }}
-              onClick={() => navigate('/')}
             >
               Naturinex
             </Typography>
-            <Chip
-              label="BETA"
-              size="small"
-              color="secondary"
-              sx={{ ml: 1 }}
-            />
           </Box>
 
           {/* Desktop Navigation */}
@@ -206,28 +206,28 @@ export default function WebHomeLanding() {
             <Box sx={{ display: 'flex', gap: 3 }}>
               <Button
                 color="inherit"
-                onClick={() => navigate('#features')}
+                onClick={() => document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' })}
                 sx={{ color: 'text.primary' }}
               >
                 Features
               </Button>
               <Button
                 color="inherit"
-                onClick={() => navigate('#how-it-works')}
+                onClick={() => document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' })}
                 sx={{ color: 'text.primary' }}
               >
                 How It Works
               </Button>
               <Button
                 color="inherit"
-                onClick={() => navigate('/pricing')}
+                onClick={() => navigate('/subscription')}
                 sx={{ color: 'text.primary' }}
               >
                 Pricing
               </Button>
               <Button
                 color="inherit"
-                onClick={() => navigate('#faq')}
+                onClick={() => document.getElementById('faq')?.scrollIntoView({ behavior: 'smooth' })}
                 sx={{ color: 'text.primary' }}
               >
                 FAQ
@@ -362,7 +362,7 @@ export default function WebHomeLanding() {
                   <Button
                     variant="outlined"
                     size="large"
-                    onClick={() => navigate('#how-it-works')}
+                    onClick={() => document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' })}
                     sx={{ py: 1.5 }}
                   >
                     Learn More
