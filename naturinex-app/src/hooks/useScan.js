@@ -122,7 +122,7 @@ export const useScan = (user, notifications) => {
 
       // Call the actual API for natural alternatives
       try {
-        const response = await fetch(`${process.env.REACT_APP_API_URL || 'https://naturinex-app.onrender.com'}/api/analyze`, {
+        const response = await fetch(`${process.env.REACT_APP_API_URL_SUPABASE || process.env.REACT_APP_API_URL || 'https://naturinex-app.onrender.com'}/api/analyze`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

@@ -23,8 +23,6 @@ import {
   CircularProgress,
   Tabs,
   Tab,
-  TextField,
-  InputAdornment,
 } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
@@ -32,15 +30,8 @@ import {
   Scanner,
   TrendingUp,
   AttachMoney,
-  Warning,
-  CheckCircle,
-  Search,
   Refresh,
   Download,
-  Settings,
-  Analytics,
-  Security,
-  Storage,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../../config/supabase';
@@ -82,7 +73,7 @@ export default function AdminDashboard() {
     try {
       // Check if user is admin in Supabase
       if (supabase) {
-        const { data, error } = await supabase
+        const { data } = await supabase
           .from('profiles')
           .select('role, is_admin')
           .eq('user_id', currentUser.uid)
@@ -160,7 +151,7 @@ export default function AdminDashboard() {
         }).length;
 
         // Get scan stats
-        const { data: scans, error: scanError } = await supabase
+        const { data: scans } = await supabase
           .from('scans')
           .select('*');
 
