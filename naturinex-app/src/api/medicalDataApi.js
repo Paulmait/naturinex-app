@@ -1,0 +1,881 @@
+// Medical Data Management API
+// Comprehensive API for managing medical database, user feedback, and professional reviews
+
+import { supabase } from '../config/supabase';
+
+class MedicalDataAPI {
+  constructor() {
+    this.baseUrl = process.env.REACT_APP_API_URL || 'https://naturinex-app-zsga.onrender.com';
+  }
+
+  // ============================================================================
+  // MEDICATION SEARCH AND MANAGEMENT
+  // ============================================================================
+
+  /**
+   * Search medications with filters
+   */
+  async searchMedications(query, filters = {}) {
+    try {
+      const {
+        drugClass = null,
+        therapeuticCategory = null,
+        isOTC = null,
+        status = 'active',
+        limit = 50
+      } = filters;
+
+      let queryBuilder = supabase
+        .from('medications')
+        .select(`
+          id,
+          name,
+          generic_name,
+          brand_names,
+          drug_class,
+          therapeutic_category,
+          common_uses,
+          is_otc,
+          requires_prescription,
+          status
+        `)
+        .eq('is_active', true);
+
+      // Apply search
+      if (query) {
+        queryBuilder = queryBuilder.or(
+          `name.ilike.%${query}%,generic_name.ilike.%${query}%,brand_names.cs.{${query}}`
+        );
+      }
+
+      // Apply filters
+      if (drugClass) queryBuilder = queryBuilder.eq('drug_class', drugClass);
+      if (therapeuticCategory) queryBuilder = queryBuilder.eq('therapeutic_category', therapeuticCategory);
+      if (isOTC !== null) queryBuilder = queryBuilder.eq('is_otc', isOTC);
+      if (status) queryBuilder = queryBuilder.eq('status', status);
+
+      const { data, error } = await queryBuilder
+        .order('name')
+        .limit(limit);
+
+      if (error) throw error;
+      return { data, error: null };
+
+    } catch (error) {
+      console.error('Medication search error:', error);
+      return { data: null, error: error.message };
+    }
+  }
+
+  /**
+   * Get medication details by ID
+   */
+  async getMedicationById(medicationId) {
+    try {
+      const { data, error } = await supabase
+        .from('medications')
+        .select('*')
+        .eq('id', medicationId)
+        .eq('is_active', true)
+        .single();
+
+      if (error) throw error;
+      return { data, error: null };
+
+    } catch (error) {
+      console.error('Get medication error:', error);
+      return { data: null, error: error.message };
+    }
+  }
+
+  /**
+   * Get alternatives for a medication
+   */
+  async getMedicationAlternatives(medicationId, filters = {}) {
+    try {
+      const {
+        minEffectiveness = 0,
+        evidenceLevel = null,
+        includeStudies = false,
+        includeFeedback = false,
+        limit = 20
+      } = filters;
+
+      let select = `
+        *,
+        alternative:alternative_id (
+          id,
+          name,
+          scientific_name,
+          description,
+          evidence_level,
+          safety_profile,
+          standard_dosage,
+          contraindications,
+          side_effects
+        )
+      `;
+
+      if (includeStudies) {
+        select += `,
+        studies:study_evidence!medication_alternative_id (
+          study:study_id (
+            title,
+            journal,
+            publication_date,
+            study_type,
+            evidence_level
+          )
+        )`;
+      }
+
+      let queryBuilder = supabase
+        .from('medication_alternatives')
+        .select(select)
+        .eq('medication_id', medicationId)
+        .eq('is_active', true)
+        .not('approved_at', 'is', null)
+        .gte('effectiveness_rating', minEffectiveness);
+
+      if (evidenceLevel) {
+        queryBuilder = queryBuilder.eq('alternative.evidence_level', evidenceLevel);
+      }
+
+      const { data, error } = await queryBuilder
+        .order('effectiveness_rating', { ascending: false })
+        .limit(limit);
+
+      if (error) throw error;
+
+      // Enhance with feedback if requested
+      let enhancedData = data;
+      if (includeFeedback) {
+        enhancedData = await Promise.all(data.map(async (item) => {
+          const feedback = await this.getFeedbackSummary(item.id);
+          return { ...item, feedback };
+        }));
+      }
+
+      return { data: enhancedData, error: null };
+
+    } catch (error) {
+      console.error('Get alternatives error:', error);
+      return { data: null, error: error.message };
+    }
+  }
+
+  // ============================================================================
+  // NATURAL ALTERNATIVES MANAGEMENT
+  // ============================================================================
+
+  /**
+   * Search natural alternatives
+   */
+  async searchAlternatives(query, filters = {}) {
+    try {
+      const {
+        evidenceLevel = null,
+        pregnancySafety = null,
+        organicOnly = false,
+        limit = 50
+      } = filters;
+
+      let queryBuilder = supabase
+        .from('natural_alternatives')
+        .select(`
+          id,
+          name,
+          scientific_name,
+          description,
+          therapeutic_uses,
+          evidence_level,
+          safety_profile,
+          organic_available,
+          standard_dosage
+        `)
+        .eq('is_active', true);
+
+      // Apply search
+      if (query) {
+        queryBuilder = queryBuilder.or(
+          `name.ilike.%${query}%,scientific_name.ilike.%${query}%,therapeutic_uses.cs.{${query}}`
+        );
+      }
+
+      // Apply filters
+      if (evidenceLevel) queryBuilder = queryBuilder.eq('evidence_level', evidenceLevel);
+      if (pregnancySafety) queryBuilder = queryBuilder.eq('safety_profile->>pregnancy', pregnancySafety);
+      if (organicOnly) queryBuilder = queryBuilder.eq('organic_available', true);
+
+      const { data, error } = await queryBuilder
+        .order('name')
+        .limit(limit);
+
+      if (error) throw error;
+      return { data, error: null };
+
+    } catch (error) {
+      console.error('Alternative search error:', error);
+      return { data: null, error: error.message };
+    }
+  }
+
+  /**
+   * Get alternative details by ID
+   */
+  async getAlternativeById(alternativeId) {
+    try {
+      const { data, error } = await supabase
+        .from('natural_alternatives')
+        .select('*')
+        .eq('id', alternativeId)
+        .eq('is_active', true)
+        .single();
+
+      if (error) throw error;
+      return { data, error: null };
+
+    } catch (error) {
+      console.error('Get alternative error:', error);
+      return { data: null, error: error.message };
+    }
+  }
+
+  /**
+   * Get research evidence for an alternative
+   */
+  async getAlternativeEvidence(alternativeId) {
+    try {
+      const { data, error } = await supabase
+        .from('study_evidence')
+        .select(`
+          *,
+          study:study_id (
+            id,
+            title,
+            authors,
+            journal,
+            publication_date,
+            study_type,
+            participant_count,
+            evidence_level,
+            results_summary,
+            pubmed_id,
+            doi
+          )
+        `)
+        .eq('alternative_id', alternativeId)
+        .eq('is_active', true)
+        .order('relevance_score', { ascending: false });
+
+      if (error) throw error;
+      return { data, error: null };
+
+    } catch (error) {
+      console.error('Get evidence error:', error);
+      return { data: null, error: error.message };
+    }
+  }
+
+  // ============================================================================
+  // USER FEEDBACK MANAGEMENT
+  // ============================================================================
+
+  /**
+   * Submit user feedback
+   */
+  async submitFeedback(userId, feedbackData) {
+    try {
+      const {
+        medicationAlternativeId,
+        effectivenessRating,
+        safetyRating,
+        overallSatisfaction,
+        dosageUsed,
+        durationUsed,
+        formUsed,
+        conditionImproved,
+        sideEffectsExperienced = [],
+        wouldRecommend,
+        positiveAspects = [],
+        negativeAspects = [],
+        additionalComments,
+        ageRange,
+        gender,
+        healthConditions = []
+      } = feedbackData;
+
+      // Validate required fields
+      if (!medicationAlternativeId || !effectivenessRating || !safetyRating || !overallSatisfaction) {
+        throw new Error('Missing required feedback fields');
+      }
+
+      const { data, error } = await supabase
+        .from('user_feedback')
+        .insert({
+          user_id: userId,
+          medication_alternative_id: medicationAlternativeId,
+          effectiveness_rating: effectivenessRating,
+          safety_rating: safetyRating,
+          overall_satisfaction: overallSatisfaction,
+          dosage_used: dosageUsed,
+          duration_used: durationUsed,
+          form_used: formUsed,
+          condition_improved: conditionImproved,
+          side_effects_experienced: sideEffectsExperienced,
+          would_recommend: wouldRecommend,
+          positive_aspects: positiveAspects,
+          negative_aspects: negativeAspects,
+          additional_comments: additionalComments,
+          age_range: ageRange,
+          gender: gender,
+          health_conditions: healthConditions,
+          consent_given: true,
+          data_retention_expiry: new Date(Date.now() + 7 * 365 * 24 * 60 * 60 * 1000), // 7 years
+          moderation_status: 'pending'
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return { data, error: null };
+
+    } catch (error) {
+      console.error('Submit feedback error:', error);
+      return { data: null, error: error.message };
+    }
+  }
+
+  /**
+   * Get user's feedback history
+   */
+  async getUserFeedback(userId, limit = 20) {
+    try {
+      const { data, error } = await supabase
+        .from('user_feedback')
+        .select(`
+          *,
+          medication_alternative:medication_alternative_id (
+            indication,
+            alternative:alternative_id (
+              name,
+              scientific_name
+            ),
+            medication:medication_id (
+              name,
+              generic_name
+            )
+          )
+        `)
+        .eq('user_id', userId)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (error) throw error;
+      return { data, error: null };
+
+    } catch (error) {
+      console.error('Get user feedback error:', error);
+      return { data: null, error: error.message };
+    }
+  }
+
+  /**
+   * Get feedback summary for a medication alternative
+   */
+  async getFeedbackSummary(medicationAlternativeId) {
+    try {
+      const { data, error } = await supabase
+        .from('user_feedback')
+        .select(`
+          effectiveness_rating,
+          safety_rating,
+          overall_satisfaction,
+          would_recommend,
+          condition_improved,
+          duration_used,
+          side_effects_experienced
+        `)
+        .eq('medication_alternative_id', medicationAlternativeId)
+        .eq('moderation_status', 'approved')
+        .eq('is_active', true);
+
+      if (error) throw error;
+
+      if (data.length === 0) {
+        return { data: null, error: null };
+      }
+
+      // Calculate summary statistics
+      const summary = {
+        totalReviews: data.length,
+        averageEffectiveness: this.calculateAverage(data, 'effectiveness_rating'),
+        averageSafety: this.calculateAverage(data, 'safety_rating'),
+        averageSatisfaction: this.calculateAverage(data, 'overall_satisfaction'),
+        recommendationRate: data.filter(f => f.would_recommend).length / data.length,
+        improvementRate: data.filter(f => f.condition_improved).length / data.length,
+        commonSideEffects: this.getCommonItems(data, 'side_effects_experienced'),
+        durationDistribution: this.getDistribution(data, 'duration_used')
+      };
+
+      return { data: summary, error: null };
+
+    } catch (error) {
+      console.error('Get feedback summary error:', error);
+      return { data: null, error: error.message };
+    }
+  }
+
+  // ============================================================================
+  // PROFESSIONAL REVIEW MANAGEMENT
+  // ============================================================================
+
+  /**
+   * Submit professional review (requires verified medical professional)
+   */
+  async submitProfessionalReview(userId, reviewData) {
+    try {
+      // First verify the user is a verified medical professional
+      const { data: professional, error: profError } = await supabase
+        .from('medical_professionals')
+        .select('id, verification_status')
+        .eq('user_id', userId)
+        .eq('verification_status', 'verified')
+        .single();
+
+      if (profError || !professional) {
+        throw new Error('Only verified medical professionals can submit reviews');
+      }
+
+      const {
+        medicationAlternativeId,
+        recommendation,
+        evidenceAssessment,
+        clinicalExperienceRating,
+        appropriateFor,
+        contraindicatedFor,
+        clinicalRationale,
+        patientsTotal,
+        successRate,
+        conflictsOfInterest,
+        financialDisclosures
+      } = reviewData;
+
+      const { data, error } = await supabase
+        .from('professional_reviews')
+        .insert({
+          reviewer_id: professional.id,
+          medication_alternative_id: medicationAlternativeId,
+          recommendation,
+          evidence_assessment: evidenceAssessment,
+          clinical_experience_rating: clinicalExperienceRating,
+          appropriate_for: appropriateFor,
+          contraindicated_for: contraindicatedFor,
+          clinical_rationale: clinicalRationale,
+          patients_treated: patientsTotal,
+          success_rate_observed: successRate,
+          conflicts_of_interest: conflictsOfInterest,
+          financial_disclosures: financialDisclosures
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return { data, error: null };
+
+    } catch (error) {
+      console.error('Submit review error:', error);
+      return { data: null, error: error.message };
+    }
+  }
+
+  /**
+   * Get professional reviews for a medication alternative
+   */
+  async getProfessionalReviews(medicationAlternativeId, limit = 10) {
+    try {
+      const { data, error } = await supabase
+        .from('professional_reviews')
+        .select(`
+          *,
+          reviewer:reviewer_id (
+            profession,
+            specialty,
+            verification_status,
+            institution_name
+          )
+        `)
+        .eq('medication_alternative_id', medicationAlternativeId)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+      if (error) throw error;
+      return { data, error: null };
+
+    } catch (error) {
+      console.error('Get professional reviews error:', error);
+      return { data: null, error: error.message };
+    }
+  }
+
+  /**
+   * Apply for medical professional verification
+   */
+  async applyForVerification(userId, applicationData) {
+    try {
+      const {
+        licenseNumber,
+        licenseState,
+        licenseCountry = 'US',
+        profession,
+        specialty,
+        boardCertifications = [],
+        institutionName,
+        institutionType,
+        department
+      } = applicationData;
+
+      // Hash license number for privacy
+      const licenseHash = await this.hashData(licenseNumber);
+
+      const { data, error } = await supabase
+        .from('medical_professionals')
+        .insert({
+          user_id: userId,
+          license_number_hash: licenseHash,
+          license_state: licenseState,
+          license_country: licenseCountry,
+          profession,
+          specialty,
+          board_certifications: boardCertifications,
+          institution_name: institutionName,
+          institution_type: institutionType,
+          department,
+          verification_status: 'pending'
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return { data, error: null };
+
+    } catch (error) {
+      console.error('Apply for verification error:', error);
+      return { data: null, error: error.message };
+    }
+  }
+
+  /**
+   * Get medical professional status
+   */
+  async getMedicalProfessionalStatus(userId) {
+    try {
+      const { data, error } = await supabase
+        .from('medical_professionals')
+        .select(`
+          id,
+          profession,
+          specialty,
+          verification_status,
+          verified_at,
+          institution_name,
+          contributions_count,
+          peer_reviews_count
+        `)
+        .eq('user_id', userId)
+        .eq('is_active', true)
+        .single();
+
+      if (error && error.code !== 'PGRST116') throw error; // Ignore not found
+      return { data, error: null };
+
+    } catch (error) {
+      console.error('Get professional status error:', error);
+      return { data: null, error: error.message };
+    }
+  }
+
+  // ============================================================================
+  // DATA MANAGEMENT AND ANALYTICS
+  // ============================================================================
+
+  /**
+   * Get medication usage analytics
+   */
+  async getMedicationAnalytics(medicationId, timeframe = '30 days') {
+    try {
+      const timeFilter = this.getTimeFilter(timeframe);
+
+      const [searches, feedback, alternatives] = await Promise.all([
+        // Search frequency
+        supabase
+          .from('search_history')
+          .select('id')
+          .eq('medication', medicationId)
+          .gte('timestamp', timeFilter),
+
+        // Feedback summary
+        supabase
+          .from('user_feedback')
+          .select('effectiveness_rating, safety_rating, overall_satisfaction')
+          .eq('medication_alternative_id', medicationId)
+          .eq('moderation_status', 'approved')
+          .gte('created_at', timeFilter),
+
+        // Alternative count
+        supabase
+          .from('medication_alternatives')
+          .select('id')
+          .eq('medication_id', medicationId)
+          .eq('is_active', true)
+      ]);
+
+      const analytics = {
+        searchCount: searches.data?.length || 0,
+        feedbackCount: feedback.data?.length || 0,
+        alternativeCount: alternatives.data?.length || 0,
+        averageRatings: feedback.data?.length > 0 ? {
+          effectiveness: this.calculateAverage(feedback.data, 'effectiveness_rating'),
+          safety: this.calculateAverage(feedback.data, 'safety_rating'),
+          satisfaction: this.calculateAverage(feedback.data, 'overall_satisfaction')
+        } : null
+      };
+
+      return { data: analytics, error: null };
+
+    } catch (error) {
+      console.error('Get analytics error:', error);
+      return { data: null, error: error.message };
+    }
+  }
+
+  /**
+   * Get trending alternatives
+   */
+  async getTrendingAlternatives(limit = 10, timeframe = '7 days') {
+    try {
+      const timeFilter = this.getTimeFilter(timeframe);
+
+      const { data, error } = await supabase
+        .from('user_feedback')
+        .select(`
+          medication_alternative_id,
+          effectiveness_rating,
+          overall_satisfaction,
+          medication_alternative:medication_alternative_id (
+            alternative:alternative_id (
+              id,
+              name,
+              scientific_name,
+              evidence_level
+            )
+          )
+        `)
+        .eq('moderation_status', 'approved')
+        .gte('created_at', timeFilter);
+
+      if (error) throw error;
+
+      // Calculate trending score based on recent feedback
+      const trendingScores = {};
+      data.forEach(feedback => {
+        const altId = feedback.medication_alternative.alternative.id;
+        if (!trendingScores[altId]) {
+          trendingScores[altId] = {
+            alternative: feedback.medication_alternative.alternative,
+            feedbackCount: 0,
+            totalScore: 0
+          };
+        }
+        trendingScores[altId].feedbackCount++;
+        trendingScores[altId].totalScore +=
+          (feedback.effectiveness_rating + feedback.overall_satisfaction) / 2;
+      });
+
+      // Sort by trending score
+      const trending = Object.values(trendingScores)
+        .map(item => ({
+          ...item.alternative,
+          trendingScore: item.totalScore / item.feedbackCount,
+          recentFeedbackCount: item.feedbackCount
+        }))
+        .sort((a, b) => b.trendingScore - a.trendingScore)
+        .slice(0, limit);
+
+      return { data: trending, error: null };
+
+    } catch (error) {
+      console.error('Get trending alternatives error:', error);
+      return { data: null, error: error.message };
+    }
+  }
+
+  /**
+   * Export user data (GDPR compliance)
+   */
+  async exportUserData(userId) {
+    try {
+      const [feedback, searches, interactions, professional] = await Promise.all([
+        supabase
+          .from('user_feedback')
+          .select('*')
+          .eq('user_id', userId),
+
+        supabase
+          .from('search_history')
+          .select('*')
+          .eq('user_id', userId),
+
+        supabase
+          .from('user_interactions')
+          .select('*')
+          .eq('user_id', userId),
+
+        supabase
+          .from('medical_professionals')
+          .select('*')
+          .eq('user_id', userId)
+      ]);
+
+      const userData = {
+        feedback: feedback.data || [],
+        searches: searches.data || [],
+        interactions: interactions.data || [],
+        professional: professional.data?.[0] || null,
+        exportDate: new Date().toISOString()
+      };
+
+      return { data: userData, error: null };
+
+    } catch (error) {
+      console.error('Export user data error:', error);
+      return { data: null, error: error.message };
+    }
+  }
+
+  // ============================================================================
+  // UTILITY METHODS
+  // ============================================================================
+
+  /**
+   * Calculate average of numeric field
+   */
+  calculateAverage(array, field) {
+    if (!array || array.length === 0) return 0;
+    const sum = array.reduce((total, item) => total + (item[field] || 0), 0);
+    return Math.round((sum / array.length) * 100) / 100;
+  }
+
+  /**
+   * Get common items from array field
+   */
+  getCommonItems(array, field, limit = 5) {
+    const allItems = array
+      .filter(item => item[field])
+      .flatMap(item => item[field]);
+
+    const itemCounts = {};
+    allItems.forEach(item => {
+      itemCounts[item] = (itemCounts[item] || 0) + 1;
+    });
+
+    return Object.entries(itemCounts)
+      .sort(([,a], [,b]) => b - a)
+      .slice(0, limit)
+      .map(([item, count]) => ({ item, count }));
+  }
+
+  /**
+   * Get distribution of values
+   */
+  getDistribution(array, field) {
+    const values = array
+      .map(item => item[field])
+      .filter(Boolean);
+
+    const distribution = {};
+    values.forEach(value => {
+      distribution[value] = (distribution[value] || 0) + 1;
+    });
+
+    return distribution;
+  }
+
+  /**
+   * Get time filter for queries
+   */
+  getTimeFilter(timeframe) {
+    const now = new Date();
+    const timeMap = {
+      '24 hours': 1,
+      '7 days': 7,
+      '30 days': 30,
+      '90 days': 90,
+      '1 year': 365
+    };
+
+    const days = timeMap[timeframe] || 30;
+    return new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+  }
+
+  /**
+   * Hash sensitive data
+   */
+  async hashData(data) {
+    const encoder = new TextEncoder();
+    const dataBuffer = encoder.encode(data);
+    const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+
+  // ============================================================================
+  // REAL-TIME SUBSCRIPTIONS
+  // ============================================================================
+
+  /**
+   * Subscribe to feedback updates for a medication alternative
+   */
+  subscribeFeedbackUpdates(medicationAlternativeId, callback) {
+    return supabase
+      .channel(`feedback-${medicationAlternativeId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'user_feedback',
+        filter: `medication_alternative_id=eq.${medicationAlternativeId}`
+      }, callback)
+      .subscribe();
+  }
+
+  /**
+   * Subscribe to professional review updates
+   */
+  subscribeProfessionalReviews(medicationAlternativeId, callback) {
+    return supabase
+      .channel(`reviews-${medicationAlternativeId}`)
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'professional_reviews',
+        filter: `medication_alternative_id=eq.${medicationAlternativeId}`
+      }, callback)
+      .subscribe();
+  }
+
+  /**
+   * Unsubscribe from real-time updates
+   */
+  unsubscribe(subscription) {
+    if (subscription) {
+      supabase.removeChannel(subscription);
+    }
+  }
+}
+
+// Create singleton instance
+const medicalDataAPI = new MedicalDataAPI();
+
+export default medicalDataAPI;
