@@ -5,7 +5,6 @@ import { onAuthStateChanged } from 'firebase/auth';
 
 // Import web components
 import WebNavigation from './components/WebNavigation';
-import WebHome from './pages/WebHome';
 import WebHomeLanding from './pages/WebHomeLanding';
 import WebLogin from './pages/WebLogin';
 import WebDashboard from './pages/WebDashboard';

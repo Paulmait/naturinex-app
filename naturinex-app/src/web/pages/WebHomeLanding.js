@@ -13,14 +13,10 @@ import {
   AppBar,
   Toolbar,
   IconButton,
-  Menu,
-  MenuItem,
   Chip,
   Avatar,
   List,
   ListItem,
-  ListItemIcon,
-  ListItemText,
   Accordion,
   AccordionSummary,
   AccordionDetails,
@@ -34,11 +30,7 @@ import {
 import {
   LocalHospital,
   CameraAlt,
-  History,
-  AutoAwesome,
   Search,
-  Security,
-  Speed,
   CheckCircle,
   TrendingUp,
   Groups,
@@ -52,7 +44,6 @@ import {
   Healing,
   Science,
   Psychology,
-  NaturePeople,
   Spa,
   FavoriteOutlined,
 } from '@mui/icons-material';
@@ -63,7 +54,6 @@ export default function WebHomeLanding() {
   const navigate = useNavigate();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const isTablet = useMediaQuery(theme.breakpoints.down('lg'));
   const { currentUser } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
