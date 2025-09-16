@@ -6,6 +6,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 // Import web components
 import WebNavigation from './components/WebNavigation';
 import WebHome from './pages/WebHome';
+import WebHomeLanding from './pages/WebHomeLanding';
 import WebLogin from './pages/WebLogin';
 import WebDashboard from './pages/WebDashboard';
 import WebScan from './pages/WebScan';
@@ -109,7 +110,7 @@ function WebApp() {
           {user && <WebNavigation user={user} />}
           <main style={{ flex: 1, padding: user ? '20px' : 0 }}>
             <Routes>
-              <Route path="/" element={user ? <Navigate to="/dashboard" /> : <WebHome />} />
+              <Route path="/" element={user ? <Navigate to="/dashboard" /> : <WebHomeLanding />} />
               <Route path="/login" element={user ? <Navigate to="/dashboard" /> : <WebLogin />} />
               <Route path="/dashboard" element={<PrivateRoute><WebDashboard /></PrivateRoute>} />
               <Route path="/scan" element={<PrivateRoute><WebScan /></PrivateRoute>} />
