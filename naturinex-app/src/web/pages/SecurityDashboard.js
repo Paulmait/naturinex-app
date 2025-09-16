@@ -1,0 +1,580 @@
+// Security and Monitoring Dashboard
+// Real-time monitoring of API usage, costs, and security events
+
+import React, { useState, useEffect } from 'react';
+import {
+  Box,
+  Container,
+  Typography,
+  Grid,
+  Card,
+  CardContent,
+  Paper,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Alert,
+  CircularProgress,
+  Chip,
+  IconButton,
+  LinearProgress,
+  Button,
+  Tooltip,
+} from '@mui/material';
+import {
+  Security,
+  AttachMoney,
+  Speed,
+  Block,
+  Warning,
+  CheckCircle,
+  Refresh,
+  TrendingUp,
+  ShowChart,
+  BugReport,
+  CloudQueue,
+} from '@mui/icons-material';
+import { supabase } from '../../config/supabase';
+import { useAuth } from '../../contexts/AuthContext';
+
+export default function SecurityDashboard() {
+  const { currentUser } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Real-time metrics
+  const [metrics, setMetrics] = useState({
+    totalScansToday: 0,
+    anonymousScans: 0,
+    authenticatedScans: 0,
+    apiCostToday: 0,
+    rateLimitHits: 0,
+    suspiciousRequests: 0,
+    activeDevices: 0,
+    avgResponseTime: 0,
+  });
+
+  // Recent events
+  const [recentScans, setRecentScans] = useState([]);
+  const [abuseLog, setAbuseLog] = useState([]);
+  const [alerts, setAlerts] = useState([]);
+
+  // Performance metrics
+  const [performance, setPerformance] = useState({
+    uptime: 99.9,
+    errorRate: 0,
+    p95ResponseTime: 0,
+    p99ResponseTime: 0,
+  });
+
+  useEffect(() => {
+    checkAdminAccess();
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      loadDashboardData();
+      // Set up real-time subscription
+      const subscription = setupRealtimeSubscription();
+
+      // Auto-refresh every 30 seconds
+      const interval = setInterval(loadDashboardData, 30000);
+
+      return () => {
+        subscription?.unsubscribe();
+        clearInterval(interval);
+      };
+    }
+  }, [isAdmin]);
+
+  const checkAdminAccess = async () => {
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const { data } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('user_id', currentUser.uid)
+        .single();
+
+      setIsAdmin(data?.role === 'admin' || currentUser.email === 'guampaul@gmail.com');
+    } catch (error) {
+      console.error('Admin check error:', error);
+    }
+    setLoading(false);
+  };
+
+  const loadDashboardData = async () => {
+    if (!isAdmin) return;
+
+    try {
+      // Load today's metrics
+      const today = new Date().toISOString().split('T')[0];
+
+      // Scan metrics
+      const { data: scanData } = await supabase
+        .from('scan_logs')
+        .select('*')
+        .gte('timestamp', today);
+
+      if (scanData) {
+        const totalScans = scanData.length;
+        const anonymousScans = scanData.filter(s => s.is_anonymous).length;
+        const authenticatedScans = totalScans - anonymousScans;
+        const apiCost = scanData.reduce((sum, s) => sum + (s.api_cost_cents || 0), 0) / 100;
+        const avgResponse = scanData.reduce((sum, s) => sum + (s.response_time_ms || 0), 0) / totalScans || 0;
+
+        setMetrics(prev => ({
+          ...prev,
+          totalScansToday: totalScans,
+          anonymousScans,
+          authenticatedScans,
+          apiCostToday: apiCost,
+          avgResponseTime: Math.round(avgResponse),
+        }));
+
+        // Recent scans
+        setRecentScans(scanData
+          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+          .slice(0, 10));
+      }
+
+      // Abuse logs
+      const { data: abuseData } = await supabase
+        .from('abuse_logs')
+        .select('*')
+        .gte('timestamp', today)
+        .order('timestamp', { ascending: false })
+        .limit(20);
+
+      if (abuseData) {
+        setAbuseLog(abuseData);
+        setMetrics(prev => ({
+          ...prev,
+          rateLimitHits: abuseData.filter(a => a.action === 'rate_limit_exceeded').length,
+          suspiciousRequests: abuseData.filter(a => a.severity === 'high' || a.severity === 'critical').length,
+        }));
+      }
+
+      // Active alerts
+      const { data: alertData } = await supabase
+        .from('monitoring_alerts')
+        .select('*')
+        .eq('is_resolved', false)
+        .order('created_at', { ascending: false });
+
+      if (alertData) {
+        setAlerts(alertData);
+      }
+
+      // Device count
+      const { data: deviceData } = await supabase
+        .from('device_fingerprints')
+        .select('fingerprint_hash')
+        .gte('last_seen', today);
+
+      if (deviceData) {
+        setMetrics(prev => ({
+          ...prev,
+          activeDevices: deviceData.length,
+        }));
+      }
+
+      // Performance metrics (calculate from scan logs)
+      if (scanData && scanData.length > 0) {
+        const responseTimes = scanData
+          .map(s => s.response_time_ms)
+          .filter(t => t)
+          .sort((a, b) => a - b);
+
+        if (responseTimes.length > 0) {
+          const p95Index = Math.floor(responseTimes.length * 0.95);
+          const p99Index = Math.floor(responseTimes.length * 0.99);
+
+          setPerformance(prev => ({
+            ...prev,
+            p95ResponseTime: responseTimes[p95Index] || 0,
+            p99ResponseTime: responseTimes[p99Index] || 0,
+          }));
+        }
+      }
+    } catch (error) {
+      console.error('Dashboard loading error:', error);
+    }
+  };
+
+  const setupRealtimeSubscription = () => {
+    // Subscribe to new scans
+    const scanSubscription = supabase
+      .channel('scan-logs')
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'scan_logs' },
+        (payload) => {
+          console.log('New scan:', payload);
+          setMetrics(prev => ({
+            ...prev,
+            totalScansToday: prev.totalScansToday + 1,
+            anonymousScans: payload.new.is_anonymous ? prev.anonymousScans + 1 : prev.anonymousScans,
+            authenticatedScans: !payload.new.is_anonymous ? prev.authenticatedScans + 1 : prev.authenticatedScans,
+            apiCostToday: prev.apiCostToday + (payload.new.api_cost_cents || 0) / 100,
+          }));
+
+          setRecentScans(prev => [payload.new, ...prev.slice(0, 9)]);
+        }
+      )
+      .subscribe();
+
+    // Subscribe to abuse events
+    const abuseSubscription = supabase
+      .channel('abuse-logs')
+      .on('postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'abuse_logs' },
+        (payload) => {
+          console.log('New abuse event:', payload);
+          setAbuseLog(prev => [payload.new, ...prev.slice(0, 19)]);
+
+          if (payload.new.action === 'rate_limit_exceeded') {
+            setMetrics(prev => ({
+              ...prev,
+              rateLimitHits: prev.rateLimitHits + 1,
+            }));
+          }
+
+          if (payload.new.severity === 'high' || payload.new.severity === 'critical') {
+            setMetrics(prev => ({
+              ...prev,
+              suspiciousRequests: prev.suspiciousRequests + 1,
+            }));
+          }
+        }
+      )
+      .subscribe();
+
+    return {
+      unsubscribe: () => {
+        scanSubscription.unsubscribe();
+        abuseSubscription.unsubscribe();
+      }
+    };
+  };
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadDashboardData();
+    setRefreshing(false);
+  };
+
+  const resolveAlert = async (alertId) => {
+    try {
+      await supabase
+        .from('monitoring_alerts')
+        .update({ is_resolved: true, resolved_at: new Date().toISOString() })
+        .eq('id', alertId);
+
+      setAlerts(prev => prev.filter(a => a.id !== alertId));
+    } catch (error) {
+      console.error('Error resolving alert:', error);
+    }
+  };
+
+  const getSeverityColor = (severity) => {
+    switch (severity) {
+      case 'critical': return 'error';
+      case 'high': return 'error';
+      case 'medium': return 'warning';
+      case 'low': return 'info';
+      default: return 'default';
+    }
+  };
+
+  if (loading) {
+    return (
+      <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
+        <CircularProgress />
+      </Box>
+    );
+  }
+
+  if (!isAdmin) {
+    return (
+      <Container maxWidth="md" sx={{ mt: 4 }}>
+        <Alert severity="error">
+          <Typography variant="h6">Access Denied</Typography>
+          <Typography>Admin privileges required to view this dashboard.</Typography>
+        </Alert>
+      </Container>
+    );
+  }
+
+  return (
+    <Container maxWidth="xl" sx={{ mt: 4, mb: 4 }}>
+      {/* Header */}
+      <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
+        <Typography variant="h4" fontWeight="bold">
+          <Security sx={{ mr: 2, verticalAlign: 'middle' }} />
+          Security & Monitoring Dashboard
+        </Typography>
+        <IconButton onClick={handleRefresh} disabled={refreshing}>
+          <Refresh />
+        </IconButton>
+      </Box>
+
+      {/* Active Alerts */}
+      {alerts.length > 0 && (
+        <Box mb={3}>
+          {alerts.map((alert) => (
+            <Alert
+              key={alert.id}
+              severity={getSeverityColor(alert.severity)}
+              action={
+                <Button size="small" onClick={() => resolveAlert(alert.id)}>
+                  Resolve
+                </Button>
+              }
+              sx={{ mb: 1 }}
+            >
+              <strong>{alert.alert_type}:</strong> {alert.message}
+            </Alert>
+          ))}
+        </Box>
+      )}
+
+      {/* Metrics Cards */}
+      <Grid container spacing={3} mb={4}>
+        <Grid item xs={12} sm={6} md={3}>
+          <Card sx={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+            <CardContent>
+              <Box display="flex" justifyContent="space-between" alignItems="center">
+                <Box>
+                  <Typography color="white" gutterBottom>
+                    Total Scans Today
+                  </Typography>
+                  <Typography variant="h3" color="white">
+                    {metrics.totalScansToday}
+                  </Typography>
+                  <Typography variant="body2" color="rgba(255,255,255,0.7)">
+                    {metrics.anonymousScans} anonymous
+                  </Typography>
+                </Box>
+                <ShowChart sx={{ fontSize: 50, color: 'rgba(255,255,255,0.3)' }} />
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} sm={6} md={3}>
+          <Card sx={{ background: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)' }}>
+            <CardContent>
+              <Box display="flex" justifyContent="space-between" alignItems="center">
+                <Box>
+                  <Typography color="white" gutterBottom>
+                    API Cost Today
+                  </Typography>
+                  <Typography variant="h3" color="white">
+                    ${metrics.apiCostToday.toFixed(2)}
+                  </Typography>
+                  <Typography variant="body2" color="rgba(255,255,255,0.7)">
+                    ${(metrics.apiCostToday / metrics.totalScansToday || 0).toFixed(3)}/scan
+                  </Typography>
+                </Box>
+                <AttachMoney sx={{ fontSize: 50, color: 'rgba(255,255,255,0.3)' }} />
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} sm={6} md={3}>
+          <Card sx={{ background: metrics.rateLimitHits > 10 ?
+            'linear-gradient(135deg, #ff6b6b 0%, #ff4444 100%)' :
+            'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)' }}>
+            <CardContent>
+              <Box display="flex" justifyContent="space-between" alignItems="center">
+                <Box>
+                  <Typography color="white" gutterBottom>
+                    Rate Limit Hits
+                  </Typography>
+                  <Typography variant="h3" color="white">
+                    {metrics.rateLimitHits}
+                  </Typography>
+                  <Typography variant="body2" color="rgba(255,255,255,0.7)">
+                    {metrics.suspiciousRequests} suspicious
+                  </Typography>
+                </Box>
+                <Block sx={{ fontSize: 50, color: 'rgba(255,255,255,0.3)' }} />
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        <Grid item xs={12} sm={6} md={3}>
+          <Card sx={{ background: 'linear-gradient(135deg, #fa709a 0%, #fee140 100%)' }}>
+            <CardContent>
+              <Box display="flex" justifyContent="space-between" alignItems="center">
+                <Box>
+                  <Typography color="white" gutterBottom>
+                    Avg Response Time
+                  </Typography>
+                  <Typography variant="h3" color="white">
+                    {metrics.avgResponseTime}ms
+                  </Typography>
+                  <Typography variant="body2" color="rgba(255,255,255,0.7)">
+                    P95: {performance.p95ResponseTime}ms
+                  </Typography>
+                </Box>
+                <Speed sx={{ fontSize: 50, color: 'rgba(255,255,255,0.3)' }} />
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
+      </Grid>
+
+      {/* Recent Activity */}
+      <Grid container spacing={3}>
+        <Grid item xs={12} md={6}>
+          <Paper sx={{ p: 2 }}>
+            <Typography variant="h6" gutterBottom>
+              Recent Scans
+            </Typography>
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Time</TableCell>
+                    <TableCell>Medication</TableCell>
+                    <TableCell>Type</TableCell>
+                    <TableCell>Response</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {recentScans.map((scan, index) => (
+                    <TableRow key={scan.id || index}>
+                      <TableCell>
+                        {new Date(scan.timestamp).toLocaleTimeString()}
+                      </TableCell>
+                      <TableCell>{scan.medication}</TableCell>
+                      <TableCell>
+                        <Chip
+                          label={scan.is_anonymous ? 'Anon' : 'Auth'}
+                          size="small"
+                          color={scan.is_anonymous ? 'default' : 'primary'}
+                        />
+                      </TableCell>
+                      <TableCell>{scan.response_time_ms}ms</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+        </Grid>
+
+        <Grid item xs={12} md={6}>
+          <Paper sx={{ p: 2 }}>
+            <Typography variant="h6" gutterBottom>
+              Security Events
+            </Typography>
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Time</TableCell>
+                    <TableCell>Event</TableCell>
+                    <TableCell>IP</TableCell>
+                    <TableCell>Severity</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {abuseLog.map((event, index) => (
+                    <TableRow key={event.id || index}>
+                      <TableCell>
+                        {new Date(event.timestamp).toLocaleTimeString()}
+                      </TableCell>
+                      <TableCell>{event.action}</TableCell>
+                      <TableCell>{event.ip_address?.substring(0, 10)}...</TableCell>
+                      <TableCell>
+                        <Chip
+                          label={event.severity}
+                          size="small"
+                          color={getSeverityColor(event.severity)}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          </Paper>
+        </Grid>
+      </Grid>
+
+      {/* Performance Metrics */}
+      <Paper sx={{ p: 3, mt: 3 }}>
+        <Typography variant="h6" gutterBottom>
+          System Performance
+        </Typography>
+        <Grid container spacing={2}>
+          <Grid item xs={12} md={3}>
+            <Box>
+              <Typography color="text.secondary" gutterBottom>
+                Uptime
+              </Typography>
+              <Typography variant="h4">{performance.uptime}%</Typography>
+              <LinearProgress
+                variant="determinate"
+                value={performance.uptime}
+                sx={{ mt: 1 }}
+                color="success"
+              />
+            </Box>
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <Box>
+              <Typography color="text.secondary" gutterBottom>
+                Active Devices
+              </Typography>
+              <Typography variant="h4">{metrics.activeDevices}</Typography>
+              <Typography variant="body2" color="text.secondary">
+                Unique devices today
+              </Typography>
+            </Box>
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <Box>
+              <Typography color="text.secondary" gutterBottom>
+                P99 Response Time
+              </Typography>
+              <Typography variant="h4">{performance.p99ResponseTime}ms</Typography>
+              <Chip
+                label={performance.p99ResponseTime < 1000 ? 'Good' : 'Needs Attention'}
+                size="small"
+                color={performance.p99ResponseTime < 1000 ? 'success' : 'warning'}
+                sx={{ mt: 1 }}
+              />
+            </Box>
+          </Grid>
+          <Grid item xs={12} md={3}>
+            <Box>
+              <Typography color="text.secondary" gutterBottom>
+                Error Rate
+              </Typography>
+              <Typography variant="h4">{performance.errorRate}%</Typography>
+              <Chip
+                label={performance.errorRate < 1 ? 'Healthy' : 'Issues Detected'}
+                size="small"
+                color={performance.errorRate < 1 ? 'success' : 'error'}
+                sx={{ mt: 1 }}
+              />
+            </Box>
+          </Grid>
+        </Grid>
+      </Paper>
+    </Container>
+  );
+}

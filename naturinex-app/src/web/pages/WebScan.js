@@ -230,8 +230,31 @@ function WebScan() {
           body: JSON.stringify({ medication: textInput.trim() }),
         });
         
+        // Check rate limit headers
+        const rateLimitRemaining = response.headers.get('X-RateLimit-Remaining');
+        const rateLimitReset = response.headers.get('X-RateLimit-Reset');
+        if (rateLimitRemaining !== null) {
+          setRemainingScans(parseInt(rateLimitRemaining));
+          setRateLimitInfo({
+            remaining: parseInt(rateLimitRemaining),
+            reset: rateLimitReset ? new Date(parseInt(rateLimitReset)) : null
+          });
+        }
+
         if (!response.ok) {
           const errorData = await response.json();
+
+          if (response.status === 429) {
+            // Rate limit exceeded
+            setScanLimitReached(true);
+            setError(`${errorData.error || 'Rate limit exceeded.'}${!user ? ' Sign up for unlimited scans!' : ''}`);
+            return;
+          } else if (response.status === 403) {
+            // Suspicious activity
+            setError('Your request was blocked. Please try again later.');
+            return;
+          }
+
           throw new Error(errorData.message || 'Analysis failed');
         }
         
@@ -262,8 +285,31 @@ function WebScan() {
           }),
         });
         
+        // Check rate limit headers
+        const rateLimitRemaining = response.headers.get('X-RateLimit-Remaining');
+        const rateLimitReset = response.headers.get('X-RateLimit-Reset');
+        if (rateLimitRemaining !== null) {
+          setRemainingScans(parseInt(rateLimitRemaining));
+          setRateLimitInfo({
+            remaining: parseInt(rateLimitRemaining),
+            reset: rateLimitReset ? new Date(parseInt(rateLimitReset)) : null
+          });
+        }
+
         if (!response.ok) {
           const errorData = await response.json();
+
+          if (response.status === 429) {
+            // Rate limit exceeded
+            setScanLimitReached(true);
+            setError(`${errorData.error || 'Rate limit exceeded.'}${!user ? ' Sign up for unlimited scans!' : ''}`);
+            return;
+          } else if (response.status === 403) {
+            // Suspicious activity
+            setError('Your request was blocked. Please try again later.');
+            return;
+          }
+
           throw new Error(errorData.message || 'Analysis failed');
         }
         
@@ -417,6 +463,27 @@ function WebScan() {
         <Alert severity="warning" sx={{ mb: 3 }}>
           You&apos;ve reached your daily scan limit. Upgrade to Premium for unlimited scans!
         </Alert>
+      )}
+
+      {/* Rate limit info for anonymous users */}
+      {!user && remainingScans !== null && remainingScans <= 2 && !scanLimitReached && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          <Typography variant="body2">
+            You have <strong>{remainingScans}</strong> free scan{remainingScans !== 1 ? 's' : ''} remaining.
+            {' '}<Button size="small" onClick={() => window.location.href = '/signup'}>Sign up for more!</Button>
+          </Typography>
+        </Alert>
+      )}
+
+      {/* Device fingerprint status */}
+      {deviceId && (
+        <Box sx={{ mb: 2, display: 'none' }}>
+          <Chip
+            label={`Device ID: ${deviceId.substring(0, 8)}...`}
+            size="small"
+            color="success"
+          />
+        </Box>
       )}
       
       <Grid container spacing={3}>
