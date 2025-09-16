@@ -25,20 +25,33 @@ import AdminDashboard from './src/screens/AdminDashboard';
 import AdminSettings from './src/screens/AdminSettings';
 import NotificationProvider from './src/components/NotificationProvider';
 import AppLaunchGate from './src/components/AppLaunchGate';
+import ErrorBoundary from './src/components/ErrorBoundary';
+import OfflineIndicator from './src/components/OfflineIndicator';
 import { startSession, endSession } from './src/services/engagementTracking';
+
+// Initialize services
+import MonitoringService from './src/services/MonitoringService';
+import OfflineServiceV2 from './src/services/OfflineServiceV2';
+import ErrorService from './src/services/ErrorService';
 
 const Stack = createNativeStackNavigator();
 
 export default function App() {
   const [isReady, setIsReady] = useState(false);
-  
+
   useEffect(() => {
     // Start engagement session
     startSession();
-    
+
+    // Initialize monitoring
+    MonitoringService.trackEvent('app_launch', {
+      timestamp: new Date().toISOString(),
+    });
+
     // End session when app closes
     return () => {
       endSession();
+      MonitoringService.endSession();
     };
   }, []);
 
@@ -48,6 +61,22 @@ export default function App() {
       setIsReady(true);
     }, 100);
   }, []);
+
+  const handleErrorBoundaryRestart = () => {
+    // Force app restart logic if needed
+    setIsReady(false);
+    setTimeout(() => setIsReady(true), 100);
+  };
+
+  const handleAuthReset = async () => {
+    try {
+      // Handle auth reset logic
+      await ErrorService.logInfo('Auth reset requested from error boundary');
+      // Could add logout logic here
+    } catch (error) {
+      ErrorService.logError(error, 'App.handleAuthReset');
+    }
+  };
 
   if (!isReady) {
     return (
@@ -59,23 +88,30 @@ export default function App() {
   }
 
   return (
-    <SafeAreaProvider>
-      <StatusBar style="auto" />
-      <AppLaunchGate>
-        <NotificationProvider>
-          <NavigationContainer>
-            <Stack.Navigator
-          initialRouteName="Login"
-          screenOptions={{
-            headerStyle: {
-              backgroundColor: '#10B981',
-            },
-            headerTintColor: '#fff',
-            headerTitleStyle: {
-              fontWeight: 'bold',
-            },
-          }}
-        >
+    <ErrorBoundary
+      context="root"
+      onRestart={handleErrorBoundaryRestart}
+      onAuthReset={handleAuthReset}
+      enableAnalytics={true}
+    >
+      <SafeAreaProvider>
+        <StatusBar style="auto" />
+        <AppLaunchGate>
+          <NotificationProvider>
+            <NavigationContainer>
+              <Stack.Navigator
+            initialRouteName="Login"
+            screenOptions={{
+              headerStyle: {
+                backgroundColor: '#10B981',
+              },
+              headerTintColor: '#fff',
+              headerTitleStyle: {
+                fontWeight: 'bold',
+              },
+              headerRight: () => <OfflineIndicator style={{ marginRight: 15 }} />,
+            }}
+          >
           <Stack.Screen 
             name="Login" 
             component={LoginScreen}
@@ -144,5 +180,6 @@ export default function App() {
         </NotificationProvider>
       </AppLaunchGate>
     </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }

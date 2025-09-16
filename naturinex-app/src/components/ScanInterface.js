@@ -1,11 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useScan } from '../hooks/useScan';
 import { useUser } from '../hooks/useUser';
 import { APP_CONFIG } from '../constants/appConfig';
 import aiService from '../services/aiService';
 import medicationService from '../services/medicationService';
 import offlineService from '../services/offlineService';
+import OfflineServiceV2 from '../services/OfflineServiceV2';
+import ErrorService from '../services/ErrorService';
+import MonitoringService from '../services/MonitoringService';
 import FeedbackSystem from './FeedbackSystem';
+import ErrorBoundary from './ErrorBoundary';
+import OfflineIndicator from './OfflineIndicator';
 
 const ScanInterface = ({ notifications, onScanComplete }) => {
   const { user, isPremium, canPerformScan, getRemainingScans, incrementScanCount } = useUser();
@@ -31,68 +36,137 @@ const ScanInterface = ({ notifications, onScanComplete }) => {
   const [scanResultsState, setScanResults] = useState(null);
   const [currentInteractions, setCurrentInteractions] = useState([]);
   const [dosageInfo, setDosageInfo] = useState(null);
+  const [isOffline, setIsOffline] = useState(false);
+
+  useEffect(() => {
+    // Track screen view
+    MonitoringService.trackScreenView('ScanInterface');
+
+    // Listen for network changes
+    const unsubscribe = OfflineServiceV2.addNetworkListener((networkInfo) => {
+      setIsOffline(!networkInfo.isOnline);
+    });
+
+    return unsubscribe;
+  }, []);
 
   // Handle scan submission
   const handleScanSubmit = async () => {
-    if (!canPerformScan()) {
-      notifications?.showError(APP_CONFIG.ERROR_MESSAGES.QUOTA_EXCEEDED);
-      return;
-    }
-
-    const validation = aiService.validateMedicationName(medicationName);
-    if (!validation.isValid) {
-      notifications?.showWarning(validation.error, 'Invalid Input');
-      return;
-    }
-
     try {
-      // Check cache first
-      const cachedResults = await offlineService.getCachedSuggestion(medicationName);
-      if (cachedResults) {
-        notifications?.showInfo('Using cached results');
-        setScanResults(cachedResults);
+      // Track user action
+      await MonitoringService.trackUserAction('scan_submit', 'manual_input', {
+        medicationName: medicationName.substring(0, 3) + '***', // Partial for privacy
+      });
+
+      if (!canPerformScan()) {
+        notifications?.showError(APP_CONFIG.ERROR_MESSAGES.QUOTA_EXCEEDED);
         return;
       }
 
-      const results = await processScan(medicationName);
-      if (results) {
-        await incrementScanCount();
-        onScanComplete?.(results);
-        
-        // Save to history
-        if (user) {
-          await medicationService.saveMedicationScan(user.uid, {
-            medicationName,
-            alternatives: results.alternatives.map(alt => alt.name),
-            scanMethod: 'manual'
-          });
-        }
-        
-        // Cache the results
-        await offlineService.cacheSuggestion(medicationName, results);
-        
-        notifications?.showSuccess(APP_CONFIG.SUCCESS_MESSAGES.SCAN_COMPLETED);
+      const validation = aiService.validateMedicationName(medicationName);
+      if (!validation.isValid) {
+        notifications?.showWarning(validation.error, 'Invalid Input');
+        return;
       }
-    } catch (error) {
-      console.error('Scan submission error:', error);
-      
-      // Try offline mode
-      if (!navigator.onLine) {
-        const offlineResults = offlineService.getOfflineSuggestions(medicationName);
-        if (offlineResults.found) {
-          setScanResults({
-            medicationName,
-            alternatives: offlineResults.alternatives,
-            warnings: ['Offline mode - limited information available'],
-            recommendations: ['Please consult healthcare provider for detailed information'],
-            disclaimer: 'This information is from offline cache and may not be complete.'
-          });
-          notifications?.showWarning('Using offline data - connect to internet for full results');
+
+      // Performance tracking
+      const startTime = Date.now();
+
+      try {
+        let results = null;
+
+        if (isOffline) {
+          // Use offline service for medication search
+          results = await OfflineServiceV2.getNaturalAlternativesOffline(medicationName);
+          if (results) {
+            setScanResults({
+              ...results,
+              warnings: ['Offline mode - limited information available'],
+              recommendations: ['Please consult healthcare provider for detailed information'],
+              disclaimer: 'This information is from offline cache and may not be complete.'
+            });
+            notifications?.showWarning('Using offline data - connect to internet for full results');
+          } else {
+            // Fallback to old offline service
+            const offlineResults = offlineService.getOfflineSuggestions(medicationName);
+            if (offlineResults.found) {
+              setScanResults({
+                medicationName,
+                alternatives: offlineResults.alternatives,
+                warnings: ['Offline mode - limited information available'],
+                recommendations: ['Please consult healthcare provider for detailed information'],
+                disclaimer: 'This information is from offline cache and may not be complete.'
+              });
+              notifications?.showWarning('Using offline data - connect to internet for full results');
+            } else {
+              notifications?.showError('No offline data available for this medication');
+            }
+          }
         } else {
-          notifications?.showError('No offline data available for this medication');
+          // Check cache first
+          const cachedResults = await offlineService.getCachedSuggestion(medicationName);
+          if (cachedResults) {
+            notifications?.showInfo('Using cached results');
+            setScanResults(cachedResults);
+            return;
+          }
+
+          // Online processing
+          results = await processScan(medicationName);
+          if (results) {
+            await incrementScanCount();
+            onScanComplete?.(results);
+
+            // Save to history (online and offline)
+            if (user) {
+              const scanData = {
+                medicationName,
+                alternatives: results.alternatives.map(alt => alt.name),
+                scanMethod: 'manual',
+                timestamp: new Date().toISOString(),
+                userId: user.uid,
+              };
+
+              try {
+                await medicationService.saveMedicationScan(user.uid, scanData);
+              } catch (saveError) {
+                // Queue for offline sync
+                await OfflineServiceV2.saveScanOffline(scanData);
+                ErrorService.logWarning('Scan saved offline due to connection issue', { saveError });
+              }
+            }
+
+            // Cache the results
+            await offlineService.cacheSuggestion(medicationName, results);
+
+            notifications?.showSuccess(APP_CONFIG.SUCCESS_MESSAGES.SCAN_COMPLETED);
+          }
         }
+
+        // Track performance
+        const duration = Date.now() - startTime;
+        await MonitoringService.trackPerformanceMetric('scan_processing_time', duration, {
+          isOffline,
+          medicationType: 'manual',
+        });
+
+      } catch (processingError) {
+        throw processingError;
+      }
+
+    } catch (error) {
+      // Log error with context
+      await ErrorService.logError(error, 'ScanInterface.handleScanSubmit', {
+        medicationName: medicationName.substring(0, 3) + '***',
+        isOffline,
+        userType: isPremium ? 'premium' : 'free',
+      });
+
+      // Show user-friendly error
+      if (error.message.includes('queued')) {
+        notifications?.showInfo('Scan saved for processing when connection returns');
       } else {
-        notifications?.showError(error.message);
+        notifications?.showError(error.message || 'Failed to process scan');
       }
     }
   };

@@ -1,0 +1,99 @@
+import React from 'react';
+import ErrorBoundary from '../components/ErrorBoundary';
+
+/**
+ * Higher-order component to wrap components with ErrorBoundary
+ *
+ * @param {React.Component} WrappedComponent - Component to wrap
+ * @param {Object} options - Configuration options
+ * @returns {React.Component} - Component wrapped with ErrorBoundary
+ */
+const withErrorBoundary = (WrappedComponent, options = {}) => {
+  const {
+    context = WrappedComponent.name || 'Component',
+    onRestart,
+    onAuthReset,
+    enableAnalytics = true,
+    fallbackComponent,
+  } = options;
+
+  const WrappedWithErrorBoundary = (props) => {
+    return (
+      <ErrorBoundary
+        context={context}
+        onRestart={onRestart}
+        onAuthReset={onAuthReset}
+        enableAnalytics={enableAnalytics}
+        fallbackComponent={fallbackComponent}
+        onErrorAnalytics={(analyticsData) => {
+          // Custom analytics handling if needed
+          if (options.onErrorAnalytics) {
+            options.onErrorAnalytics(analyticsData);
+          }
+        }}
+      >
+        <WrappedComponent {...props} />
+      </ErrorBoundary>
+    );
+  };
+
+  // Copy static properties and displayName
+  WrappedWithErrorBoundary.displayName = `withErrorBoundary(${WrappedComponent.displayName || WrappedComponent.name || 'Component'})`;
+  WrappedWithErrorBoundary.WrappedComponent = WrappedComponent;
+
+  return WrappedWithErrorBoundary;
+};
+
+/**
+ * Decorator version for easier use with class components
+ */
+export const errorBoundary = (options = {}) => (WrappedComponent) => {
+  return withErrorBoundary(WrappedComponent, options);
+};
+
+/**
+ * Pre-configured HOCs for common use cases
+ */
+
+// For critical components that handle user data
+export const withCriticalErrorBoundary = (WrappedComponent) => {
+  return withErrorBoundary(WrappedComponent, {
+    context: `critical_${WrappedComponent.name}`,
+    enableAnalytics: true,
+    onRestart: () => {
+      // Log critical component restart
+      console.warn(`Critical component ${WrappedComponent.name} restarted due to error`);
+    },
+  });
+};
+
+// For UI components that can gracefully degrade
+export const withUIErrorBoundary = (WrappedComponent) => {
+  return withErrorBoundary(WrappedComponent, {
+    context: `ui_${WrappedComponent.name}`,
+    enableAnalytics: false, // Less critical, don't spam analytics
+  });
+};
+
+// For feature components with custom fallbacks
+export const withFeatureErrorBoundary = (WrappedComponent, fallbackComponent) => {
+  return withErrorBoundary(WrappedComponent, {
+    context: `feature_${WrappedComponent.name}`,
+    fallbackComponent,
+    enableAnalytics: true,
+  });
+};
+
+// For screens/routes
+export const withScreenErrorBoundary = (WrappedComponent) => {
+  return withErrorBoundary(WrappedComponent, {
+    context: `screen_${WrappedComponent.name}`,
+    enableAnalytics: true,
+    onRestart: () => {
+      // Could trigger navigation or refresh logic
+      console.log(`Screen ${WrappedComponent.name} restarted`);
+    },
+  });
+};
+
+export default withErrorBoundary;

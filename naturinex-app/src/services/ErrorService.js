@@ -1,0 +1,672 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '../config/supabase';
+import * as Device from 'expo-device';
+import Constants from 'expo-constants';
+import { Platform } from 'react-native';
+
+/**
+ * ErrorService - Centralized error handling and logging
+ *
+ * Features:
+ * - Error categorization and severity assessment
+ * - Local and remote logging
+ * - User-friendly error messages
+ * - Recovery strategies
+ * - Retry logic with exponential backoff
+ * - Performance and crash analytics
+ */
+class ErrorService {
+  constructor() {
+    this.errorCount = 0;
+    this.sessionErrors = [];
+    this.retryQueues = new Map();
+    this.analyticsQueue = [];
+
+    // Error categories
+    this.ERROR_CATEGORIES = {
+      NETWORK: 'network',
+      VALIDATION: 'validation',
+      AUTH: 'authentication',
+      PERMISSION: 'permission',
+      API: 'api',
+      STORAGE: 'storage',
+      CAMERA: 'camera',
+      PAYMENT: 'payment',
+      SCAN: 'scan',
+      UNKNOWN: 'unknown'
+    };
+
+    // Error severity levels
+    this.ERROR_SEVERITY = {
+      LOW: 'low',
+      MEDIUM: 'medium',
+      HIGH: 'high',
+      CRITICAL: 'critical'
+    };
+
+    // Storage keys
+    this.STORAGE_KEYS = {
+      ERROR_LOGS: 'error_service_logs',
+      ERROR_STATS: 'error_service_stats',
+      RETRY_QUEUE: 'error_service_retry_queue',
+      ANALYTICS_QUEUE: 'error_service_analytics_queue',
+    };
+
+    this.init();
+  }
+
+  async init() {
+    try {
+      // Load existing error statistics
+      await this.loadErrorStats();
+
+      // Set up periodic cleanup
+      this.setupPeriodicCleanup();
+
+      // Load retry queues
+      await this.loadRetryQueues();
+    } catch (error) {
+      console.error('Failed to initialize ErrorService:', error);
+    }
+  }
+
+  /**
+   * Main error logging method
+   */
+  async logError(error, context = 'unknown', additionalData = {}) {
+    const errorData = this.processError(error, context, additionalData);
+
+    try {
+      // Log to console in development
+      if (__DEV__) {
+        this.logToConsole(errorData);
+      }
+
+      // Save to local storage
+      await this.saveToLocalStorage(errorData);
+
+      // Add to session errors
+      this.sessionErrors.push(errorData);
+
+      // Keep only last 100 session errors to prevent memory issues
+      if (this.sessionErrors.length > 100) {
+        this.sessionErrors.splice(0, 50);
+      }
+
+      // Attempt to send to remote logging
+      await this.sendToRemoteLogging(errorData);
+
+      // Update error statistics
+      await this.updateErrorStats(errorData);
+
+      return errorData.id;
+    } catch (loggingError) {
+      console.error('Failed to log error:', loggingError);
+      return null;
+    }
+  }
+
+  /**
+   * Log info messages
+   */
+  async logInfo(message, data = {}) {
+    const infoData = {
+      id: this.generateId(),
+      type: 'info',
+      message,
+      data,
+      timestamp: new Date().toISOString(),
+      deviceInfo: await this.getDeviceInfo(),
+    };
+
+    if (__DEV__) {
+      console.log('ℹ️ INFO:', message, data);
+    }
+
+    await this.saveToLocalStorage(infoData);
+  }
+
+  /**
+   * Log warning messages
+   */
+  async logWarning(message, data = {}) {
+    const warningData = {
+      id: this.generateId(),
+      type: 'warning',
+      message,
+      data,
+      timestamp: new Date().toISOString(),
+      deviceInfo: await this.getDeviceInfo(),
+    };
+
+    if (__DEV__) {
+      console.warn('⚠️ WARNING:', message, data);
+    }
+
+    await this.saveToLocalStorage(warningData);
+  }
+
+  /**
+   * Process and categorize error
+   */
+  processError(error, context, additionalData) {
+    const errorString = error.toString().toLowerCase();
+    const stackTrace = error.stack || '';
+
+    // Generate unique error ID
+    const errorId = this.generateId();
+
+    // Categorize error
+    const category = this.categorizeError(error, errorString, stackTrace);
+
+    // Determine severity
+    const severity = this.determineSeverity(error, category, errorString);
+
+    // Generate user-friendly message
+    const userMessage = this.generateUserMessage(category, error);
+
+    // Determine if error is recoverable
+    const isRecoverable = this.isErrorRecoverable(category, severity, error);
+
+    // Get recovery suggestions
+    const recoverySuggestions = this.getRecoverySuggestions(category, error);
+
+    return {
+      id: errorId,
+      type: 'error',
+      timestamp: new Date().toISOString(),
+      category,
+      severity,
+      isRecoverable,
+      userMessage,
+      technicalMessage: error.message,
+      errorName: error.name,
+      errorCode: error.code,
+      statusCode: error.status || error.statusCode,
+      stackTrace: error.stack,
+      context,
+      additionalData,
+      recoverySuggestions,
+      deviceInfo: this.getDeviceInfoSync(),
+      appInfo: this.getAppInfo(),
+    };
+  }
+
+  /**
+   * Categorize error based on type and message
+   */
+  categorizeError(error, errorString, stackTrace) {
+    // Network errors
+    if (errorString.includes('network') || errorString.includes('fetch') ||
+        errorString.includes('connection') || error.name === 'NetworkError' ||
+        errorString.includes('timeout') || errorString.includes('abort')) {
+      return this.ERROR_CATEGORIES.NETWORK;
+    }
+
+    // Authentication errors
+    if (errorString.includes('auth') || errorString.includes('token') ||
+        errorString.includes('unauthorized') || errorString.includes('login') ||
+        error.status === 401 || error.status === 403) {
+      return this.ERROR_CATEGORIES.AUTH;
+    }
+
+    // Validation errors
+    if (errorString.includes('validation') || errorString.includes('invalid') ||
+        error.name === 'ValidationError' || error.status === 400) {
+      return this.ERROR_CATEGORIES.VALIDATION;
+    }
+
+    // Permission errors
+    if (errorString.includes('permission') || errorString.includes('denied') ||
+        errorString.includes('forbidden')) {
+      return this.ERROR_CATEGORIES.PERMISSION;
+    }
+
+    // Camera errors
+    if (errorString.includes('camera') || stackTrace.includes('Camera') ||
+        stackTrace.includes('expo-camera')) {
+      return this.ERROR_CATEGORIES.CAMERA;
+    }
+
+    // Storage errors
+    if (errorString.includes('storage') || errorString.includes('quota') ||
+        stackTrace.includes('AsyncStorage') || stackTrace.includes('Storage')) {
+      return this.ERROR_CATEGORIES.STORAGE;
+    }
+
+    // Payment errors
+    if (errorString.includes('stripe') || errorString.includes('payment') ||
+        errorString.includes('billing') || stackTrace.includes('stripe')) {
+      return this.ERROR_CATEGORIES.PAYMENT;
+    }
+
+    // Scan errors
+    if (errorString.includes('scan') || errorString.includes('ocr') ||
+        errorString.includes('tesseract') || stackTrace.includes('scan')) {
+      return this.ERROR_CATEGORIES.SCAN;
+    }
+
+    // API errors
+    if (errorString.includes('api') || errorString.includes('server') ||
+        errorString.includes('http') || stackTrace.includes('api/') ||
+        (error.status >= 500 && error.status < 600)) {
+      return this.ERROR_CATEGORIES.API;
+    }
+
+    return this.ERROR_CATEGORIES.UNKNOWN;
+  }
+
+  /**
+   * Determine error severity
+   */
+  determineSeverity(error, category, errorString) {
+    // Critical errors (app crashes, security issues)
+    if (errorString.includes('segmentation') || errorString.includes('memory') ||
+        errorString.includes('crash') || error.name === 'ReferenceError' ||
+        category === this.ERROR_CATEGORIES.PERMISSION) {
+      return this.ERROR_SEVERITY.CRITICAL;
+    }
+
+    // High severity (data loss, payment issues)
+    if (category === this.ERROR_CATEGORIES.PAYMENT ||
+        category === this.ERROR_CATEGORIES.STORAGE ||
+        error.status === 500) {
+      return this.ERROR_SEVERITY.HIGH;
+    }
+
+    // Medium severity (feature issues, API errors)
+    if (category === this.ERROR_CATEGORIES.AUTH ||
+        category === this.ERROR_CATEGORIES.API ||
+        category === this.ERROR_CATEGORIES.CAMERA ||
+        category === this.ERROR_CATEGORIES.SCAN) {
+      return this.ERROR_SEVERITY.MEDIUM;
+    }
+
+    // Low severity (validation, network issues)
+    return this.ERROR_SEVERITY.LOW;
+  }
+
+  /**
+   * Generate user-friendly error message
+   */
+  generateUserMessage(category, error) {
+    const messages = {
+      [this.ERROR_CATEGORIES.NETWORK]: 'Network connection issue. Please check your internet connection and try again.',
+      [this.ERROR_CATEGORIES.AUTH]: 'Authentication problem. Please sign in again.',
+      [this.ERROR_CATEGORIES.VALIDATION]: 'Please check your input and try again.',
+      [this.ERROR_CATEGORIES.PERMISSION]: 'Permission required. Please check app permissions in settings.',
+      [this.ERROR_CATEGORIES.CAMERA]: 'Camera access issue. Please check camera permissions.',
+      [this.ERROR_CATEGORIES.STORAGE]: 'Storage issue. Please free up device storage space.',
+      [this.ERROR_CATEGORIES.PAYMENT]: 'Payment processing issue. Please try again or contact support.',
+      [this.ERROR_CATEGORIES.SCAN]: 'Scan processing issue. Please try scanning again.',
+      [this.ERROR_CATEGORIES.API]: 'Server connection issue. Please try again later.',
+      [this.ERROR_CATEGORIES.UNKNOWN]: 'An unexpected error occurred. Please try again.',
+    };
+
+    return messages[category] || messages[this.ERROR_CATEGORIES.UNKNOWN];
+  }
+
+  /**
+   * Check if error is recoverable
+   */
+  isErrorRecoverable(category, severity, error) {
+    // Critical errors are usually not recoverable
+    if (severity === this.ERROR_SEVERITY.CRITICAL) {
+      return false;
+    }
+
+    // Some categories are generally recoverable
+    const recoverableCategories = [
+      this.ERROR_CATEGORIES.NETWORK,
+      this.ERROR_CATEGORIES.VALIDATION,
+      this.ERROR_CATEGORIES.CAMERA,
+      this.ERROR_CATEGORIES.SCAN,
+    ];
+
+    return recoverableCategories.includes(category);
+  }
+
+  /**
+   * Get recovery suggestions
+   */
+  getRecoverySuggestions(category, error) {
+    const suggestions = {
+      [this.ERROR_CATEGORIES.NETWORK]: [
+        'Check internet connection',
+        'Try again in a few moments',
+        'Switch to Wi-Fi if using cellular data'
+      ],
+      [this.ERROR_CATEGORIES.AUTH]: [
+        'Sign out and sign in again',
+        'Clear app cache',
+        'Check account status'
+      ],
+      [this.ERROR_CATEGORIES.VALIDATION]: [
+        'Check input format',
+        'Ensure all required fields are filled',
+        'Try different input values'
+      ],
+      [this.ERROR_CATEGORIES.PERMISSION]: [
+        'Check app permissions in device settings',
+        'Restart the app',
+        'Reinstall the app if needed'
+      ],
+      [this.ERROR_CATEGORIES.CAMERA]: [
+        'Check camera permissions',
+        'Close other apps using camera',
+        'Restart the app'
+      ],
+      [this.ERROR_CATEGORIES.STORAGE]: [
+        'Free up device storage',
+        'Clear app cache',
+        'Delete unused files'
+      ],
+    };
+
+    return suggestions[category] || ['Try again later', 'Contact support if issue persists'];
+  }
+
+  /**
+   * Retry an operation with exponential backoff
+   */
+  async retryOperation(operationFn, maxRetries = 3, initialDelay = 1000) {
+    let lastError;
+
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const result = await operationFn();
+        return result;
+      } catch (error) {
+        lastError = error;
+
+        // Log retry attempt
+        await this.logWarning(`Retry attempt ${attempt}/${maxRetries}`, {
+          operation: operationFn.name,
+          error: error.message,
+        });
+
+        // Don't delay on last attempt
+        if (attempt < maxRetries) {
+          const delay = initialDelay * Math.pow(2, attempt - 1);
+          await this.delay(delay);
+        }
+      }
+    }
+
+    // All retries failed
+    await this.logError(lastError, 'retryOperation.maxAttemptsReached', {
+      operation: operationFn.name,
+      maxRetries,
+    });
+
+    throw lastError;
+  }
+
+  /**
+   * Create delay promise
+   */
+  delay(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Log error to console with formatting
+   */
+  logToConsole(errorData) {
+    console.group(`🚨 Error ${errorData.id}`);
+    console.error('Category:', errorData.category);
+    console.error('Severity:', errorData.severity);
+    console.error('Message:', errorData.technicalMessage);
+    console.error('User Message:', errorData.userMessage);
+    console.error('Context:', errorData.context);
+    if (errorData.stackTrace) {
+      console.error('Stack:', errorData.stackTrace);
+    }
+    if (Object.keys(errorData.additionalData).length > 0) {
+      console.error('Additional Data:', errorData.additionalData);
+    }
+    console.groupEnd();
+  }
+
+  /**
+   * Save error to local storage
+   */
+  async saveToLocalStorage(errorData) {
+    try {
+      const existingLogs = await AsyncStorage.getItem(this.STORAGE_KEYS.ERROR_LOGS);
+      const logs = existingLogs ? JSON.parse(existingLogs) : [];
+
+      // Add new error
+      logs.unshift(errorData);
+
+      // Keep only last 100 errors to prevent storage overflow
+      if (logs.length > 100) {
+        logs.splice(100);
+      }
+
+      await AsyncStorage.setItem(this.STORAGE_KEYS.ERROR_LOGS, JSON.stringify(logs));
+    } catch (storageError) {
+      console.error('Failed to save error to local storage:', storageError);
+    }
+  }
+
+  /**
+   * Send error to remote logging service
+   */
+  async sendToRemoteLogging(errorData) {
+    try {
+      if (!supabase) {
+        console.warn('Supabase not available for remote error logging');
+        return;
+      }
+
+      const { error } = await supabase.from('error_logs').insert({
+        error_id: errorData.id,
+        category: errorData.category,
+        severity: errorData.severity,
+        user_message: errorData.userMessage,
+        technical_message: errorData.technicalMessage,
+        error_name: errorData.errorName,
+        error_code: errorData.errorCode,
+        status_code: errorData.statusCode,
+        stack_trace: errorData.stackTrace,
+        context: errorData.context,
+        additional_data: errorData.additionalData,
+        recovery_suggestions: errorData.recoverySuggestions,
+        device_info: errorData.deviceInfo,
+        app_info: errorData.appInfo,
+        timestamp: errorData.timestamp,
+        is_recoverable: errorData.isRecoverable,
+        user_id: (await supabase.auth.getUser())?.data?.user?.id || null,
+      });
+
+      if (error) {
+        console.warn('Failed to send error to remote logging:', error);
+      }
+    } catch (remoteError) {
+      console.error('Error sending to remote logging:', remoteError);
+    }
+  }
+
+  /**
+   * Update error statistics
+   */
+  async updateErrorStats(errorData) {
+    try {
+      const existingStats = await AsyncStorage.getItem(this.STORAGE_KEYS.ERROR_STATS);
+      const stats = existingStats ? JSON.parse(existingStats) : {
+        totalErrors: 0,
+        categoryCounts: {},
+        severityCounts: {},
+        lastReset: new Date().toISOString(),
+      };
+
+      stats.totalErrors++;
+      stats.categoryCounts[errorData.category] = (stats.categoryCounts[errorData.category] || 0) + 1;
+      stats.severityCounts[errorData.severity] = (stats.severityCounts[errorData.severity] || 0) + 1;
+      stats.lastUpdated = new Date().toISOString();
+
+      await AsyncStorage.setItem(this.STORAGE_KEYS.ERROR_STATS, JSON.stringify(stats));
+    } catch (statsError) {
+      console.error('Failed to update error stats:', statsError);
+    }
+  }
+
+  /**
+   * Get device information
+   */
+  async getDeviceInfo() {
+    try {
+      return {
+        platform: Platform.OS,
+        version: Platform.Version,
+        deviceName: Device.deviceName,
+        deviceType: Device.deviceType,
+        isDevice: Device.isDevice,
+        manufacturer: Device.manufacturer,
+        modelName: Device.modelName,
+        osName: Device.osName,
+        osVersion: Device.osVersion,
+        appVersion: Constants.expoConfig?.version || '1.0.0',
+      };
+    } catch (error) {
+      return { error: 'Failed to get device info' };
+    }
+  }
+
+  /**
+   * Get device information synchronously (fallback)
+   */
+  getDeviceInfoSync() {
+    return {
+      platform: Platform.OS,
+      version: Platform.Version,
+      appVersion: Constants.expoConfig?.version || '1.0.0',
+    };
+  }
+
+  /**
+   * Get app information
+   */
+  getAppInfo() {
+    return {
+      version: Constants.expoConfig?.version || '1.0.0',
+      buildNumber: Constants.expoConfig?.ios?.buildNumber || Constants.expoConfig?.android?.versionCode || '1',
+      bundleId: Constants.expoConfig?.ios?.bundleIdentifier || Constants.expoConfig?.android?.package || 'unknown',
+      environment: __DEV__ ? 'development' : 'production',
+    };
+  }
+
+  /**
+   * Load error statistics
+   */
+  async loadErrorStats() {
+    try {
+      const stats = await AsyncStorage.getItem(this.STORAGE_KEYS.ERROR_STATS);
+      return stats ? JSON.parse(stats) : null;
+    } catch (error) {
+      console.error('Failed to load error stats:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Load retry queues from storage
+   */
+  async loadRetryQueues() {
+    try {
+      const queues = await AsyncStorage.getItem(this.STORAGE_KEYS.RETRY_QUEUE);
+      if (queues) {
+        this.retryQueues = new Map(JSON.parse(queues));
+      }
+    } catch (error) {
+      console.error('Failed to load retry queues:', error);
+    }
+  }
+
+  /**
+   * Set up periodic cleanup
+   */
+  setupPeriodicCleanup() {
+    // Run cleanup every hour
+    setInterval(() => {
+      this.cleanupOldLogs();
+    }, 60 * 60 * 1000);
+  }
+
+  /**
+   * Clean up old error logs
+   */
+  async cleanupOldLogs() {
+    try {
+      const logs = await AsyncStorage.getItem(this.STORAGE_KEYS.ERROR_LOGS);
+      if (!logs) return;
+
+      const parsedLogs = JSON.parse(logs);
+      const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+      const recentLogs = parsedLogs.filter(log =>
+        new Date(log.timestamp) > oneWeekAgo
+      );
+
+      await AsyncStorage.setItem(this.STORAGE_KEYS.ERROR_LOGS, JSON.stringify(recentLogs));
+    } catch (error) {
+      console.error('Failed to cleanup old logs:', error);
+    }
+  }
+
+  /**
+   * Generate unique ID
+   */
+  generateId() {
+    return `err_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  /**
+   * Get error statistics
+   */
+  async getErrorStats() {
+    return await this.loadErrorStats();
+  }
+
+  /**
+   * Get recent errors
+   */
+  async getRecentErrors(limit = 50) {
+    try {
+      const logs = await AsyncStorage.getItem(this.STORAGE_KEYS.ERROR_LOGS);
+      if (!logs) return [];
+
+      const parsedLogs = JSON.parse(logs);
+      return parsedLogs.slice(0, limit);
+    } catch (error) {
+      console.error('Failed to get recent errors:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Clear all error data
+   */
+  async clearErrorData() {
+    try {
+      await Promise.all([
+        AsyncStorage.removeItem(this.STORAGE_KEYS.ERROR_LOGS),
+        AsyncStorage.removeItem(this.STORAGE_KEYS.ERROR_STATS),
+        AsyncStorage.removeItem(this.STORAGE_KEYS.RETRY_QUEUE),
+        AsyncStorage.removeItem(this.STORAGE_KEYS.ANALYTICS_QUEUE),
+      ]);
+
+      this.sessionErrors = [];
+      this.retryQueues.clear();
+      this.analyticsQueue = [];
+    } catch (error) {
+      console.error('Failed to clear error data:', error);
+    }
+  }
+}
+
+// Create singleton instance
+const errorService = new ErrorService();
+
+export default errorService;
