@@ -1,0 +1,254 @@
+{
+  "cloudflare_enterprise_config": {
+    "zone_settings": {
+      "ssl": {
+        "mode": "full_strict",
+        "min_tls_version": "1.2",
+        "universal_ssl": true,
+        "ssl_certificate": "edge_certificate"
+      },
+      "security": {
+        "security_level": "medium",
+        "challenge_ttl": 1800,
+        "browser_integrity_check": true,
+        "hotlink_protection": true,
+        "email_obfuscation": true,
+        "server_side_excludes": true
+      },
+      "firewall_rules": [
+        {
+          "name": "Rate Limit API",
+          "expression": "(http.request.uri.path contains \"/api/\") and not ip.src in {$trusted_ips}",
+          "action": "challenge",
+          "ratelimit": {
+            "threshold": 50,
+            "period": 60,
+            "action": "challenge"
+          }
+        },
+        {
+          "name": "Block Bad Bots",
+          "expression": "(cf.client.bot) and not (cf.verified_bot)",
+          "action": "block"
+        },
+        {
+          "name": "Protect Admin Routes",
+          "expression": "(http.request.uri.path contains \"/admin\") and not ip.src in {$admin_ips}",
+          "action": "challenge"
+        },
+        {
+          "name": "DDoS Protection",
+          "expression": "(cf.threat_score > 30)",
+          "action": "challenge"
+        }
+      ],
+      "ddos_protection": {
+        "enabled": true,
+        "sensitivity_level": "high",
+        "advanced_tcp_protection": true,
+        "adaptive_protection": true
+      },
+      "cache": {
+        "cache_level": "aggressive",
+        "browser_cache_ttl": 14400,
+        "edge_cache_ttl": 7200,
+        "crawler_hints": true,
+        "cache_rules": [
+          {
+            "url_pattern": "*.js",
+            "cache_ttl": 86400,
+            "browser_cache_ttl": 86400,
+            "cache_key": "$scheme$request_method$host$request_uri"
+          },
+          {
+            "url_pattern": "*.css",
+            "cache_ttl": 86400,
+            "browser_cache_ttl": 86400
+          },
+          {
+            "url_pattern": "/api/*",
+            "cache_ttl": 0,
+            "bypass_cache": true
+          },
+          {
+            "url_pattern": "/static/*",
+            "cache_ttl": 31536000,
+            "browser_cache_ttl": 31536000
+          }
+        ]
+      },
+      "performance": {
+        "auto_minify": {
+          "javascript": true,
+          "css": true,
+          "html": true
+        },
+        "brotli": true,
+        "early_hints": true,
+        "http2": true,
+        "http3": true,
+        "websockets": true,
+        "rocket_loader": false,
+        "mirage": true,
+        "polish": "lossless",
+        "webp": true
+      },
+      "page_rules": [
+        {
+          "url": "naturinex.com/api/*",
+          "settings": {
+            "cache_level": "bypass",
+            "disable_security": false,
+            "always_use_https": true
+          }
+        },
+        {
+          "url": "naturinex.com/static/*",
+          "settings": {
+            "cache_level": "cache_everything",
+            "edge_cache_ttl": 31536000,
+            "browser_cache_ttl": 31536000
+          }
+        },
+        {
+          "url": "naturinex.com/*",
+          "settings": {
+            "cache_level": "standard",
+            "edge_cache_ttl": 7200,
+            "browser_cache_ttl": 14400,
+            "always_use_https": true
+          }
+        }
+      ],
+      "workers": {
+        "routes": [
+          {
+            "pattern": "naturinex.com/api/*",
+            "script": "api-handler"
+          }
+        ]
+      },
+      "load_balancing": {
+        "enabled": true,
+        "default_pools": ["us-east", "us-west", "eu-west"],
+        "fallback_pool": "us-east",
+        "session_affinity": "cookie",
+        "session_affinity_ttl": 1800,
+        "steering_policy": "geo"
+      },
+      "argo": {
+        "smart_routing": true,
+        "tiered_caching": true,
+        "argo_tunnel": false
+      },
+      "analytics": {
+        "web_analytics": true,
+        "rum": true,
+        "core_web_vitals": true
+      },
+      "waf": {
+        "enabled": true,
+        "ruleset": "cloudflare_managed",
+        "sensitivity": "high",
+        "action": "challenge"
+      },
+      "bot_management": {
+        "enabled": true,
+        "fight_mode": true,
+        "verified_bots": "allow",
+        "static_resource_protection": true,
+        "javascript_detections": true
+      }
+    },
+    "origin_settings": {
+      "origin_server": "naturinex.vercel.app",
+      "origin_port": 443,
+      "origin_protocol": "https",
+      "health_checks": {
+        "enabled": true,
+        "path": "/api/health",
+        "interval": 60,
+        "timeout": 5,
+        "retries": 2,
+        "expected_codes": "200-299"
+      }
+    },
+    "custom_headers": {
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "SAMEORIGIN",
+      "X-XSS-Protection": "1; mode=block",
+      "Referrer-Policy": "strict-origin-when-cross-origin",
+      "Permissions-Policy": "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), microphone=(), payment=(), usb=()",
+      "Content-Security-Policy": "default-src 'self' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net https://*.supabase.co https://*.stripe.com; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: https:; connect-src 'self' https://*.supabase.co https://*.stripe.com https://api.naturinex.com wss://*.supabase.co; frame-src 'self' https://*.stripe.com;"
+    },
+    "rate_limiting": {
+      "rules": [
+        {
+          "threshold": 100,
+          "period": 60,
+          "path": "/api/analyze"
+        },
+        {
+          "threshold": 10,
+          "period": 60,
+          "path": "/api/auth/register"
+        },
+        {
+          "threshold": 5,
+          "period": 60,
+          "path": "/api/auth/login"
+        },
+        {
+          "threshold": 1000,
+          "period": 60,
+          "path": "/*"
+        }
+      ]
+    },
+    "monitoring": {
+      "alerting": {
+        "email": "guampaul@gmail.com",
+        "webhook": "https://hooks.slack.com/services/YOUR_WEBHOOK",
+        "triggers": [
+          {
+            "metric": "origin_response_time",
+            "operator": ">",
+            "value": 1000,
+            "duration": 300
+          },
+          {
+            "metric": "4xx_ratio",
+            "operator": ">",
+            "value": 0.05,
+            "duration": 300
+          },
+          {
+            "metric": "5xx_ratio",
+            "operator": ">",
+            "value": 0.01,
+            "duration": 60
+          }
+        ]
+      }
+    }
+  },
+  "deployment_steps": [
+    "1. Add domain to Cloudflare",
+    "2. Update nameservers at domain registrar",
+    "3. Import this configuration via API or dashboard",
+    "4. Configure SSL certificate",
+    "5. Set up origin certificates",
+    "6. Enable Argo Smart Routing",
+    "7. Configure Workers for edge computing",
+    "8. Set up load balancing pools",
+    "9. Enable Web Analytics and RUM",
+    "10. Test with load testing tools"
+  ],
+  "estimated_cost": {
+    "pro_plan": "$20/month",
+    "argo": "$5/month + $0.10/GB",
+    "load_balancing": "$5/month per 500K requests",
+    "workers": "$5/month + $0.50/million requests",
+    "total_estimate": "$50-150/month for 1M+ users"
+  }
+}
