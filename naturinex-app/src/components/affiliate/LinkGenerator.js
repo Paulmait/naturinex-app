@@ -1,0 +1,917 @@
+// Affiliate Link Generator Component
+// Tool for creating custom tracking links and QR codes
+// Created: 2025-09-16
+
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
+  Alert,
+  Share,
+  Clipboard,
+  Modal,
+  Dimensions
+} from 'react-native';
+import Icon from 'react-native-vector-icons/MaterialIcons';
+import QRCode from 'react-native-qrcode-svg';
+import { Picker } from '@react-native-picker/picker';
+import affiliateManagementService from '../../services/AffiliateManagementService';
+
+const { width: screenWidth } = Dimensions.get('window');
+
+const LinkGenerator = ({ affiliateId }) => {
+  const [activeTab, setActiveTab] = useState('create');
+  const [links, setLinks] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [selectedQRLink, setSelectedQRLink] = useState(null);
+
+  // Form state for creating new links
+  const [linkForm, setLinkForm] = useState({
+    linkName: '',
+    originalUrl: '',
+    customPath: '',
+    campaignName: '',
+    targetAudience: '',
+    expiresAt: '',
+    description: ''
+  });
+
+  // Popular destinations
+  const [popularDestinations] = useState([
+    {
+      name: 'NaturineX Homepage',
+      url: 'https://naturinex.com',
+      category: 'main'
+    },
+    {
+      name: 'Supplement Search',
+      url: 'https://naturinex.com/search',
+      category: 'tools'
+    },
+    {
+      name: 'Natural Alternatives Guide',
+      url: 'https://naturinex.com/alternatives',
+      category: 'content'
+    },
+    {
+      name: 'Medication Scanner',
+      url: 'https://naturinex.com/scan',
+      category: 'tools'
+    },
+    {
+      name: 'Health Blog',
+      url: 'https://naturinex.com/blog',
+      category: 'content'
+    },
+    {
+      name: 'Pricing Plans',
+      url: 'https://naturinex.com/pricing',
+      category: 'conversion'
+    }
+  ]);
+
+  useEffect(() => {
+    loadExistingLinks();
+  }, [affiliateId]);
+
+  const loadExistingLinks = async () => {
+    try {
+      setLoading(true);
+      // This would fetch existing links from the API
+      // For now, we'll use mock data
+      setLinks([]);
+    } catch (error) {
+      console.error('Error loading links:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createLink = async () => {
+    try {
+      if (!linkForm.linkName.trim() || !linkForm.originalUrl.trim()) {
+        Alert.alert('Error', 'Please provide a link name and destination URL');
+        return;
+      }
+
+      setLoading(true);
+
+      const result = await affiliateManagementService.generateCustomLink(affiliateId, {
+        linkName: linkForm.linkName,
+        originalUrl: linkForm.originalUrl,
+        customPath: linkForm.customPath || null,
+        campaignName: linkForm.campaignName || null,
+        expiresAt: linkForm.expiresAt || null
+      });
+
+      if (result.success) {
+        setLinks(prev => [result.link, ...prev]);
+
+        // Reset form
+        setLinkForm({
+          linkName: '',
+          originalUrl: '',
+          customPath: '',
+          campaignName: '',
+          targetAudience: '',
+          expiresAt: '',
+          description: ''
+        });
+
+        Alert.alert('Success', 'Custom link created successfully!', [
+          { text: 'Copy Link', onPress: () => copyToClipboard(result.url) },
+          { text: 'OK' }
+        ]);
+      } else {
+        Alert.alert('Error', result.error || 'Failed to create link');
+      }
+    } catch (error) {
+      console.error('Link creation error:', error);
+      Alert.alert('Error', 'Failed to create link');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const copyToClipboard = async (text) => {
+    try {
+      await Clipboard.setString(text);
+      Alert.alert('Copied', 'Link copied to clipboard!');
+    } catch (error) {
+      console.error('Clipboard error:', error);
+    }
+  };
+
+  const shareLink = async (link) => {
+    try {
+      await Share.share({
+        message: `Check out this amazing natural health resource: ${link.url}`,
+        url: link.url,
+        title: link.link_name
+      });
+    } catch (error) {
+      console.error('Share error:', error);
+    }
+  };
+
+  const showQRCode = (link) => {
+    setSelectedQRLink(link);
+    setShowQRModal(true);
+  };
+
+  const generateSocialMediaPost = (platform, link) => {
+    const posts = {
+      instagram: `🌿 Discover natural alternatives to your medications with NaturineX!
+
+✨ Science-backed supplements
+🔬 AI-powered recommendations
+💊 Safer, natural options
+
+Check it out: ${link.url}
+
+#NaturalHealth #Supplements #Wellness #HealthyLiving #NaturineX`,
+
+      facebook: `Are you looking for natural alternatives to your medications? 🌿
+
+NaturineX uses advanced AI to recommend science-backed natural supplements that may help support your health goals safely.
+
+✅ Evidence-based recommendations
+✅ Professional-grade supplements
+✅ Personalized for your needs
+
+Learn more: ${link.url}`,
+
+      twitter: `🌿 Discover natural alternatives to medications with AI-powered recommendations from @NaturineX
+
+✨ Science-backed supplements
+🔬 Personalized suggestions
+💊 Safer alternatives
+
+${link.url}
+
+#NaturalHealth #HealthTech #Supplements`,
+
+      linkedin: `Exciting development in natural health technology!
+
+NaturineX is revolutionizing how we approach medication alternatives through AI-powered recommendations for natural supplements.
+
+Key features:
+• Evidence-based supplement suggestions
+• Personalized health assessments
+• Professional-grade product access
+• Safety-first approach
+
+This could be a game-changer for preventive healthcare and patient empowerment.
+
+Learn more: ${link.url}
+
+#HealthTech #NaturalHealth #AI #Supplements`
+    };
+
+    return posts[platform] || `Check out NaturineX: ${link.url}`;
+  };
+
+  const renderCreateTab = () => (
+    <ScrollView style={styles.tabContent}>
+      <Text style={styles.sectionTitle}>Create Custom Link</Text>
+
+      <View style={styles.inputContainer}>
+        <Text style={styles.inputLabel}>Link Name *</Text>
+        <TextInput
+          style={styles.input}
+          value={linkForm.linkName}
+          onChangeText={(value) => setLinkForm(prev => ({ ...prev, linkName: value }))}
+          placeholder="e.g., Homepage - Instagram Bio"
+        />
+      </View>
+
+      <View style={styles.inputContainer}>
+        <Text style={styles.inputLabel}>Destination URL *</Text>
+        <TextInput
+          style={styles.input}
+          value={linkForm.originalUrl}
+          onChangeText={(value) => setLinkForm(prev => ({ ...prev, originalUrl: value }))}
+          placeholder="https://naturinex.com"
+          keyboardType="url"
+          autoCapitalize="none"
+        />
+      </View>
+
+      <Text style={styles.sectionTitle}>Popular Destinations</Text>
+      <View style={styles.popularDestinations}>
+        {popularDestinations.map((dest, index) => (
+          <TouchableOpacity
+            key={index}
+            style={styles.destinationCard}
+            onPress={() => setLinkForm(prev => ({
+              ...prev,
+              originalUrl: dest.url,
+              linkName: dest.name
+            }))}
+          >
+            <Text style={styles.destinationName}>{dest.name}</Text>
+            <Text style={styles.destinationUrl}>{dest.url}</Text>
+            <Text style={styles.destinationCategory}>{dest.category}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      <View style={styles.inputContainer}>
+        <Text style={styles.inputLabel}>Custom Path (Optional)</Text>
+        <TextInput
+          style={styles.input}
+          value={linkForm.customPath}
+          onChangeText={(value) => setLinkForm(prev => ({ ...prev, customPath: value }))}
+          placeholder="my-custom-link"
+          autoCapitalize="none"
+        />
+        <Text style={styles.helperText}>
+          Leave empty for auto-generated path
+        </Text>
+      </View>
+
+      <View style={styles.inputContainer}>
+        <Text style={styles.inputLabel}>Campaign Name (Optional)</Text>
+        <TextInput
+          style={styles.input}
+          value={linkForm.campaignName}
+          onChangeText={(value) => setLinkForm(prev => ({ ...prev, campaignName: value }))}
+          placeholder="e.g., Summer 2025 Campaign"
+        />
+      </View>
+
+      <TouchableOpacity
+        style={[styles.createButton, loading && styles.disabledButton]}
+        onPress={createLink}
+        disabled={loading}
+      >
+        <Icon name="add-link" size={20} color="#fff" />
+        <Text style={styles.createButtonText}>
+          {loading ? 'Creating...' : 'Create Link'}
+        </Text>
+      </TouchableOpacity>
+    </ScrollView>
+  );
+
+  const renderMyLinksTab = () => (
+    <ScrollView style={styles.tabContent}>
+      <View style={styles.linksHeader}>
+        <Text style={styles.sectionTitle}>My Links</Text>
+        <TouchableOpacity style={styles.refreshButton} onPress={loadExistingLinks}>
+          <Icon name="refresh" size={20} color="#2E7D32" />
+        </TouchableOpacity>
+      </View>
+
+      {links.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Icon name="link-off" size={48} color="#ccc" />
+          <Text style={styles.emptyStateTitle}>No links created yet</Text>
+          <Text style={styles.emptyStateText}>
+            Create your first custom affiliate link to start tracking your campaigns
+          </Text>
+          <TouchableOpacity
+            style={styles.createFirstLinkButton}
+            onPress={() => setActiveTab('create')}
+          >
+            <Text style={styles.createFirstLinkText}>Create First Link</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        links.map((link) => (
+          <View key={link.id} style={styles.linkCard}>
+            <View style={styles.linkHeader}>
+              <Text style={styles.linkName}>{link.link_name}</Text>
+              <View style={styles.linkActions}>
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={() => copyToClipboard(link.url)}
+                >
+                  <Icon name="content-copy" size={16} color="#666" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={() => shareLink(link)}
+                >
+                  <Icon name="share" size={16} color="#666" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={() => showQRCode(link)}
+                >
+                  <Icon name="qr-code" size={16} color="#666" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <Text style={styles.linkUrl}>{link.url}</Text>
+
+            <View style={styles.linkStats}>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{link.click_count || 0}</Text>
+                <Text style={styles.statLabel}>Clicks</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>{link.conversion_count || 0}</Text>
+                <Text style={styles.statLabel}>Conversions</Text>
+              </View>
+              <View style={styles.statItem}>
+                <Text style={styles.statValue}>
+                  {link.click_count > 0
+                    ? ((link.conversion_count / link.click_count) * 100).toFixed(1)
+                    : '0'
+                  }%
+                </Text>
+                <Text style={styles.statLabel}>CVR</Text>
+              </View>
+            </View>
+
+            {link.campaign_name && (
+              <Text style={styles.linkCampaign}>Campaign: {link.campaign_name}</Text>
+            )}
+
+            <Text style={styles.linkDate}>
+              Created: {new Date(link.created_at).toLocaleDateString()}
+            </Text>
+          </View>
+        ))
+      )}
+    </ScrollView>
+  );
+
+  const renderSocialMediaTab = () => (
+    <ScrollView style={styles.tabContent}>
+      <Text style={styles.sectionTitle}>Social Media Templates</Text>
+
+      {links.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Icon name="link" size={48} color="#ccc" />
+          <Text style={styles.emptyStateTitle}>Create a link first</Text>
+          <Text style={styles.emptyStateText}>
+            You need to create at least one affiliate link to generate social media content
+          </Text>
+          <TouchableOpacity
+            style={styles.createFirstLinkButton}
+            onPress={() => setActiveTab('create')}
+          >
+            <Text style={styles.createFirstLinkText}>Create Link</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <>
+          <View style={styles.linkSelector}>
+            <Text style={styles.inputLabel}>Select Link:</Text>
+            <View style={styles.pickerContainer}>
+              <Picker
+                selectedValue={selectedQRLink?.id || ''}
+                onValueChange={(linkId) => {
+                  const link = links.find(l => l.id === linkId);
+                  setSelectedQRLink(link);
+                }}
+                style={styles.picker}
+              >
+                <Picker.Item label="Choose a link..." value="" />
+                {links.map((link) => (
+                  <Picker.Item key={link.id} label={link.link_name} value={link.id} />
+                ))}
+              </Picker>
+            </View>
+          </View>
+
+          {selectedQRLink && (
+            <View style={styles.socialTemplates}>
+              {['instagram', 'facebook', 'twitter', 'linkedin'].map((platform) => (
+                <View key={platform} style={styles.templateCard}>
+                  <View style={styles.templateHeader}>
+                    <Icon
+                      name={platform === 'instagram' ? 'camera-alt' :
+                            platform === 'facebook' ? 'facebook' :
+                            platform === 'twitter' ? 'alternate-email' : 'business'}
+                      size={20}
+                      color="#666"
+                    />
+                    <Text style={styles.templatePlatform}>
+                      {platform.charAt(0).toUpperCase() + platform.slice(1)}
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.copyTemplateButton}
+                      onPress={() => copyToClipboard(generateSocialMediaPost(platform, selectedQRLink))}
+                    >
+                      <Icon name="content-copy" size={16} color="#2E7D32" />
+                      <Text style={styles.copyTemplateText}>Copy</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <ScrollView style={styles.templateContent} nestedScrollEnabled>
+                    <Text style={styles.templateText}>
+                      {generateSocialMediaPost(platform, selectedQRLink)}
+                    </Text>
+                  </ScrollView>
+                </View>
+              ))}
+            </View>
+          )}
+        </>
+      )}
+    </ScrollView>
+  );
+
+  const renderTabBar = () => (
+    <View style={styles.tabBar}>
+      <TouchableOpacity
+        style={[styles.tab, activeTab === 'create' && styles.activeTab]}
+        onPress={() => setActiveTab('create')}
+      >
+        <Icon name="add-link" size={20} color={activeTab === 'create' ? '#2E7D32' : '#666'} />
+        <Text style={[styles.tabText, activeTab === 'create' && styles.activeTabText]}>
+          Create
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.tab, activeTab === 'links' && styles.activeTab]}
+        onPress={() => setActiveTab('links')}
+      >
+        <Icon name="link" size={20} color={activeTab === 'links' ? '#2E7D32' : '#666'} />
+        <Text style={[styles.tabText, activeTab === 'links' && styles.activeTabText]}>
+          My Links
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.tab, activeTab === 'social' && styles.activeTab]}
+        onPress={() => setActiveTab('social')}
+      >
+        <Icon name="share" size={20} color={activeTab === 'social' ? '#2E7D32' : '#666'} />
+        <Text style={[styles.tabText, activeTab === 'social' && styles.activeTabText]}>
+          Social
+        </Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'create':
+        return renderCreateTab();
+      case 'links':
+        return renderMyLinksTab();
+      case 'social':
+        return renderSocialMediaTab();
+      default:
+        return renderCreateTab();
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      {renderTabBar()}
+      {renderContent()}
+
+      {/* QR Code Modal */}
+      <Modal
+        visible={showQRModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowQRModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.qrModal}>
+            <View style={styles.qrHeader}>
+              <Text style={styles.qrTitle}>QR Code</Text>
+              <TouchableOpacity onPress={() => setShowQRModal(false)}>
+                <Icon name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+
+            {selectedQRLink && (
+              <>
+                <View style={styles.qrContainer}>
+                  <QRCode
+                    value={selectedQRLink.url}
+                    size={200}
+                    backgroundColor="white"
+                    color="black"
+                  />
+                </View>
+
+                <Text style={styles.qrLinkName}>{selectedQRLink.link_name}</Text>
+                <Text style={styles.qrLinkUrl}>{selectedQRLink.url}</Text>
+
+                <View style={styles.qrActions}>
+                  <TouchableOpacity
+                    style={styles.qrActionButton}
+                    onPress={() => copyToClipboard(selectedQRLink.url)}
+                  >
+                    <Icon name="content-copy" size={16} color="#2E7D32" />
+                    <Text style={styles.qrActionText}>Copy Link</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.qrActionButton}
+                    onPress={() => shareLink(selectedQRLink)}
+                  >
+                    <Icon name="share" size={16} color="#2E7D32" />
+                    <Text style={styles.qrActionText}>Share</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5'
+  },
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0'
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent'
+  },
+  activeTab: {
+    borderBottomColor: '#2E7D32'
+  },
+  tabText: {
+    fontSize: 12,
+    marginTop: 4,
+    color: '#666'
+  },
+  activeTabText: {
+    color: '#2E7D32',
+    fontWeight: '600'
+  },
+  tabContent: {
+    flex: 1,
+    padding: 16
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 16
+  },
+  inputContainer: {
+    marginBottom: 16
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 16,
+    backgroundColor: '#fff'
+  },
+  helperText: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4
+  },
+  popularDestinations: {
+    marginBottom: 20
+  },
+  destinationCard: {
+    backgroundColor: '#fff',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0'
+  },
+  destinationName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 4
+  },
+  destinationUrl: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4
+  },
+  destinationCategory: {
+    fontSize: 11,
+    color: '#2E7D32',
+    backgroundColor: '#e8f5e8',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+    alignSelf: 'flex-start'
+  },
+  createButton: {
+    backgroundColor: '#2E7D32',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 8,
+    marginTop: 20
+  },
+  createButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 8
+  },
+  disabledButton: {
+    backgroundColor: '#ccc'
+  },
+  linksHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16
+  },
+  refreshButton: {
+    padding: 8
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 40
+  },
+  emptyStateTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginTop: 16,
+    marginBottom: 8
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 20
+  },
+  createFirstLinkButton: {
+    backgroundColor: '#2E7D32',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8
+  },
+  createFirstLinkText: {
+    color: '#fff',
+    fontWeight: '600'
+  },
+  linkCard: {
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  linkHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8
+  },
+  linkName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    flex: 1
+  },
+  linkActions: {
+    flexDirection: 'row'
+  },
+  actionButton: {
+    padding: 8,
+    marginLeft: 4
+  },
+  linkUrl: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 12,
+    fontFamily: 'monospace'
+  },
+  linkStats: {
+    flexDirection: 'row',
+    marginBottom: 8
+  },
+  statItem: {
+    alignItems: 'center',
+    marginRight: 20
+  },
+  statValue: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2E7D32'
+  },
+  statLabel: {
+    fontSize: 11,
+    color: '#666',
+    marginTop: 2
+  },
+  linkCampaign: {
+    fontSize: 12,
+    color: '#666',
+    fontStyle: 'italic',
+    marginBottom: 4
+  },
+  linkDate: {
+    fontSize: 11,
+    color: '#999'
+  },
+  linkSelector: {
+    marginBottom: 20
+  },
+  pickerContainer: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    backgroundColor: '#fff'
+  },
+  picker: {
+    height: 50
+  },
+  socialTemplates: {
+    marginTop: 16
+  },
+  templateCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  templateHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0'
+  },
+  templatePlatform: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    marginLeft: 8,
+    flex: 1
+  },
+  copyTemplateButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#e8f5e8',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6
+  },
+  copyTemplateText: {
+    color: '#2E7D32',
+    fontSize: 12,
+    fontWeight: '600',
+    marginLeft: 4
+  },
+  templateContent: {
+    maxHeight: 150,
+    padding: 16
+  },
+  templateText: {
+    fontSize: 14,
+    color: '#333',
+    lineHeight: 20
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  qrModal: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
+    minWidth: 300
+  },
+  qrHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+    marginBottom: 20
+  },
+  qrTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333'
+  },
+  qrContainer: {
+    padding: 20,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    marginBottom: 16
+  },
+  qrLinkName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#333',
+    textAlign: 'center',
+    marginBottom: 8
+  },
+  qrLinkUrl: {
+    fontSize: 12,
+    color: '#666',
+    textAlign: 'center',
+    marginBottom: 20,
+    fontFamily: 'monospace'
+  },
+  qrActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%'
+  },
+  qrActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#e8f5e8',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8
+  },
+  qrActionText: {
+    color: '#2E7D32',
+    fontSize: 14,
+    fontWeight: '600',
+    marginLeft: 4
+  }
+});
+
+export default LinkGenerator;

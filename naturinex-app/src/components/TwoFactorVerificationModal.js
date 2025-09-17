@@ -1,0 +1,635 @@
+import React, { useState, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Modal,
+  Alert,
+  ActivityIndicator,
+  Platform,
+  Dimensions
+} from 'react-native';
+import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
+import TwoFactorAuthService from '../services/TwoFactorAuthService';
+
+const { width } = Dimensions.get('window');
+
+const TwoFactorVerificationModal = ({
+  visible,
+  onClose,
+  onSuccess,
+  userId,
+  operation = 'login',
+  showBiometric = true
+}) => {
+  const [verificationMethod, setVerificationMethod] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [verificationCode, setVerificationCode] = useState(['', '', '', '', '', '']);
+  const [availableMethods, setAvailableMethods] = useState([]);
+  const [countdown, setCountdown] = useState(0);
+  const [canResend, setCanResend] = useState(false);
+  const [step, setStep] = useState('choose_method'); // choose_method, verify_code, verify_biometric
+
+  const codeInputRefs = useRef([]);
+
+  useEffect(() => {
+    if (visible && userId) {
+      loadAvailableMethods();
+    }
+  }, [visible, userId]);
+
+  useEffect(() => {
+    let interval;
+    if (countdown > 0) {
+      interval = setInterval(() => {
+        setCountdown(prev => {
+          if (prev <= 1) {
+            setCanResend(true);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [countdown]);
+
+  const loadAvailableMethods = async () => {
+    try {
+      setLoading(true);
+
+      const settings = await TwoFactorAuthService.getUserSettings(userId);
+      const methods = [];
+
+      if (settings.phone_2fa_enabled) {
+        methods.push({
+          id: 'phone',
+          name: 'Text Message',
+          icon: 'smartphone',
+          description: `SMS to ${settings.phone_number ? settings.phone_number.replace(/(\d{3})\d{3}(\d{4})/, '$1***$2') : '***'}`
+        });
+      }
+
+      if (settings.totp_enabled) {
+        methods.push({
+          id: 'authenticator',
+          name: 'Authenticator App',
+          icon: 'shield-key',
+          description: 'Get code from your authenticator app'
+        });
+      }
+
+      if (settings.biometric_enabled && showBiometric) {
+        const biometricTypes = await TwoFactorAuthService.initialize();
+        if (biometricTypes.biometricAvailable) {
+          methods.push({
+            id: 'biometric',
+            name: 'Biometric',
+            icon: 'fingerprint',
+            description: 'Use Face ID, Touch ID, or fingerprint'
+          });
+        }
+      }
+
+      methods.push({
+        id: 'backup',
+        name: 'Backup Code',
+        icon: 'backup',
+        description: 'Use one of your backup codes'
+      });
+
+      setAvailableMethods(methods);
+
+      // Auto-select if only one method available
+      if (methods.length === 1) {
+        handleMethodSelect(methods[0].id);
+      }
+    } catch (error) {
+      console.error('Load methods error:', error);
+      Alert.alert('Error', 'Failed to load verification methods.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleMethodSelect = async (methodId) => {
+    setVerificationMethod(methodId);
+
+    if (methodId === 'phone') {
+      try {
+        setLoading(true);
+        const settings = await TwoFactorAuthService.getUserSettings(userId);
+        await TwoFactorAuthService.setupPhoneVerification(settings.phone_number, userId);
+        setCountdown(60);
+        setCanResend(false);
+        setStep('verify_code');
+        Alert.alert('Code Sent', 'A verification code has been sent to your phone.');
+      } catch (error) {
+        console.error('Phone verification error:', error);
+        Alert.alert('Error', 'Failed to send verification code.');
+      } finally {
+        setLoading(false);
+      }
+    } else if (methodId === 'biometric') {
+      setStep('verify_biometric');
+      handleBiometricVerification();
+    } else {
+      setStep('verify_code');
+    }
+  };
+
+  const handleBiometricVerification = async () => {
+    try {
+      setLoading(true);
+
+      const result = await TwoFactorAuthService.verifyBiometric(
+        userId,
+        `Verify your identity for ${operation}`
+      );
+
+      if (result.success) {
+        onSuccess();
+      } else {
+        Alert.alert(
+          'Verification Failed',
+          'Biometric verification failed. Please try another method.'
+        );
+        setStep('choose_method');
+      }
+    } catch (error) {
+      console.error('Biometric verification error:', error);
+      Alert.alert('Error', 'Biometric verification failed.');
+      setStep('choose_method');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCodeChange = (text, index) => {
+    const newCode = [...verificationCode];
+    newCode[index] = text;
+    setVerificationCode(newCode);
+
+    // Auto-focus next input
+    if (text && index < 5) {
+      codeInputRefs.current[index + 1]?.focus();
+    }
+
+    // Auto-verify when all digits are entered
+    if (text && index === 5 && newCode.every(digit => digit !== '')) {
+      handleVerifyCode(newCode.join(''));
+    }
+  };
+
+  const handleKeyPress = (e, index) => {
+    if (e.nativeEvent.key === 'Backspace' && !verificationCode[index] && index > 0) {
+      codeInputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handleVerifyCode = async (code = null) => {
+    const codeToVerify = code || verificationCode.join('');
+
+    if (codeToVerify.length !== 6) {
+      Alert.alert('Invalid Code', 'Please enter the complete 6-digit code.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      let success = false;
+
+      switch (verificationMethod) {
+        case 'phone':
+          await TwoFactorAuthService.verifyPhoneCode(userId, codeToVerify);
+          success = true;
+          break;
+
+        case 'authenticator':
+          await TwoFactorAuthService.verifyTOTP(userId, codeToVerify);
+          success = true;
+          break;
+
+        case 'backup':
+          await TwoFactorAuthService.verifyBackupCode(userId, codeToVerify);
+          success = true;
+          break;
+
+        default:
+          throw new Error('Invalid verification method');
+      }
+
+      if (success) {
+        onSuccess();
+      }
+    } catch (error) {
+      console.error('Code verification error:', error);
+      Alert.alert(
+        'Verification Failed',
+        error.message || 'Invalid verification code. Please try again.'
+      );
+
+      // Clear the code inputs
+      setVerificationCode(['', '', '', '', '', '']);
+      if (codeInputRefs.current[0]) {
+        codeInputRefs.current[0].focus();
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResendCode = async () => {
+    if (!canResend || verificationMethod !== 'phone') return;
+
+    try {
+      setLoading(true);
+      const settings = await TwoFactorAuthService.getUserSettings(userId);
+      await TwoFactorAuthService.setupPhoneVerification(settings.phone_number, userId);
+
+      setCountdown(60);
+      setCanResend(false);
+      setVerificationCode(['', '', '', '', '', '']);
+
+      Alert.alert('Code Resent', 'A new verification code has been sent.');
+    } catch (error) {
+      console.error('Resend code error:', error);
+      Alert.alert('Error', 'Failed to resend code.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const renderMethodSelection = () => (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <MaterialIcons name="security" size={48} color="#007AFF" />
+        <Text style={styles.title}>Two-Factor Authentication</Text>
+        <Text style={styles.subtitle}>
+          Choose a verification method to continue
+        </Text>
+      </View>
+
+      {loading ? (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#007AFF" />
+        </View>
+      ) : (
+        <View style={styles.methodsList}>
+          {availableMethods.map((method) => (
+            <TouchableOpacity
+              key={method.id}
+              style={styles.methodItem}
+              onPress={() => handleMethodSelect(method.id)}
+            >
+              <MaterialIcons
+                name={method.icon}
+                size={24}
+                color="#007AFF"
+              />
+              <View style={styles.methodContent}>
+                <Text style={styles.methodName}>{method.name}</Text>
+                <Text style={styles.methodDescription}>{method.description}</Text>
+              </View>
+              <MaterialIcons name="chevron-right" size={24} color="#C7C7CC" />
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+
+  const renderCodeVerification = () => {
+    const methodInfo = availableMethods.find(m => m.id === verificationMethod);
+
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <MaterialIcons name={methodInfo?.icon || 'security'} size={48} color="#007AFF" />
+          <Text style={styles.title}>Enter Verification Code</Text>
+          <Text style={styles.subtitle}>
+            {verificationMethod === 'phone' && 'Enter the code sent to your phone'}
+            {verificationMethod === 'authenticator' && 'Enter the code from your authenticator app'}
+            {verificationMethod === 'backup' && 'Enter one of your backup codes'}
+          </Text>
+        </View>
+
+        <View style={styles.codeContainer}>
+          <View style={styles.codeInputsWrapper}>
+            {verificationCode.map((digit, index) => (
+              <TextInput
+                key={index}
+                ref={ref => codeInputRefs.current[index] = ref}
+                style={[
+                  styles.codeInput,
+                  digit && styles.codeInputFilled
+                ]}
+                value={digit}
+                onChangeText={text => handleCodeChange(text, index)}
+                onKeyPress={e => handleKeyPress(e, index)}
+                keyboardType="number-pad"
+                maxLength={1}
+                selectTextOnFocus
+              />
+            ))}
+          </View>
+
+          {verificationMethod === 'phone' && (
+            <View style={styles.resendContainer}>
+              {countdown > 0 ? (
+                <Text style={styles.countdownText}>
+                  Resend code in {countdown}s
+                </Text>
+              ) : (
+                <TouchableOpacity
+                  onPress={handleResendCode}
+                  disabled={!canResend || loading}
+                >
+                  <Text style={[
+                    styles.resendText,
+                    (!canResend || loading) && styles.resendTextDisabled
+                  ]}>
+                    Resend Code
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+        </View>
+
+        <View style={styles.footer}>
+          <TouchableOpacity
+            style={[
+              styles.verifyButton,
+              (!verificationCode.every(digit => digit !== '') || loading) && styles.verifyButtonDisabled
+            ]}
+            onPress={() => handleVerifyCode()}
+            disabled={!verificationCode.every(digit => digit !== '') || loading}
+          >
+            {loading ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <Text style={styles.verifyButtonText}>Verify</Text>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => setStep('choose_method')}
+          >
+            <Text style={styles.backButtonText}>Try Another Method</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
+  const renderBiometricVerification = () => (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <MaterialIcons name="fingerprint" size={48} color="#007AFF" />
+        <Text style={styles.title}>Biometric Verification</Text>
+        <Text style={styles.subtitle}>
+          Use your biometric authentication to verify your identity
+        </Text>
+      </View>
+
+      <View style={styles.biometricContainer}>
+        {loading ? (
+          <>
+            <ActivityIndicator size="large" color="#007AFF" />
+            <Text style={styles.biometricText}>
+              Touch the sensor or look at the camera...
+            </Text>
+          </>
+        ) : (
+          <TouchableOpacity
+            style={styles.biometricButton}
+            onPress={handleBiometricVerification}
+          >
+            <MaterialIcons name="fingerprint" size={64} color="#007AFF" />
+            <Text style={styles.biometricButtonText}>Tap to Authenticate</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <View style={styles.footer}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => setStep('choose_method')}
+        >
+          <Text style={styles.backButtonText}>Use Different Method</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  const renderCurrentStep = () => {
+    switch (step) {
+      case 'choose_method':
+        return renderMethodSelection();
+      case 'verify_code':
+        return renderCodeVerification();
+      case 'verify_biometric':
+        return renderBiometricVerification();
+      default:
+        return renderMethodSelection();
+    }
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+    >
+      <View style={styles.modal}>
+        <View style={styles.modalHeader}>
+          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+            <MaterialIcons name="close" size={24} color="#666" />
+          </TouchableOpacity>
+        </View>
+
+        {renderCurrentStep()}
+      </View>
+    </Modal>
+  );
+};
+
+const styles = StyleSheet.create({
+  modal: {
+    flex: 1,
+    backgroundColor: '#fff'
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5E7'
+  },
+  closeButton: {
+    padding: 8
+  },
+  container: {
+    flex: 1,
+    padding: 20
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: 40
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#1D1D1F',
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: 'center'
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    lineHeight: 22,
+    paddingHorizontal: 20
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  methodsList: {
+    flex: 1
+  },
+  methodItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#F2F2F7',
+    borderRadius: 12,
+    marginBottom: 12
+  },
+  methodContent: {
+    flex: 1,
+    marginLeft: 16
+  },
+  methodName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1D1D1F',
+    marginBottom: 4
+  },
+  methodDescription: {
+    fontSize: 14,
+    color: '#666'
+  },
+  codeContainer: {
+    alignItems: 'center',
+    marginBottom: 40
+  },
+  codeInputsWrapper: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    paddingHorizontal: 20,
+    marginBottom: 20
+  },
+  codeInput: {
+    width: (width - 120) / 6,
+    height: 56,
+    backgroundColor: '#F2F2F7',
+    borderRadius: 12,
+    textAlign: 'center',
+    fontSize: 24,
+    fontWeight: '600',
+    color: '#1D1D1F',
+    ...Platform.select({
+      web: {
+        outline: 'none'
+      }
+    })
+  },
+  codeInputFilled: {
+    backgroundColor: '#007AFF',
+    color: '#fff'
+  },
+  resendContainer: {
+    alignItems: 'center'
+  },
+  countdownText: {
+    fontSize: 14,
+    color: '#666'
+  },
+  resendText: {
+    fontSize: 16,
+    color: '#007AFF',
+    fontWeight: '600'
+  },
+  resendTextDisabled: {
+    color: '#ccc'
+  },
+  biometricContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  biometricButton: {
+    alignItems: 'center',
+    padding: 40
+  },
+  biometricButtonText: {
+    fontSize: 16,
+    color: '#007AFF',
+    fontWeight: '600',
+    marginTop: 16
+  },
+  biometricText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 20
+  },
+  footer: {
+    paddingBottom: 40
+  },
+  verifyButton: {
+    backgroundColor: '#007AFF',
+    borderRadius: 12,
+    height: 56,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 16
+  },
+  verifyButtonDisabled: {
+    backgroundColor: '#ccc'
+  },
+  verifyButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600'
+  },
+  backButton: {
+    backgroundColor: 'transparent',
+    borderRadius: 12,
+    height: 56,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E5E7'
+  },
+  backButtonText: {
+    color: '#007AFF',
+    fontSize: 16,
+    fontWeight: '600'
+  }
+});
+
+export default TwoFactorVerificationModal;

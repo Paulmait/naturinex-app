@@ -2,6 +2,7 @@
 // Allows gradual migration from Firebase to Supabase
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import TwoFactorAuthService from '../services/TwoFactorAuthService';
 
 // Firebase imports
 import { auth as firebaseAuth, db as firebaseDb } from '../config/firebase.web';
@@ -32,6 +33,8 @@ export function AuthProvider({ children }) {
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [authBackend, setAuthBackend] = useState(USE_SUPABASE ? 'supabase' : 'firebase');
+  const [twoFactorSettings, setTwoFactorSettings] = useState({});
+  const [secureSession, setSecureSession] = useState(null);
 
   // Universal sign up function
   async function signup(email, password, additionalData = {}) {
@@ -163,6 +166,67 @@ export function AuthProvider({ children }) {
     }
   }
 
+  // 2FA Methods
+  async function setup2FA() {
+    if (!currentUser) throw new Error('No authenticated user');
+
+    await TwoFactorAuthService.initialize();
+    return true;
+  }
+
+  async function get2FASettings() {
+    if (!currentUser) return {};
+
+    try {
+      const settings = await TwoFactorAuthService.getUserSettings(currentUser.uid || currentUser.id);
+      setTwoFactorSettings(settings);
+      return settings;
+    } catch (error) {
+      console.error('Get 2FA settings error:', error);
+      return {};
+    }
+  }
+
+  async function require2FAForOperation(operation) {
+    if (!currentUser) return false;
+
+    return await TwoFactorAuthService.require2FAForOperation(
+      currentUser.uid || currentUser.id,
+      operation
+    );
+  }
+
+  async function validateSecureSession() {
+    if (!secureSession) return false;
+
+    const validation = await TwoFactorAuthService.validateSession(
+      currentUser?.uid || currentUser?.id,
+      secureSession.sessionId
+    );
+
+    return validation.valid && validation.twoFactorVerified;
+  }
+
+  async function createSecureSession(twoFactorVerified = false) {
+    if (!currentUser) return null;
+
+    const session = await TwoFactorAuthService.createSecureSession(
+      currentUser.uid || currentUser.id,
+      twoFactorVerified
+    );
+
+    setSecureSession(session);
+    return session;
+  }
+
+  async function disable2FA(method = 'all') {
+    if (!currentUser) throw new Error('No authenticated user');
+
+    await TwoFactorAuthService.disable2FA(currentUser.uid || currentUser.id, method);
+    await get2FASettings(); // Refresh settings
+    return true;
+  }
+
   // Switch backend (for testing/migration)
   function switchBackend(backend) {
     if (backend === 'supabase' && !supabase) {
@@ -186,9 +250,14 @@ export function AuthProvider({ children }) {
           // Load user profile
           const profile = await supabaseHelpers.getUserProfile(session.user.id);
           setUserProfile(profile);
+
+          // Load 2FA settings
+          await get2FASettings();
         } else {
           setCurrentUser(null);
           setUserProfile(null);
+          setTwoFactorSettings({});
+          setSecureSession(null);
         }
         setLoading(false);
       });
@@ -201,8 +270,9 @@ export function AuthProvider({ children }) {
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session?.user) {
           setCurrentUser(session.user);
-          supabaseHelpers.getUserProfile(session.user.id).then(profile => {
+          supabaseHelpers.getUserProfile(session.user.id).then(async (profile) => {
             setUserProfile(profile);
+            await get2FASettings();
             setLoading(false);
           });
         } else {
@@ -218,9 +288,14 @@ export function AuthProvider({ children }) {
           // Load user profile from Firestore
           const userDoc = await getDoc(doc(firebaseDb, 'users', user.uid));
           setUserProfile(userDoc.exists() ? userDoc.data() : null);
+
+          // Load 2FA settings
+          await get2FASettings();
         } else {
           setCurrentUser(null);
           setUserProfile(null);
+          setTwoFactorSettings({});
+          setSecureSession(null);
         }
         setLoading(false);
       });
@@ -233,6 +308,8 @@ export function AuthProvider({ children }) {
     currentUser,
     userProfile,
     authBackend,
+    twoFactorSettings,
+    secureSession,
     signup,
     login,
     logout,
@@ -241,6 +318,12 @@ export function AuthProvider({ children }) {
     updateProfile,
     checkSubscription,
     switchBackend,
+    setup2FA,
+    get2FASettings,
+    require2FAForOperation,
+    validateSecureSession,
+    createSecureSession,
+    disable2FA,
     loading,
   };
 

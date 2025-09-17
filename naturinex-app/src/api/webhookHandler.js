@@ -1,0 +1,582 @@
+/**
+ * Secure Stripe Webhook Handler
+ * Express.js middleware with signature validation, idempotency, and error recovery
+ */
+
+import express from 'express';
+import crypto from 'crypto';
+import rateLimit from 'express-rate-limit';
+import helmet from 'helmet';
+import { stripeWebhookService } from '../services/StripeWebhookService.js';
+import { ErrorService } from '../services/ErrorService.js';
+import { MonitoringService } from '../services/MonitoringService.js';
+import { supabase } from '../config/supabase.js';
+
+const router = express.Router();
+
+// Security middleware
+router.use(helmet());
+
+// Rate limiting for webhooks
+const webhookRateLimit = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: {
+    error: 'Too many webhook requests',
+    retryAfter: '15 minutes'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Skip rate limiting for Stripe IPs (you should configure these)
+  skip: (req) => {
+    const stripeIPs = [
+      '54.187.174.169',
+      '54.187.205.235',
+      '54.187.216.72',
+      '54.241.31.99',
+      '54.241.31.102',
+      '54.241.34.107'
+      // Add more Stripe IPs as needed
+    ];
+    return stripeIPs.includes(req.ip);
+  }
+});
+
+router.use(webhookRateLimit);
+
+// Webhook event processing queue
+class WebhookQueue {
+  constructor() {
+    this.queue = [];
+    this.processing = false;
+    this.maxRetries = 3;
+    this.retryDelay = 1000; // 1 second base delay
+  }
+
+  async enqueue(event, metadata = {}) {
+    const queueItem = {
+      id: crypto.randomUUID(),
+      event,
+      metadata,
+      attempts: 0,
+      createdAt: new Date(),
+      status: 'pending'
+    };
+
+    this.queue.push(queueItem);
+    this.processQueue();
+    return queueItem.id;
+  }
+
+  async processQueue() {
+    if (this.processing) return;
+    this.processing = true;
+
+    try {
+      while (this.queue.length > 0) {
+        const item = this.queue.shift();
+        await this.processItem(item);
+      }
+    } finally {
+      this.processing = false;
+    }
+  }
+
+  async processItem(item) {
+    try {
+      item.attempts++;
+      item.status = 'processing';
+
+      const result = await stripeWebhookService.processEvent(item.event);
+
+      item.status = 'completed';
+      item.completedAt = new Date();
+      item.result = result;
+
+      // Log successful processing
+      await this.logQueueItem(item);
+
+    } catch (error) {
+      item.status = 'failed';
+      item.error = error.message;
+      item.lastAttemptAt = new Date();
+
+      console.error(`Webhook processing failed for item ${item.id}:`, error);
+
+      // Retry logic
+      if (item.attempts < this.maxRetries) {
+        const delay = this.retryDelay * Math.pow(2, item.attempts - 1); // Exponential backoff
+        setTimeout(() => {
+          item.status = 'pending';
+          this.queue.push(item);
+          this.processQueue();
+        }, delay);
+      } else {
+        // Max retries exceeded - log as failed
+        await this.logQueueItem(item);
+        await this.handleFinalFailure(item);
+      }
+    }
+  }
+
+  async logQueueItem(item) {
+    try {
+      await supabase
+        .from('webhook_queue_log')
+        .insert({
+          queue_item_id: item.id,
+          event_id: item.event.id,
+          event_type: item.event.type,
+          status: item.status,
+          attempts: item.attempts,
+          result: item.result,
+          error: item.error,
+          created_at: item.createdAt,
+          completed_at: item.completedAt,
+          metadata: item.metadata
+        });
+    } catch (error) {
+      console.error('Failed to log queue item:', error);
+    }
+  }
+
+  async handleFinalFailure(item) {
+    // Send alert for failed webhook processing
+    ErrorService.logError('Webhook processing failed after max retries', new Error(item.error), {
+      eventId: item.event.id,
+      eventType: item.event.type,
+      attempts: item.attempts
+    });
+
+    // You might want to send notifications to administrators here
+    console.error(`Webhook processing failed permanently for event ${item.event.id}`);
+  }
+}
+
+const webhookQueue = new WebhookQueue();
+
+// Idempotency tracking
+class IdempotencyManager {
+  constructor() {
+    this.cache = new Map();
+    this.maxCacheSize = 10000;
+    this.cacheExpirationMs = 24 * 60 * 60 * 1000; // 24 hours
+  }
+
+  async isProcessed(eventId, idempotencyKey) {
+    // Check memory cache first
+    const cacheKey = `${eventId}:${idempotencyKey}`;
+    if (this.cache.has(cacheKey)) {
+      const cached = this.cache.get(cacheKey);
+      if (Date.now() - cached.timestamp < this.cacheExpirationMs) {
+        return cached.result;
+      }
+      this.cache.delete(cacheKey);
+    }
+
+    // Check database
+    try {
+      const { data, error } = await supabase
+        .from('webhook_idempotency')
+        .select('result')
+        .eq('event_id', eventId)
+        .eq('idempotency_key', idempotencyKey)
+        .gte('created_at', new Date(Date.now() - this.cacheExpirationMs).toISOString())
+        .single();
+
+      if (!error && data) {
+        // Cache the result
+        this.cacheResult(cacheKey, data.result);
+        return data.result;
+      }
+
+      return null;
+    } catch (error) {
+      console.error('Error checking idempotency:', error);
+      return null;
+    }
+  }
+
+  async markProcessed(eventId, idempotencyKey, result) {
+    try {
+      // Store in database
+      await supabase
+        .from('webhook_idempotency')
+        .insert({
+          event_id: eventId,
+          idempotency_key: idempotencyKey,
+          result,
+          created_at: new Date()
+        });
+
+      // Cache the result
+      const cacheKey = `${eventId}:${idempotencyKey}`;
+      this.cacheResult(cacheKey, result);
+
+    } catch (error) {
+      console.error('Error marking as processed:', error);
+    }
+  }
+
+  cacheResult(key, result) {
+    // Implement LRU cache behavior
+    if (this.cache.size >= this.maxCacheSize) {
+      const firstKey = this.cache.keys().next().value;
+      this.cache.delete(firstKey);
+    }
+
+    this.cache.set(key, {
+      result,
+      timestamp: Date.now()
+    });
+  }
+}
+
+const idempotencyManager = new IdempotencyManager();
+
+// Raw body parser for webhook signature verification
+const rawBodyParser = (req, res, next) => {
+  if (req.headers['content-type'] === 'application/json') {
+    let data = '';
+    req.setEncoding('utf8');
+    req.on('data', chunk => data += chunk);
+    req.on('end', () => {
+      req.rawBody = data;
+      req.body = JSON.parse(data);
+      next();
+    });
+  } else {
+    next();
+  }
+};
+
+// Main webhook endpoint
+router.post('/stripe-webhook', rawBodyParser, async (req, res) => {
+  const startTime = Date.now();
+  const signature = req.headers['stripe-signature'];
+  const idempotencyKey = req.headers['idempotency-key'] || crypto.randomUUID();
+
+  try {
+    // Log incoming webhook
+    MonitoringService.trackEvent('webhook_received', {
+      type: req.body?.type,
+      eventId: req.body?.id,
+      signature: signature?.substring(0, 20) + '...',
+      ip: req.ip,
+      userAgent: req.headers['user-agent']
+    });
+
+    // Validate required headers
+    if (!signature) {
+      return res.status(400).json({
+        error: 'Missing Stripe signature',
+        code: 'MISSING_SIGNATURE'
+      });
+    }
+
+    // Basic payload validation
+    if (!req.rawBody || !req.body?.id || !req.body?.type) {
+      return res.status(400).json({
+        error: 'Invalid webhook payload',
+        code: 'INVALID_PAYLOAD'
+      });
+    }
+
+    const eventId = req.body.id;
+    const eventType = req.body.type;
+
+    // Check idempotency
+    const existingResult = await idempotencyManager.isProcessed(eventId, idempotencyKey);
+    if (existingResult) {
+      console.log(`Webhook event ${eventId} already processed with key ${idempotencyKey}`);
+      return res.status(200).json({
+        success: true,
+        message: 'Event already processed',
+        result: existingResult,
+        duplicate: true
+      });
+    }
+
+    // Validate webhook signature
+    try {
+      stripeWebhookService.validateWebhookSignature(req.rawBody, signature);
+    } catch (signatureError) {
+      ErrorService.logError('Webhook signature validation failed', signatureError, {
+        eventId,
+        eventType,
+        ip: req.ip,
+        userAgent: req.headers['user-agent']
+      });
+
+      return res.status(401).json({
+        error: 'Invalid signature',
+        code: 'INVALID_SIGNATURE'
+      });
+    }
+
+    // Check for duplicate events (Stripe may send duplicates)
+    const isDuplicate = await checkEventDuplicate(eventId, eventType);
+    if (isDuplicate) {
+      console.log(`Duplicate event detected: ${eventId}`);
+      return res.status(200).json({
+        success: true,
+        message: 'Duplicate event ignored',
+        duplicate: true
+      });
+    }
+
+    // Add to processing queue
+    const queueId = await webhookQueue.enqueue(req.body, {
+      signature,
+      idempotencyKey,
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+      receivedAt: new Date()
+    });
+
+    // Process immediately for critical events, queue others
+    const criticalEvents = [
+      'invoice.payment_failed',
+      'customer.subscription.deleted',
+      'payment_intent.payment_failed'
+    ];
+
+    let result;
+    if (criticalEvents.includes(eventType)) {
+      // Process critical events synchronously
+      try {
+        result = await stripeWebhookService.processWebhookEvent(
+          req.rawBody,
+          signature,
+          idempotencyKey
+        );
+      } catch (processingError) {
+        // Still return success to Stripe, but log the error
+        ErrorService.logError('Critical webhook processing failed', processingError, {
+          eventId,
+          eventType,
+          queueId
+        });
+
+        return res.status(500).json({
+          error: 'Processing failed',
+          code: 'PROCESSING_ERROR',
+          queueId
+        });
+      }
+    } else {
+      // Non-critical events are queued for async processing
+      result = { queued: true, queueId };
+    }
+
+    // Mark as processed
+    await idempotencyManager.markProcessed(eventId, idempotencyKey, result);
+
+    // Log successful webhook
+    const processingTime = Date.now() - startTime;
+    MonitoringService.trackEvent('webhook_processed', {
+      eventId,
+      eventType,
+      processingTime,
+      queued: !!result.queued,
+      queueId
+    });
+
+    // Respond to Stripe
+    res.status(200).json({
+      success: true,
+      message: 'Webhook processed successfully',
+      eventId,
+      processingTime,
+      result
+    });
+
+  } catch (error) {
+    const processingTime = Date.now() - startTime;
+
+    ErrorService.logError('Webhook handler error', error, {
+      eventId: req.body?.id,
+      eventType: req.body?.type,
+      processingTime,
+      ip: req.ip
+    });
+
+    MonitoringService.trackEvent('webhook_error', {
+      eventId: req.body?.id,
+      eventType: req.body?.type,
+      error: error.message,
+      processingTime
+    });
+
+    res.status(500).json({
+      error: 'Internal server error',
+      code: 'INTERNAL_ERROR',
+      eventId: req.body?.id
+    });
+  }
+});
+
+// Health check endpoint
+router.get('/webhook-health', async (req, res) => {
+  try {
+    // Check database connectivity
+    const { data, error } = await supabase
+      .from('webhook_events')
+      .select('id')
+      .limit(1);
+
+    if (error) throw error;
+
+    res.status(200).json({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      queueSize: webhookQueue.queue.length,
+      cacheSize: idempotencyManager.cache.size
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'unhealthy',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+// Webhook metrics endpoint (for monitoring)
+router.get('/webhook-metrics', async (req, res) => {
+  try {
+    const last24Hours = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+    const { data: recentEvents, error } = await supabase
+      .from('webhook_events')
+      .select('event_type, status, created_at')
+      .gte('created_at', last24Hours.toISOString());
+
+    if (error) throw error;
+
+    const metrics = {
+      timestamp: new Date().toISOString(),
+      last24Hours: {
+        total: recentEvents.length,
+        successful: recentEvents.filter(e => e.status === 'processed').length,
+        failed: recentEvents.filter(e => e.status === 'failed').length,
+        byType: {}
+      },
+      queue: {
+        size: webhookQueue.queue.length,
+        processing: webhookQueue.processing
+      },
+      cache: {
+        size: idempotencyManager.cache.size,
+        maxSize: idempotencyManager.maxCacheSize
+      }
+    };
+
+    // Group by event type
+    recentEvents.forEach(event => {
+      if (!metrics.last24Hours.byType[event.event_type]) {
+        metrics.last24Hours.byType[event.event_type] = {
+          total: 0,
+          successful: 0,
+          failed: 0
+        };
+      }
+      metrics.last24Hours.byType[event.event_type].total++;
+      if (event.status === 'processed') {
+        metrics.last24Hours.byType[event.event_type].successful++;
+      } else if (event.status === 'failed') {
+        metrics.last24Hours.byType[event.event_type].failed++;
+      }
+    });
+
+    res.status(200).json(metrics);
+  } catch (error) {
+    res.status(500).json({
+      error: 'Failed to fetch metrics',
+      message: error.message
+    });
+  }
+});
+
+// Retry failed webhook endpoint
+router.post('/retry-webhook/:eventId', async (req, res) => {
+  try {
+    const { eventId } = req.params;
+    const { idempotencyKey } = req.body;
+
+    if (!eventId) {
+      return res.status(400).json({
+        error: 'Event ID is required'
+      });
+    }
+
+    // Fetch the original event from database
+    const { data: webhookEvent, error } = await supabase
+      .from('webhook_events')
+      .select('*')
+      .eq('stripe_event_id', eventId)
+      .single();
+
+    if (error || !webhookEvent) {
+      return res.status(404).json({
+        error: 'Webhook event not found'
+      });
+    }
+
+    // Re-process the event
+    const result = await stripeWebhookService.processWebhookEvent(
+      JSON.stringify(webhookEvent.event_data),
+      null, // Skip signature validation for retries
+      idempotencyKey || crypto.randomUUID()
+    );
+
+    res.status(200).json({
+      success: true,
+      eventId,
+      result
+    });
+
+  } catch (error) {
+    ErrorService.logError('Webhook retry failed', error, {
+      eventId: req.params.eventId
+    });
+
+    res.status(500).json({
+      error: 'Retry failed',
+      message: error.message
+    });
+  }
+});
+
+// Helper function to check for duplicate events
+async function checkEventDuplicate(eventId, eventType) {
+  try {
+    const { data, error } = await supabase
+      .from('webhook_events')
+      .select('id')
+      .eq('stripe_event_id', eventId)
+      .single();
+
+    return !error && !!data;
+  } catch (error) {
+    console.error('Error checking event duplicate:', error);
+    return false;
+  }
+}
+
+// Error handling middleware
+router.use((error, req, res, next) => {
+  ErrorService.logError('Webhook handler middleware error', error, {
+    url: req.url,
+    method: req.method,
+    ip: req.ip
+  });
+
+  res.status(500).json({
+    error: 'Internal server error',
+    code: 'MIDDLEWARE_ERROR'
+  });
+});
+
+export default router;
+export { webhookQueue, idempotencyManager };

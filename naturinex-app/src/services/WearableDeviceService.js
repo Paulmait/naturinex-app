@@ -1,0 +1,758 @@
+import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import HealthDataModel from '../models/HealthDataModel';
+
+/**
+ * Wearable Device Service
+ * Manages integration with various wearable devices
+ */
+class WearableDeviceService {
+  constructor() {
+    this.connectedDevices = [];
+    this.supportedDevices = {
+      appleWatch: {
+        name: 'Apple Watch',
+        platforms: ['ios'],
+        dataTypes: ['heartRate', 'steps', 'calories', 'workout', 'sleep'],
+        connectionMethod: 'healthkit'
+      },
+      fitbit: {
+        name: 'Fitbit',
+        platforms: ['ios', 'android'],
+        dataTypes: ['heartRate', 'steps', 'calories', 'sleep', 'weight'],
+        connectionMethod: 'api'
+      },
+      samsungHealth: {
+        name: 'Samsung Health',
+        platforms: ['android'],
+        dataTypes: ['heartRate', 'steps', 'calories', 'sleep', 'bloodPressure'],
+        connectionMethod: 'api'
+      },
+      garminConnect: {
+        name: 'Garmin Connect',
+        platforms: ['ios', 'android'],
+        dataTypes: ['heartRate', 'steps', 'calories', 'sleep', 'stress'],
+        connectionMethod: 'api'
+      },
+      withings: {
+        name: 'Withings',
+        platforms: ['ios', 'android'],
+        dataTypes: ['weight', 'bloodPressure', 'heartRate', 'sleep'],
+        connectionMethod: 'api'
+      },
+      polarH10: {
+        name: 'Polar H10',
+        platforms: ['ios', 'android'],
+        dataTypes: ['heartRate'],
+        connectionMethod: 'bluetooth'
+      }
+    };
+
+    this.healthDataModel = new HealthDataModel();
+    this.connectionStatus = {};
+  }
+
+  /**
+   * Initialize wearable device service
+   */
+  async initialize() {
+    try {
+      await this.loadConnectedDevices();
+      await this.loadConnectionStatus();
+
+      // Check device availability
+      await this.checkDeviceAvailability();
+
+      console.log('WearableDeviceService initialized');
+      return { success: true };
+    } catch (error) {
+      console.error('WearableDeviceService initialization failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get list of supported devices for current platform
+   */
+  getSupportedDevices() {
+    const currentPlatform = Platform.OS;
+    return Object.entries(this.supportedDevices)
+      .filter(([key, device]) => device.platforms.includes(currentPlatform))
+      .map(([key, device]) => ({
+        id: key,
+        ...device,
+        isConnected: this.isDeviceConnected(key),
+        status: this.connectionStatus[key] || 'disconnected'
+      }));
+  }
+
+  /**
+   * Connect to a wearable device
+   */
+  async connectDevice(deviceId, options = {}) {
+    try {
+      const device = this.supportedDevices[deviceId];
+      if (!device) {
+        throw new Error(`Unsupported device: ${deviceId}`);
+      }
+
+      // Check platform compatibility
+      if (!device.platforms.includes(Platform.OS)) {
+        throw new Error(`Device ${device.name} not supported on ${Platform.OS}`);
+      }
+
+      let connectionResult;
+
+      switch (device.connectionMethod) {
+        case 'healthkit':
+          connectionResult = await this.connectViaHealthKit(deviceId, options);
+          break;
+        case 'api':
+          connectionResult = await this.connectViaAPI(deviceId, options);
+          break;
+        case 'bluetooth':
+          connectionResult = await this.connectViaBluetooth(deviceId, options);
+          break;
+        default:
+          throw new Error(`Unknown connection method: ${device.connectionMethod}`);
+      }
+
+      if (connectionResult.success) {
+        await this.addConnectedDevice(deviceId, connectionResult.connectionInfo);
+        this.updateConnectionStatus(deviceId, 'connected');
+      }
+
+      return connectionResult;
+
+    } catch (error) {
+      console.error(`Failed to connect to device ${deviceId}:`, error);
+      this.updateConnectionStatus(deviceId, 'error', error.message);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Connect device via HealthKit (Apple Watch)
+   */
+  async connectViaHealthKit(deviceId, options) {
+    try {
+      if (Platform.OS !== 'ios') {
+        throw new Error('HealthKit only available on iOS');
+      }
+
+      // Apple Watch data comes through HealthKit automatically
+      // Just need to verify HealthKit permissions
+      const HealthKit = await import('react-native-healthkit');
+      const healthKit = HealthKit.default;
+
+      const permissions = {
+        permissions: {
+          read: [
+            'HKQuantityTypeIdentifierHeartRate',
+            'HKQuantityTypeIdentifierStepCount',
+            'HKQuantityTypeIdentifierActiveEnergyBurned',
+            'HKCategoryTypeIdentifierSleepAnalysis'
+          ],
+          write: []
+        }
+      };
+
+      await healthKit.initHealthKit(permissions);
+
+      return {
+        success: true,
+        connectionInfo: {
+          method: 'healthkit',
+          deviceName: 'Apple Watch',
+          connectedAt: new Date().toISOString(),
+          permissions: permissions.permissions.read
+        }
+      };
+
+    } catch (error) {
+      throw new Error(`HealthKit connection failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Connect device via API (Fitbit, Samsung, Garmin)
+   */
+  async connectViaAPI(deviceId, options) {
+    try {
+      const device = this.supportedDevices[deviceId];
+
+      switch (deviceId) {
+        case 'fitbit':
+          return await this.connectFitbit(options);
+        case 'samsungHealth':
+          return await this.connectSamsungHealth(options);
+        case 'garminConnect':
+          return await this.connectGarminConnect(options);
+        case 'withings':
+          return await this.connectWithings(options);
+        default:
+          throw new Error(`API connection not implemented for ${device.name}`);
+      }
+
+    } catch (error) {
+      throw new Error(`API connection failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Connect Fitbit device
+   */
+  async connectFitbit(options) {
+    try {
+      // In a real implementation, this would use Fitbit OAuth
+      const authUrl = 'https://www.fitbit.com/oauth2/authorize';
+      const clientId = options.clientId || 'YOUR_FITBIT_CLIENT_ID';
+
+      // Simulate OAuth flow
+      const authResult = await this.simulateOAuthFlow('Fitbit', authUrl);
+
+      if (authResult.success) {
+        return {
+          success: true,
+          connectionInfo: {
+            method: 'api',
+            deviceName: 'Fitbit',
+            connectedAt: new Date().toISOString(),
+            accessToken: authResult.accessToken,
+            refreshToken: authResult.refreshToken,
+            scope: ['activity', 'heartrate', 'sleep', 'weight']
+          }
+        };
+      }
+
+      throw new Error('Fitbit authentication failed');
+
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Connect Samsung Health
+   */
+  async connectSamsungHealth(options) {
+    try {
+      if (Platform.OS !== 'android') {
+        throw new Error('Samsung Health only available on Android');
+      }
+
+      // In a real implementation, this would use Samsung Health SDK
+      return {
+        success: true,
+        connectionInfo: {
+          method: 'api',
+          deviceName: 'Samsung Health',
+          connectedAt: new Date().toISOString(),
+          packageName: 'com.sec.android.app.shealth',
+          permissions: ['steps', 'heartRate', 'sleep', 'bloodPressure']
+        }
+      };
+
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Connect Garmin Connect
+   */
+  async connectGarminConnect(options) {
+    try {
+      // In a real implementation, this would use Garmin Connect IQ SDK
+      const authResult = await this.simulateOAuthFlow('Garmin Connect', 'https://connect.garmin.com/oauth');
+
+      if (authResult.success) {
+        return {
+          success: true,
+          connectionInfo: {
+            method: 'api',
+            deviceName: 'Garmin Connect',
+            connectedAt: new Date().toISOString(),
+            accessToken: authResult.accessToken,
+            scope: ['activities', 'heartrate', 'sleep', 'stress']
+          }
+        };
+      }
+
+      throw new Error('Garmin Connect authentication failed');
+
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Connect Withings device
+   */
+  async connectWithings(options) {
+    try {
+      const authResult = await this.simulateOAuthFlow('Withings', 'https://account.withings.com/oauth2');
+
+      if (authResult.success) {
+        return {
+          success: true,
+          connectionInfo: {
+            method: 'api',
+            deviceName: 'Withings',
+            connectedAt: new Date().toISOString(),
+            accessToken: authResult.accessToken,
+            scope: ['user.metrics', 'user.activity']
+          }
+        };
+      }
+
+      throw new Error('Withings authentication failed');
+
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Connect device via Bluetooth
+   */
+  async connectViaBluetooth(deviceId, options) {
+    try {
+      // In a real implementation, this would use BLE libraries
+      const BluetoothManager = await this.getBluetoothManager();
+
+      const scanResult = await BluetoothManager.scan({
+        timeout: 10000,
+        deviceTypes: [deviceId]
+      });
+
+      if (scanResult.devices.length > 0) {
+        const device = scanResult.devices[0];
+        const connectionResult = await BluetoothManager.connect(device.id);
+
+        if (connectionResult.success) {
+          return {
+            success: true,
+            connectionInfo: {
+              method: 'bluetooth',
+              deviceName: device.name,
+              deviceId: device.id,
+              connectedAt: new Date().toISOString(),
+              services: device.services
+            }
+          };
+        }
+      }
+
+      throw new Error('No compatible Bluetooth devices found');
+
+    } catch (error) {
+      throw new Error(`Bluetooth connection failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Disconnect from a wearable device
+   */
+  async disconnectDevice(deviceId) {
+    try {
+      const deviceIndex = this.connectedDevices.findIndex(d => d.id === deviceId);
+      if (deviceIndex === -1) {
+        throw new Error('Device not connected');
+      }
+
+      const device = this.connectedDevices[deviceIndex];
+
+      // Perform device-specific disconnection
+      switch (device.connectionInfo.method) {
+        case 'api':
+          await this.disconnectAPIDevice(deviceId, device.connectionInfo);
+          break;
+        case 'bluetooth':
+          await this.disconnectBluetoothDevice(deviceId, device.connectionInfo);
+          break;
+        case 'healthkit':
+          // HealthKit doesn't require explicit disconnection
+          break;
+      }
+
+      // Remove from connected devices
+      this.connectedDevices.splice(deviceIndex, 1);
+      await this.saveConnectedDevices();
+
+      this.updateConnectionStatus(deviceId, 'disconnected');
+
+      return { success: true };
+
+    } catch (error) {
+      console.error(`Failed to disconnect device ${deviceId}:`, error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Sync data from connected devices
+   */
+  async syncDeviceData(deviceId = null) {
+    try {
+      const devicesToSync = deviceId
+        ? this.connectedDevices.filter(d => d.id === deviceId)
+        : this.connectedDevices;
+
+      const syncResults = {};
+
+      for (const device of devicesToSync) {
+        try {
+          const result = await this.syncSingleDevice(device);
+          syncResults[device.id] = result;
+        } catch (error) {
+          syncResults[device.id] = {
+            success: false,
+            error: error.message
+          };
+        }
+      }
+
+      return {
+        success: true,
+        results: syncResults,
+        syncedDevices: Object.keys(syncResults).length
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Sync data from a single device
+   */
+  async syncSingleDevice(device) {
+    const deviceConfig = this.supportedDevices[device.id];
+    const syncData = {};
+
+    for (const dataType of deviceConfig.dataTypes) {
+      try {
+        const data = await this.fetchDeviceData(device, dataType);
+        if (data && data.length > 0) {
+          syncData[dataType] = data;
+        }
+      } catch (error) {
+        console.error(`Failed to fetch ${dataType} from ${device.id}:`, error);
+      }
+    }
+
+    return {
+      success: true,
+      deviceId: device.id,
+      deviceName: device.connectionInfo.deviceName,
+      syncedDataTypes: Object.keys(syncData),
+      totalRecords: Object.values(syncData).flat().length,
+      data: syncData
+    };
+  }
+
+  /**
+   * Fetch specific data type from device
+   */
+  async fetchDeviceData(device, dataType) {
+    const now = new Date();
+    const startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000); // Last 24 hours
+
+    switch (device.connectionInfo.method) {
+      case 'healthkit':
+        return await this.fetchHealthKitData(dataType, startDate, now);
+      case 'api':
+        return await this.fetchAPIData(device, dataType, startDate, now);
+      case 'bluetooth':
+        return await this.fetchBluetoothData(device, dataType);
+      default:
+        throw new Error(`Unknown connection method: ${device.connectionInfo.method}`);
+    }
+  }
+
+  /**
+   * Fetch data from HealthKit
+   */
+  async fetchHealthKitData(dataType, startDate, endDate) {
+    try {
+      const HealthKit = await import('react-native-healthkit');
+      const healthKit = HealthKit.default;
+
+      const typeMapping = {
+        heartRate: 'HKQuantityTypeIdentifierHeartRate',
+        steps: 'HKQuantityTypeIdentifierStepCount',
+        calories: 'HKQuantityTypeIdentifierActiveEnergyBurned'
+      };
+
+      const hkType = typeMapping[dataType];
+      if (!hkType) return [];
+
+      const samples = await healthKit.querySamples({
+        type: hkType,
+        startDate,
+        endDate
+      });
+
+      return samples.map(sample =>
+        this.healthDataModel.normalizeHealthKitData(sample, dataType)
+      );
+
+    } catch (error) {
+      console.error(`HealthKit data fetch failed for ${dataType}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch data from API-based devices
+   */
+  async fetchAPIData(device, dataType, startDate, endDate) {
+    try {
+      // This would implement actual API calls to each service
+      // For now, return mock data
+      return this.generateMockDeviceData(device.id, dataType, 5);
+
+    } catch (error) {
+      console.error(`API data fetch failed for ${device.id} ${dataType}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Fetch data from Bluetooth devices
+   */
+  async fetchBluetoothData(device, dataType) {
+    try {
+      // This would implement BLE data reading
+      // For now, return mock data
+      return this.generateMockDeviceData(device.id, dataType, 3);
+
+    } catch (error) {
+      console.error(`Bluetooth data fetch failed for ${device.id} ${dataType}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Generate mock device data for testing
+   */
+  generateMockDeviceData(deviceId, dataType, count) {
+    const data = [];
+    const now = Date.now();
+
+    for (let i = 0; i < count; i++) {
+      const timestamp = new Date(now - (i * 60 * 60 * 1000)); // Every hour
+
+      let value;
+      switch (dataType) {
+        case 'heartRate':
+          value = 60 + Math.random() * 40; // 60-100 bpm
+          break;
+        case 'steps':
+          value = Math.floor(Math.random() * 2000); // 0-2000 steps per hour
+          break;
+        case 'calories':
+          value = Math.floor(Math.random() * 200); // 0-200 calories per hour
+          break;
+        default:
+          value = Math.random() * 100;
+      }
+
+      data.push(this.healthDataModel.createHealthDataEntry(dataType, value, {
+        timestamp: timestamp.toISOString(),
+        source: deviceId,
+        device: this.supportedDevices[deviceId].name
+      }));
+    }
+
+    return data;
+  }
+
+  /**
+   * Utility methods
+   */
+  isDeviceConnected(deviceId) {
+    return this.connectedDevices.some(d => d.id === deviceId);
+  }
+
+  updateConnectionStatus(deviceId, status, error = null) {
+    this.connectionStatus[deviceId] = {
+      status,
+      lastUpdate: new Date().toISOString(),
+      error
+    };
+    this.saveConnectionStatus();
+  }
+
+  async addConnectedDevice(deviceId, connectionInfo) {
+    const existingIndex = this.connectedDevices.findIndex(d => d.id === deviceId);
+
+    const deviceEntry = {
+      id: deviceId,
+      connectionInfo,
+      connectedAt: new Date().toISOString()
+    };
+
+    if (existingIndex >= 0) {
+      this.connectedDevices[existingIndex] = deviceEntry;
+    } else {
+      this.connectedDevices.push(deviceEntry);
+    }
+
+    await this.saveConnectedDevices();
+  }
+
+  async simulateOAuthFlow(serviceName, authUrl) {
+    // In a real app, this would open a web browser for OAuth
+    return new Promise((resolve) => {
+      setTimeout(() => {
+        resolve({
+          success: true,
+          accessToken: `mock_access_token_${Date.now()}`,
+          refreshToken: `mock_refresh_token_${Date.now()}`,
+          expiresAt: new Date(Date.now() + 3600000).toISOString()
+        });
+      }, 1000);
+    });
+  }
+
+  async getBluetoothManager() {
+    // Mock Bluetooth manager
+    return {
+      scan: async (options) => ({
+        devices: [{
+          id: 'polar_h10_123',
+          name: 'Polar H10',
+          services: ['heart_rate']
+        }]
+      }),
+      connect: async (deviceId) => ({ success: true })
+    };
+  }
+
+  async disconnectAPIDevice(deviceId, connectionInfo) {
+    // Revoke OAuth tokens if needed
+    console.log(`Disconnecting API device: ${deviceId}`);
+  }
+
+  async disconnectBluetoothDevice(deviceId, connectionInfo) {
+    // Disconnect BLE connection
+    console.log(`Disconnecting Bluetooth device: ${deviceId}`);
+  }
+
+  async checkDeviceAvailability() {
+    // Check which devices are actually available
+    Object.keys(this.supportedDevices).forEach(deviceId => {
+      const device = this.supportedDevices[deviceId];
+      const isAvailable = device.platforms.includes(Platform.OS);
+      this.updateConnectionStatus(deviceId, isAvailable ? 'available' : 'unavailable');
+    });
+  }
+
+  async loadConnectedDevices() {
+    try {
+      const stored = await AsyncStorage.getItem('connected_wearable_devices');
+      if (stored) {
+        this.connectedDevices = JSON.parse(stored);
+      }
+    } catch (error) {
+      console.error('Failed to load connected devices:', error);
+    }
+  }
+
+  async saveConnectedDevices() {
+    try {
+      await AsyncStorage.setItem('connected_wearable_devices', JSON.stringify(this.connectedDevices));
+    } catch (error) {
+      console.error('Failed to save connected devices:', error);
+    }
+  }
+
+  async loadConnectionStatus() {
+    try {
+      const stored = await AsyncStorage.getItem('wearable_connection_status');
+      if (stored) {
+        this.connectionStatus = JSON.parse(stored);
+      }
+    } catch (error) {
+      console.error('Failed to load connection status:', error);
+    }
+  }
+
+  async saveConnectionStatus() {
+    try {
+      await AsyncStorage.setItem('wearable_connection_status', JSON.stringify(this.connectionStatus));
+    } catch (error) {
+      console.error('Failed to save connection status:', error);
+    }
+  }
+
+  /**
+   * Get device battery status (if supported)
+   */
+  async getDeviceBatteryStatus(deviceId) {
+    try {
+      const device = this.connectedDevices.find(d => d.id === deviceId);
+      if (!device) {
+        throw new Error('Device not connected');
+      }
+
+      // This would implement battery status checking
+      return {
+        deviceId,
+        batteryLevel: Math.floor(Math.random() * 100), // Mock battery level
+        isCharging: Math.random() > 0.5,
+        lastUpdate: new Date().toISOString()
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Get device information
+   */
+  getDeviceInfo(deviceId) {
+    const device = this.connectedDevices.find(d => d.id === deviceId);
+    const deviceConfig = this.supportedDevices[deviceId];
+
+    if (!device || !deviceConfig) {
+      return null;
+    }
+
+    return {
+      ...deviceConfig,
+      connectionInfo: device.connectionInfo,
+      connectedAt: device.connectedAt,
+      status: this.connectionStatus[deviceId]?.status || 'unknown'
+    };
+  }
+
+  /**
+   * Export wearable device data
+   */
+  async exportDeviceData() {
+    return {
+      supportedDevices: this.supportedDevices,
+      connectedDevices: this.connectedDevices,
+      connectionStatus: this.connectionStatus,
+      exported: new Date().toISOString()
+    };
+  }
+}
+
+export default new WearableDeviceService();

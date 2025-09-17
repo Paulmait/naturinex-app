@@ -16,8 +16,8 @@ import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
 import StudentVerification from '../components/StudentVerification';
 
-const STRIPE_KEY = Constants.expoConfig?.extra?.stripePublishableKey || 'pk_live_51QTj9RRqEPLAinmJX0Jgqr8GJZQKziNhHDMhHCRpNQbwfWJRKrPz7ZY48mJzV1rP1bDYJhRNJy1z5VXJ0e5G8t9K00lAC53L05';
-const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-zsga.onrender.com';
+const STRIPE_KEY = Constants.expoConfig?.extra?.stripePublishableKey || 'pk_test_51QTj9RRqEPLAinmJGvQPhyXzR5YlCJXaVP8TcOKOCz3KYbHN9MWJZBwzKa7xxIUhqSFUwLj8XmPQPQN7CTsxEhNc00VhGYxqJz';
+const API_URL = 'https://hxhbsxzkzarqwksbjpce.supabase.co/functions/v1';
 
 // Track pricing conversion for A/B testing
 const trackPricingConversion = async (userId, planData, promoCode) => {

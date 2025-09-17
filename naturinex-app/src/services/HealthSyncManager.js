@@ -1,0 +1,644 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import HealthIntegrationService from './HealthIntegrationService';
+import HealthDataModel from '../models/HealthDataModel';
+import PrivacyComplianceManager from '../utils/PrivacyComplianceManager';
+
+/**
+ * Health Sync Manager
+ * Manages automatic synchronization, conflict resolution, and data consistency
+ */
+class HealthSyncManager {
+  constructor() {
+    this.syncInterval = null;
+    this.isAutoSyncEnabled = true;
+    this.syncFrequency = 30 * 60 * 1000; // 30 minutes
+    this.conflictResolutionStrategy = 'latest_wins';
+    this.maxRetries = 3;
+    this.syncQueue = [];
+    this.isSync = false;
+    this.lastSyncTimestamp = null;
+
+    this.healthDataModel = new HealthDataModel();
+    this.privacyManager = new PrivacyComplianceManager();
+
+    this.syncStatus = {
+      isEnabled: true,
+      lastSync: null,
+      nextSync: null,
+      errors: [],
+      conflicts: [],
+      successCount: 0,
+      errorCount: 0
+    };
+  }
+
+  /**
+   * Initialize sync manager
+   */
+  async initialize() {
+    try {
+      await this.loadSyncSettings();
+      await this.loadSyncStatus();
+
+      if (this.isAutoSyncEnabled) {
+        this.startAutoSync();
+      }
+
+      console.log('HealthSyncManager initialized');
+      return { success: true };
+    } catch (error) {
+      console.error('HealthSyncManager initialization failed:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Start automatic synchronization
+   */
+  startAutoSync() {
+    if (this.syncInterval) {
+      this.stopAutoSync();
+    }
+
+    this.syncInterval = setInterval(async () => {
+      if (!this.isSync) {
+        await this.performFullSync();
+      }
+    }, this.syncFrequency);
+
+    this.updateNextSyncTime();
+    console.log('Auto-sync started');
+  }
+
+  /**
+   * Stop automatic synchronization
+   */
+  stopAutoSync() {
+    if (this.syncInterval) {
+      clearInterval(this.syncInterval);
+      this.syncInterval = null;
+    }
+    console.log('Auto-sync stopped');
+  }
+
+  /**
+   * Perform full synchronization
+   */
+  async performFullSync() {
+    try {
+      this.isSync = true;
+      this.syncStatus.errors = [];
+      this.syncStatus.conflicts = [];
+
+      console.log('Starting full health data sync...');
+
+      // Step 1: Sync from health platforms
+      const platformSyncResult = await this.syncFromHealthPlatforms();
+
+      // Step 2: Resolve any conflicts
+      const conflictResolutionResult = await this.resolveDataConflicts();
+
+      // Step 3: Upload to cloud/backend if needed
+      const cloudSyncResult = await this.syncToCloud();
+
+      // Step 4: Update sync status
+      this.updateSyncStatus(true);
+
+      const result = {
+        success: true,
+        platformSync: platformSyncResult,
+        conflictResolution: conflictResolutionResult,
+        cloudSync: cloudSyncResult,
+        timestamp: new Date().toISOString()
+      };
+
+      await this.logSyncEvent('full_sync_completed', result);
+      console.log('Full sync completed successfully');
+
+      return result;
+
+    } catch (error) {
+      this.updateSyncStatus(false, error.message);
+      await this.logSyncEvent('full_sync_failed', { error: error.message });
+      console.error('Full sync failed:', error);
+
+      return {
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString()
+      };
+    } finally {
+      this.isSync = false;
+      this.updateNextSyncTime();
+    }
+  }
+
+  /**
+   * Sync data from health platforms (Apple Health, Google Fit)
+   */
+  async syncFromHealthPlatforms() {
+    try {
+      const result = await HealthIntegrationService.syncAllData();
+
+      if (result.success) {
+        // Process and store synced data
+        await this.processSyncedData(result.syncedData);
+
+        this.syncStatus.successCount++;
+        return {
+          success: true,
+          syncedTypes: Object.keys(result.syncedData),
+          totalRecords: Object.values(result.syncedData).flat().length
+        };
+      } else {
+        throw new Error('Platform sync failed');
+      }
+    } catch (error) {
+      this.syncStatus.errorCount++;
+      this.syncStatus.errors.push({
+        type: 'platform_sync',
+        message: error.message,
+        timestamp: new Date().toISOString()
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Process synced data and detect conflicts
+   */
+  async processSyncedData(syncedData) {
+    for (const [dataType, records] of Object.entries(syncedData)) {
+      if (records && records.length > 0) {
+        // Get existing local data
+        const existingData = await this.getLocalData(dataType);
+
+        // Detect conflicts
+        const conflicts = this.detectConflicts(existingData, records);
+
+        if (conflicts.length > 0) {
+          this.syncStatus.conflicts.push(...conflicts);
+          await this.queueConflictResolution(conflicts);
+        }
+
+        // Store new data (conflicts will be resolved separately)
+        await this.storeLocalData(dataType, records);
+      }
+    }
+  }
+
+  /**
+   * Detect conflicts between local and synced data
+   */
+  detectConflicts(localData, syncedData) {
+    const conflicts = [];
+
+    syncedData.forEach(syncedRecord => {
+      const existingRecord = localData.find(local =>
+        this.isSameTimeSlot(local.timestamp, syncedRecord.timestamp)
+      );
+
+      if (existingRecord && !this.areRecordsEqual(existingRecord, syncedRecord)) {
+        conflicts.push({
+          id: this.generateConflictId(),
+          type: 'data_conflict',
+          dataType: syncedRecord.type,
+          localRecord: existingRecord,
+          syncedRecord: syncedRecord,
+          detectedAt: new Date().toISOString(),
+          status: 'pending'
+        });
+      }
+    });
+
+    return conflicts;
+  }
+
+  /**
+   * Resolve data conflicts based on strategy
+   */
+  async resolveDataConflicts() {
+    const pendingConflicts = this.syncStatus.conflicts.filter(c => c.status === 'pending');
+
+    if (pendingConflicts.length === 0) {
+      return { resolved: 0, strategy: this.conflictResolutionStrategy };
+    }
+
+    let resolvedCount = 0;
+
+    for (const conflict of pendingConflicts) {
+      try {
+        const resolution = await this.resolveConflict(conflict);
+
+        if (resolution.success) {
+          conflict.status = 'resolved';
+          conflict.resolution = resolution;
+          resolvedCount++;
+        } else {
+          conflict.status = 'failed';
+          conflict.error = resolution.error;
+        }
+      } catch (error) {
+        conflict.status = 'failed';
+        conflict.error = error.message;
+      }
+    }
+
+    await this.saveSyncStatus();
+
+    return {
+      resolved: resolvedCount,
+      failed: pendingConflicts.length - resolvedCount,
+      strategy: this.conflictResolutionStrategy
+    };
+  }
+
+  /**
+   * Resolve individual conflict
+   */
+  async resolveConflict(conflict) {
+    try {
+      let resolvedRecord;
+
+      switch (this.conflictResolutionStrategy) {
+        case 'latest_wins':
+          resolvedRecord = this.resolveByLatest(conflict);
+          break;
+        case 'source_priority':
+          resolvedRecord = this.resolveBySourcePriority(conflict);
+          break;
+        case 'user_choice':
+          resolvedRecord = await this.resolveByUserChoice(conflict);
+          break;
+        case 'merge':
+          resolvedRecord = this.resolveByMerging(conflict);
+          break;
+        default:
+          resolvedRecord = this.resolveByLatest(conflict);
+      }
+
+      // Update the local data with resolved record
+      await this.updateLocalRecord(conflict.dataType, resolvedRecord);
+
+      return {
+        success: true,
+        strategy: this.conflictResolutionStrategy,
+        resolvedRecord
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Resolve conflict by latest timestamp
+   */
+  resolveByLatest(conflict) {
+    const localTime = new Date(conflict.localRecord.timestamp);
+    const syncedTime = new Date(conflict.syncedRecord.timestamp);
+
+    return syncedTime > localTime ? conflict.syncedRecord : conflict.localRecord;
+  }
+
+  /**
+   * Resolve conflict by source priority
+   */
+  resolveBySourcePriority(conflict) {
+    const sourcePriority = {
+      'healthkit': 3,
+      'googlefit': 3,
+      'manual': 2,
+      'device': 1,
+      'estimated': 0
+    };
+
+    const localPriority = sourcePriority[conflict.localRecord.source] || 0;
+    const syncedPriority = sourcePriority[conflict.syncedRecord.source] || 0;
+
+    if (syncedPriority > localPriority) {
+      return conflict.syncedRecord;
+    } else if (localPriority > syncedPriority) {
+      return conflict.localRecord;
+    } else {
+      // Same priority, use latest
+      return this.resolveByLatest(conflict);
+    }
+  }
+
+  /**
+   * Resolve conflict by merging data
+   */
+  resolveByMerging(conflict) {
+    // Create a merged record taking the best of both
+    const merged = {
+      ...conflict.localRecord,
+      // Use the more recent timestamp
+      timestamp: new Date(Math.max(
+        new Date(conflict.localRecord.timestamp),
+        new Date(conflict.syncedRecord.timestamp)
+      )).toISOString(),
+      // Combine metadata
+      metadata: {
+        ...conflict.localRecord.metadata,
+        ...conflict.syncedRecord.metadata,
+        merged: true,
+        mergedFrom: [conflict.localRecord.source, conflict.syncedRecord.source]
+      },
+      // Use higher confidence value
+      validation: {
+        ...conflict.localRecord.validation,
+        confidence: Math.max(
+          conflict.localRecord.validation?.confidence || 0,
+          conflict.syncedRecord.validation?.confidence || 0
+        )
+      }
+    };
+
+    return merged;
+  }
+
+  /**
+   * Sync data to cloud/backend
+   */
+  async syncToCloud() {
+    try {
+      // This would implement cloud synchronization
+      // For now, return success
+      return {
+        success: true,
+        uploaded: 0,
+        message: 'Cloud sync not implemented yet'
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Manual sync trigger
+   */
+  async manualSync() {
+    if (this.isSync) {
+      return {
+        success: false,
+        error: 'Sync already in progress'
+      };
+    }
+
+    return await this.performFullSync();
+  }
+
+  /**
+   * Configure sync settings
+   */
+  async configureSyncSettings(settings) {
+    try {
+      if (settings.autoSync !== undefined) {
+        this.isAutoSyncEnabled = settings.autoSync;
+
+        if (settings.autoSync) {
+          this.startAutoSync();
+        } else {
+          this.stopAutoSync();
+        }
+      }
+
+      if (settings.frequency) {
+        this.syncFrequency = settings.frequency * 60 * 1000; // Convert minutes to ms
+
+        if (this.isAutoSyncEnabled) {
+          this.startAutoSync(); // Restart with new frequency
+        }
+      }
+
+      if (settings.conflictResolution) {
+        this.conflictResolutionStrategy = settings.conflictResolution;
+      }
+
+      await this.saveSyncSettings();
+
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Get sync status
+   */
+  getSyncStatus() {
+    return {
+      ...this.syncStatus,
+      isSync: this.isSync,
+      isAutoSyncEnabled: this.isAutoSyncEnabled,
+      syncFrequency: this.syncFrequency / (60 * 1000), // Convert to minutes
+      conflictResolutionStrategy: this.conflictResolutionStrategy
+    };
+  }
+
+  /**
+   * Utility methods
+   */
+  isSameTimeSlot(timestamp1, timestamp2, windowMinutes = 5) {
+    const time1 = new Date(timestamp1);
+    const time2 = new Date(timestamp2);
+    const diffMinutes = Math.abs(time1 - time2) / (1000 * 60);
+    return diffMinutes <= windowMinutes;
+  }
+
+  areRecordsEqual(record1, record2) {
+    // Compare key fields to determine if records are the same
+    return record1.value === record2.value &&
+           record1.type === record2.type &&
+           Math.abs(new Date(record1.timestamp) - new Date(record2.timestamp)) < 60000; // 1 minute
+  }
+
+  generateConflictId() {
+    return `conflict_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  }
+
+  updateSyncStatus(success, error = null) {
+    this.syncStatus.lastSync = new Date().toISOString();
+
+    if (success) {
+      this.syncStatus.successCount++;
+    } else {
+      this.syncStatus.errorCount++;
+      if (error) {
+        this.syncStatus.errors.push({
+          type: 'sync_error',
+          message: error,
+          timestamp: new Date().toISOString()
+        });
+      }
+    }
+
+    this.saveSyncStatus();
+  }
+
+  updateNextSyncTime() {
+    if (this.isAutoSyncEnabled) {
+      this.syncStatus.nextSync = new Date(Date.now() + this.syncFrequency).toISOString();
+    } else {
+      this.syncStatus.nextSync = null;
+    }
+  }
+
+  async queueConflictResolution(conflicts) {
+    // Add conflicts to resolution queue
+    this.syncQueue.push(...conflicts.map(conflict => ({
+      type: 'conflict_resolution',
+      data: conflict,
+      timestamp: new Date().toISOString()
+    })));
+  }
+
+  async getLocalData(dataType) {
+    try {
+      const stored = await AsyncStorage.getItem(`health_data_${dataType}`);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return parsed.data || [];
+      }
+      return [];
+    } catch (error) {
+      console.error(`Failed to get local data for ${dataType}:`, error);
+      return [];
+    }
+  }
+
+  async storeLocalData(dataType, data) {
+    try {
+      const dataToStore = {
+        data,
+        timestamp: new Date().toISOString(),
+        version: '1.0'
+      };
+
+      await AsyncStorage.setItem(`health_data_${dataType}`, JSON.stringify(dataToStore));
+    } catch (error) {
+      console.error(`Failed to store local data for ${dataType}:`, error);
+    }
+  }
+
+  async updateLocalRecord(dataType, record) {
+    try {
+      const existingData = await this.getLocalData(dataType);
+      const updatedData = existingData.map(item =>
+        item.id === record.id ? record : item
+      );
+
+      // If record doesn't exist, add it
+      if (!existingData.find(item => item.id === record.id)) {
+        updatedData.push(record);
+      }
+
+      await this.storeLocalData(dataType, updatedData);
+    } catch (error) {
+      console.error('Failed to update local record:', error);
+    }
+  }
+
+  async loadSyncSettings() {
+    try {
+      const stored = await AsyncStorage.getItem('health_sync_settings');
+      if (stored) {
+        const settings = JSON.parse(stored);
+        this.isAutoSyncEnabled = settings.autoSync !== undefined ? settings.autoSync : true;
+        this.syncFrequency = settings.frequency || 30 * 60 * 1000;
+        this.conflictResolutionStrategy = settings.conflictResolution || 'latest_wins';
+      }
+    } catch (error) {
+      console.error('Failed to load sync settings:', error);
+    }
+  }
+
+  async saveSyncSettings() {
+    try {
+      const settings = {
+        autoSync: this.isAutoSyncEnabled,
+        frequency: this.syncFrequency,
+        conflictResolution: this.conflictResolutionStrategy
+      };
+      await AsyncStorage.setItem('health_sync_settings', JSON.stringify(settings));
+    } catch (error) {
+      console.error('Failed to save sync settings:', error);
+    }
+  }
+
+  async loadSyncStatus() {
+    try {
+      const stored = await AsyncStorage.getItem('health_sync_status');
+      if (stored) {
+        this.syncStatus = { ...this.syncStatus, ...JSON.parse(stored) };
+      }
+    } catch (error) {
+      console.error('Failed to load sync status:', error);
+    }
+  }
+
+  async saveSyncStatus() {
+    try {
+      await AsyncStorage.setItem('health_sync_status', JSON.stringify(this.syncStatus));
+    } catch (error) {
+      console.error('Failed to save sync status:', error);
+    }
+  }
+
+  async logSyncEvent(eventType, data) {
+    try {
+      await this.privacyManager.logAuditEvent(`sync_${eventType}`, data);
+    } catch (error) {
+      console.error('Failed to log sync event:', error);
+    }
+  }
+
+  /**
+   * Cleanup old sync data
+   */
+  async cleanup() {
+    try {
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - 30); // Keep 30 days
+
+      // Clean up old errors
+      this.syncStatus.errors = this.syncStatus.errors.filter(error =>
+        new Date(error.timestamp) > cutoffDate
+      );
+
+      // Clean up resolved conflicts
+      this.syncStatus.conflicts = this.syncStatus.conflicts.filter(conflict =>
+        conflict.status === 'pending' || new Date(conflict.detectedAt) > cutoffDate
+      );
+
+      await this.saveSyncStatus();
+    } catch (error) {
+      console.error('Sync cleanup failed:', error);
+    }
+  }
+
+  /**
+   * Export sync data for debugging
+   */
+  async exportSyncData() {
+    return {
+      status: this.getSyncStatus(),
+      settings: {
+        autoSync: this.isAutoSyncEnabled,
+        frequency: this.syncFrequency,
+        conflictResolution: this.conflictResolutionStrategy
+      },
+      queue: this.syncQueue,
+      exported: new Date().toISOString()
+    };
+  }
+}
+
+export default new HealthSyncManager();

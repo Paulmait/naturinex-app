@@ -15,12 +15,16 @@ import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, si
 import * as Google from 'expo-auth-session/providers/google';
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
+import TwoFactorVerificationModal from '../components/TwoFactorVerificationModal';
+import TwoFactorAuthService from '../services/TwoFactorAuthService';
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
+  const [show2FAModal, setShow2FAModal] = useState(false);
+  const [pendingUser, setPendingUser] = useState(null);
   const auth = getAuth();
 
   const [request, response, promptAsync] = Google.useAuthRequest({
@@ -35,7 +39,7 @@ export default function LoginScreen({ navigation }) {
       const credential = GoogleAuthProvider.credential(id_token);
       signInWithCredential(auth, credential)
         .then(async (result) => {
-          await handleAuthSuccess(result.user);
+          await checkTwoFactorAuth(result.user);
         })
         .catch((error) => {
           console.error('Google sign-in error:', error);
@@ -43,6 +47,42 @@ export default function LoginScreen({ navigation }) {
         });
     }
   }, [response]);
+
+  const checkTwoFactorAuth = async (user) => {
+    try {
+      const userSettings = await TwoFactorAuthService.getUserSettings(user.uid);
+
+      // Check if user has any 2FA methods enabled
+      const has2FA = userSettings.phone_2fa_enabled ||
+                     userSettings.totp_enabled ||
+                     userSettings.biometric_enabled;
+
+      if (has2FA) {
+        setPendingUser(user);
+        setShow2FAModal(true);
+      } else {
+        await handleAuthSuccess(user);
+      }
+    } catch (error) {
+      console.error('2FA check error:', error);
+      // If 2FA check fails, proceed with normal login
+      await handleAuthSuccess(user);
+    }
+  };
+
+  const handle2FASuccess = async () => {
+    setShow2FAModal(false);
+    if (pendingUser) {
+      await handleAuthSuccess(pendingUser);
+      setPendingUser(null);
+    }
+  };
+
+  const handle2FACancel = () => {
+    setShow2FAModal(false);
+    setPendingUser(null);
+    setLoading(false);
+  };
 
   const handleEmailAuth = async () => {
     if (!email || !password) {
@@ -59,7 +99,7 @@ export default function LoginScreen({ navigation }) {
       } else {
         result = await signInWithEmailAndPassword(auth, email, password);
       }
-      await handleAuthSuccess(result.user);
+      await checkTwoFactorAuth(result.user);
     } catch (error) {
       console.error('Auth error:', error);
       if (error.code === 'auth/email-already-in-use') {
@@ -256,6 +296,14 @@ export default function LoginScreen({ navigation }) {
           </Text>
         </View>
       </ScrollView>
+
+      <TwoFactorVerificationModal
+        visible={show2FAModal}
+        onClose={handle2FACancel}
+        onSuccess={handle2FASuccess}
+        userId={pendingUser?.uid}
+        operation="login"
+      />
     </KeyboardAvoidingView>
   );
 }

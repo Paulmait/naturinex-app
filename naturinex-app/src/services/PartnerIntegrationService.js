@@ -1,0 +1,989 @@
+// Partner Integration Service for NaturineX
+// Handles integrations with supplement stores, health blogs, influencers, and healthcare providers
+// Created: 2025-09-16
+
+import { supabase } from '../config/supabase';
+import CryptoJS from 'crypto-js';
+
+class PartnerIntegrationService {
+  constructor() {
+    this.integrationTypes = {
+      api: 'API Integration',
+      webhook: 'Webhook Integration',
+      iframe: 'iFrame Embed',
+      redirect: 'Redirect Link',
+      widget: 'Website Widget'
+    };
+
+    this.partnerTypes = {
+      supplement_store: 'Supplement Store',
+      health_blog: 'Health Blog',
+      influencer: 'Influencer',
+      healthcare_provider: 'Healthcare Provider',
+      corporate: 'Corporate Wellness',
+      pharmacy: 'Pharmacy Chain',
+      clinic: 'Medical Clinic',
+      wellness_center: 'Wellness Center'
+    };
+
+    this.commissionModels = {
+      fixed_rate: 'Fixed Commission Rate',
+      tiered: 'Tiered Commission Structure',
+      performance_based: 'Performance-Based Rates',
+      revenue_share: 'Revenue Share Model',
+      hybrid: 'Hybrid Model'
+    };
+  }
+
+  // ================================================
+  // PARTNER REGISTRATION & ONBOARDING
+  // ================================================
+
+  /**
+   * Register new partner integration
+   */
+  async registerPartner(partnerData) {
+    try {
+      const {
+        partnerName,
+        partnerType,
+        contactEmail,
+        contactName,
+        website,
+        businessDescription,
+        audienceSize,
+        targetAudience,
+        integrationType,
+        commissionModel,
+        proposedCommissionRate,
+        monthlyTrafficEstimate,
+        socialMediaProfiles,
+        existingAffiliatePrograms,
+        businessDocuments
+      } = partnerData;
+
+      // Generate unique partner ID and API key
+      const partnerId = this.generatePartnerId();
+      const apiKey = this.generateAPIKey();
+
+      const partnerRecord = {
+        partner_id: partnerId,
+        partner_name: partnerName,
+        partner_type: partnerType,
+        contact_email: contactEmail,
+        contact_name: contactName,
+        website: website,
+        business_description: businessDescription,
+        audience_size: audienceSize,
+        target_audience: targetAudience,
+        integration_type: integrationType,
+        revenue_share_model: commissionModel,
+        partner_commission_rate: proposedCommissionRate || this.getDefaultCommissionRate(partnerType),
+        monthly_traffic_estimate: monthlyTrafficEstimate,
+        social_media_profiles: socialMediaProfiles || {},
+        existing_programs: existingAffiliatePrograms || [],
+        api_key: await this.encryptAPIKey(apiKey),
+        status: 'pending',
+        onboarding_step: 'submitted',
+        created_at: new Date().toISOString()
+      };
+
+      // Insert partner record
+      const { data: partner, error } = await supabase
+        .from('partner_integrations')
+        .insert([partnerRecord])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Create onboarding checklist
+      await this.createOnboardingChecklist(partner.id);
+
+      // Send welcome email to partner
+      await this.sendPartnerWelcomeEmail(partner);
+
+      // Notify admin team
+      await this.notifyAdminNewPartner(partner);
+
+      return {
+        success: true,
+        partner,
+        partnerId,
+        apiKey: apiKey // Only return in registration response
+      };
+
+    } catch (error) {
+      console.error('Partner registration error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Approve partner integration
+   */
+  async approvePartner(partnerId, approvalData = {}) {
+    try {
+      const {
+        commissionRate,
+        customTerms,
+        integrationSettings,
+        allowedProducts,
+        geoRestrictions,
+        notes
+      } = approvalData;
+
+      // Get partner record
+      const { data: partner } = await supabase
+        .from('partner_integrations')
+        .select('*')
+        .eq('id', partnerId)
+        .single();
+
+      if (!partner) {
+        throw new Error('Partner not found');
+      }
+
+      // Update partner status and settings
+      const updateData = {
+        status: 'active',
+        contract_start_date: new Date().toISOString().split('T')[0],
+        contract_end_date: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 1 year
+        partner_commission_rate: commissionRate || partner.partner_commission_rate,
+        custom_terms: customTerms || {},
+        integration_settings: integrationSettings || {},
+        allowed_products: allowedProducts || [],
+        geo_restrictions: geoRestrictions || {},
+        approval_notes: notes,
+        onboarding_step: 'approved'
+      };
+
+      const { data: updatedPartner, error } = await supabase
+        .from('partner_integrations')
+        .update(updateData)
+        .eq('id', partnerId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Setup integration based on type
+      await this.setupPartnerIntegration(updatedPartner);
+
+      // Send approval notification
+      await this.sendPartnerApprovalEmail(updatedPartner);
+
+      // Create partner dashboard access
+      await this.createPartnerDashboardAccess(updatedPartner);
+
+      return {
+        success: true,
+        partner: updatedPartner
+      };
+
+    } catch (error) {
+      console.error('Partner approval error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  // ================================================
+  // INTEGRATION SETUP & MANAGEMENT
+  // ================================================
+
+  /**
+   * Setup partner integration based on type
+   */
+  async setupPartnerIntegration(partner) {
+    try {
+      switch (partner.integration_type) {
+        case 'api':
+          return await this.setupAPIIntegration(partner);
+
+        case 'webhook':
+          return await this.setupWebhookIntegration(partner);
+
+        case 'iframe':
+          return await this.setupIFrameIntegration(partner);
+
+        case 'widget':
+          return await this.setupWidgetIntegration(partner);
+
+        case 'redirect':
+          return await this.setupRedirectIntegration(partner);
+
+        default:
+          throw new Error(`Unsupported integration type: ${partner.integration_type}`);
+      }
+
+    } catch (error) {
+      console.error('Integration setup error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Setup API integration
+   */
+  async setupAPIIntegration(partner) {
+    const integrationConfig = {
+      apiKey: await this.decryptAPIKey(partner.api_key),
+      baseUrl: `${process.env.REACT_APP_API_URL}/api/partners/${partner.partner_id}`,
+      endpoints: {
+        authenticate: '/auth',
+        trackReferral: '/track',
+        getProducts: '/products',
+        getCommissions: '/commissions',
+        getAnalytics: '/analytics'
+      },
+      rateLimits: {
+        requestsPerMinute: this.getRateLimitForPartner(partner),
+        burstLimit: 100
+      },
+      allowedMethods: ['GET', 'POST'],
+      requiredHeaders: {
+        'Authorization': `Bearer ${await this.decryptAPIKey(partner.api_key)}`,
+        'Content-Type': 'application/json',
+        'User-Agent': 'NaturineX-Partner/1.0'
+      }
+    };
+
+    // Generate API documentation
+    const documentation = await this.generateAPIDocumentation(partner, integrationConfig);
+
+    // Save integration configuration
+    await supabase
+      .from('partner_integrations')
+      .update({
+        integration_config: integrationConfig,
+        api_documentation: documentation
+      })
+      .eq('id', partner.id);
+
+    return {
+      success: true,
+      config: integrationConfig,
+      documentation
+    };
+  }
+
+  /**
+   * Setup webhook integration
+   */
+  async setupWebhookIntegration(partner) {
+    const webhookConfig = {
+      webhookUrl: partner.webhook_url,
+      events: [
+        'referral.created',
+        'commission.earned',
+        'payout.processed',
+        'product.updated'
+      ],
+      retryPolicy: {
+        maxRetries: 3,
+        retryDelay: 5000,
+        backoffMultiplier: 2
+      },
+      security: {
+        signatureHeader: 'X-NaturineX-Signature',
+        secret: this.generateWebhookSecret(partner.id)
+      }
+    };
+
+    // Test webhook endpoint
+    const webhookTest = await this.testWebhookEndpoint(partner.webhook_url);
+
+    if (!webhookTest.success) {
+      throw new Error(`Webhook endpoint test failed: ${webhookTest.error}`);
+    }
+
+    await supabase
+      .from('partner_integrations')
+      .update({
+        webhook_config: webhookConfig,
+        webhook_status: 'active'
+      })
+      .eq('id', partner.id);
+
+    return {
+      success: true,
+      config: webhookConfig
+    };
+  }
+
+  /**
+   * Setup iFrame integration
+   */
+  async setupIFrameIntegration(partner) {
+    const iframeConfig = {
+      embedUrl: `${process.env.REACT_APP_BASE_URL}/embed/${partner.partner_id}`,
+      defaultSize: {
+        width: '100%',
+        height: '600px'
+      },
+      customization: {
+        theme: partner.custom_branding?.theme || 'default',
+        colors: partner.custom_branding?.colors || {},
+        fonts: partner.custom_branding?.fonts || {},
+        logo: partner.custom_branding?.logo || null
+      },
+      allowedDomains: [
+        new URL(partner.website).hostname,
+        ...this.extractAllowedDomains(partner)
+      ],
+      features: {
+        productSearch: true,
+        alternativeRecommendations: true,
+        referralTracking: true,
+        customBranding: true
+      }
+    };
+
+    // Generate embed code
+    const embedCode = this.generateEmbedCode(partner, iframeConfig);
+
+    await supabase
+      .from('partner_integrations')
+      .update({
+        iframe_config: iframeConfig,
+        embed_code: embedCode
+      })
+      .eq('id', partner.id);
+
+    return {
+      success: true,
+      config: iframeConfig,
+      embedCode
+    };
+  }
+
+  /**
+   * Setup website widget integration
+   */
+  async setupWidgetIntegration(partner) {
+    const widgetConfig = {
+      widgetId: `naturinex-widget-${partner.partner_id}`,
+      scriptUrl: `${process.env.REACT_APP_CDN_URL}/widgets/naturinex-widget.js`,
+      initializationCode: this.generateWidgetInitCode(partner),
+      placement: {
+        recommended: ['bottom-right', 'sidebar', 'in-content'],
+        positioning: 'responsive'
+      },
+      appearance: {
+        theme: 'adaptive',
+        size: 'medium',
+        animation: 'fade',
+        trigger: 'scroll'
+      },
+      functionality: {
+        medicationScanner: true,
+        quickSearch: true,
+        alternatives: true,
+        referralTracking: true
+      }
+    };
+
+    const widgetScript = await this.generateWidgetScript(partner, widgetConfig);
+
+    await supabase
+      .from('partner_integrations')
+      .update({
+        widget_config: widgetConfig,
+        widget_script: widgetScript
+      })
+      .eq('id', partner.id);
+
+    return {
+      success: true,
+      config: widgetConfig,
+      script: widgetScript
+    };
+  }
+
+  // ================================================
+  // SUPPLEMENT STORE INTEGRATIONS
+  // ================================================
+
+  /**
+   * Create supplement store integration
+   */
+  async createSupplementStoreIntegration(storeData) {
+    try {
+      const {
+        storeName,
+        storeUrl,
+        contactEmail,
+        productCatalogUrl,
+        inventoryApiUrl,
+        apiCredentials,
+        commissionStructure,
+        minimumOrderValue,
+        shippingRegions,
+        productCategories,
+        certifications
+      } = storeData;
+
+      const integration = await this.registerPartner({
+        partnerName: storeName,
+        partnerType: 'supplement_store',
+        contactEmail,
+        website: storeUrl,
+        integrationType: 'api',
+        commissionModel: 'tiered',
+        businessDescription: `Supplement store integration for ${storeName}`,
+        ...storeData
+      });
+
+      if (!integration.success) {
+        throw new Error(integration.error);
+      }
+
+      // Setup product catalog sync
+      await this.setupProductCatalogSync(integration.partner, {
+        catalogUrl: productCatalogUrl,
+        apiUrl: inventoryApiUrl,
+        credentials: apiCredentials,
+        categories: productCategories,
+        updateFrequency: 'daily'
+      });
+
+      // Configure commission structure
+      await this.configureStoreCommissions(integration.partner.id, commissionStructure);
+
+      // Setup inventory tracking
+      await this.setupInventoryTracking(integration.partner.id, {
+        apiUrl: inventoryApiUrl,
+        checkFrequency: 'hourly',
+        lowStockThreshold: 10
+      });
+
+      return {
+        success: true,
+        integration: integration.partner,
+        catalogSync: true,
+        inventoryTracking: true
+      };
+
+    } catch (error) {
+      console.error('Supplement store integration error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Setup product catalog synchronization
+   */
+  async setupProductCatalogSync(partner, syncConfig) {
+    try {
+      // Create product sync job
+      const syncJob = {
+        partner_id: partner.id,
+        sync_type: 'product_catalog',
+        source_url: syncConfig.catalogUrl,
+        api_config: syncConfig.credentials,
+        schedule: syncConfig.updateFrequency,
+        mapping_rules: this.getProductMappingRules(),
+        status: 'active'
+      };
+
+      // Test initial sync
+      const testSync = await this.testProductSync(syncConfig);
+      if (!testSync.success) {
+        throw new Error(`Product sync test failed: ${testSync.error}`);
+      }
+
+      // Schedule recurring sync
+      await this.scheduleProductSync(syncJob);
+
+      return { success: true };
+
+    } catch (error) {
+      console.error('Product catalog sync error:', error);
+      throw error;
+    }
+  }
+
+  // ================================================
+  // HEALTH BLOG INTEGRATIONS
+  // ================================================
+
+  /**
+   * Create health blog integration
+   */
+  async createHealthBlogIntegration(blogData) {
+    try {
+      const {
+        blogName,
+        blogUrl,
+        contactEmail,
+        contentCategories,
+        monthlyPageviews,
+        audienceDemographics,
+        contentManagementSystem,
+        integrationPreference,
+        contentPartnership
+      } = blogData;
+
+      const integration = await this.registerPartner({
+        partnerName: blogName,
+        partnerType: 'health_blog',
+        contactEmail,
+        website: blogUrl,
+        integrationType: integrationPreference || 'widget',
+        commissionModel: 'performance_based',
+        businessDescription: `Health blog integration for ${blogName}`,
+        monthlyTrafficEstimate: monthlyPageviews,
+        targetAudience: audienceDemographics,
+        ...blogData
+      });
+
+      if (!integration.success) {
+        throw new Error(integration.error);
+      }
+
+      // Setup content integration tools
+      await this.setupContentIntegrationTools(integration.partner, {
+        cms: contentManagementSystem,
+        categories: contentCategories,
+        partnership: contentPartnership
+      });
+
+      // Create content templates
+      await this.createBlogContentTemplates(integration.partner.id, contentCategories);
+
+      // Setup analytics tracking
+      await this.setupBlogAnalytics(integration.partner.id, blogUrl);
+
+      return {
+        success: true,
+        integration: integration.partner,
+        contentTools: true,
+        analytics: true
+      };
+
+    } catch (error) {
+      console.error('Health blog integration error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Setup content integration tools for blogs
+   */
+  async setupContentIntegrationTools(partner, toolsConfig) {
+    const contentTools = {
+      shortcodes: this.generateBlogShortcodes(partner),
+      widgets: this.generateBlogWidgets(partner),
+      apiEndpoints: {
+        alternatives: `/api/partners/${partner.partner_id}/alternatives`,
+        recommendations: `/api/partners/${partner.partner_id}/recommendations`,
+        tracking: `/api/partners/${partner.partner_id}/track`
+      },
+      templates: {
+        inlineRecommendations: this.generateInlineTemplate(partner),
+        sidbarWidget: this.generateSidebarTemplate(partner),
+        callToAction: this.generateCTATemplate(partner)
+      }
+    };
+
+    await supabase
+      .from('partner_integrations')
+      .update({
+        content_tools: contentTools,
+        cms_integration: toolsConfig.cms
+      })
+      .eq('id', partner.id);
+
+    return contentTools;
+  }
+
+  // ================================================
+  // HEALTHCARE PROVIDER INTEGRATIONS
+  // ================================================
+
+  /**
+   * Create healthcare provider integration
+   */
+  async createHealthcareProviderIntegration(providerData) {
+    try {
+      const {
+        providerName,
+        providerType, // clinic, pharmacy, hospital, telemedicine
+        licenseNumber,
+        contactEmail,
+        website,
+        specialties,
+        patientVolume,
+        ehrSystem,
+        complianceRequirements,
+        integrationGoals
+      } = providerData;
+
+      // Verify healthcare credentials
+      const credentialVerification = await this.verifyHealthcareCredentials({
+        providerName,
+        licenseNumber,
+        providerType
+      });
+
+      if (!credentialVerification.verified) {
+        throw new Error('Healthcare credential verification failed');
+      }
+
+      const integration = await this.registerPartner({
+        partnerName: providerName,
+        partnerType: 'healthcare_provider',
+        contactEmail,
+        website,
+        integrationType: 'api',
+        commissionModel: 'healthcare_professional',
+        businessDescription: `Healthcare provider integration for ${providerName}`,
+        specialties,
+        ...providerData
+      });
+
+      if (!integration.success) {
+        throw new Error(integration.error);
+      }
+
+      // Setup HIPAA-compliant integration
+      await this.setupHIPAACompliantIntegration(integration.partner, {
+        ehr: ehrSystem,
+        compliance: complianceRequirements
+      });
+
+      // Create professional dashboard
+      await this.createProfessionalDashboard(integration.partner.id);
+
+      // Setup patient education tools
+      await this.setupPatientEducationTools(integration.partner.id, specialties);
+
+      return {
+        success: true,
+        integration: integration.partner,
+        credentialsVerified: true,
+        hipaaCompliant: true
+      };
+
+    } catch (error) {
+      console.error('Healthcare provider integration error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  // ================================================
+  // UTILITY FUNCTIONS
+  // ================================================
+
+  /**
+   * Generate unique partner ID
+   */
+  generatePartnerId() {
+    const timestamp = Date.now().toString();
+    const random = Math.random().toString(36).substring(2, 8).toUpperCase();
+    return `PNR${timestamp.slice(-6)}${random}`;
+  }
+
+  /**
+   * Generate secure API key
+   */
+  generateAPIKey() {
+    const timestamp = Date.now().toString();
+    const random = CryptoJS.lib.WordArray.random(32).toString();
+    return `NAT_${timestamp}_${random}`;
+  }
+
+  /**
+   * Encrypt API key for storage
+   */
+  async encryptAPIKey(apiKey) {
+    const key = process.env.REACT_APP_ENCRYPTION_KEY || 'default-key';
+    return CryptoJS.AES.encrypt(apiKey, key).toString();
+  }
+
+  /**
+   * Decrypt API key
+   */
+  async decryptAPIKey(encryptedKey) {
+    try {
+      const key = process.env.REACT_APP_ENCRYPTION_KEY || 'default-key';
+      const bytes = CryptoJS.AES.decrypt(encryptedKey, key);
+      return bytes.toString(CryptoJS.enc.Utf8);
+    } catch (error) {
+      console.error('API key decryption error:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Get default commission rate based on partner type
+   */
+  getDefaultCommissionRate(partnerType) {
+    const rates = {
+      supplement_store: 0.12, // 12%
+      health_blog: 0.15, // 15%
+      influencer: 0.20, // 20%
+      healthcare_provider: 0.25, // 25%
+      corporate: 0.10, // 10%
+      pharmacy: 0.08, // 8%
+      clinic: 0.20, // 20%
+      wellness_center: 0.18 // 18%
+    };
+
+    return rates[partnerType] || 0.15;
+  }
+
+  /**
+   * Get rate limit based on partner tier
+   */
+  getRateLimitForPartner(partner) {
+    const baseLimits = {
+      supplement_store: 1000,
+      health_blog: 500,
+      influencer: 200,
+      healthcare_provider: 800,
+      corporate: 1500
+    };
+
+    return baseLimits[partner.partner_type] || 100;
+  }
+
+  /**
+   * Generate API documentation
+   */
+  async generateAPIDocumentation(partner, config) {
+    return {
+      overview: `API integration guide for ${partner.partner_name}`,
+      baseUrl: config.baseUrl,
+      authentication: {
+        type: 'Bearer Token',
+        header: 'Authorization',
+        example: `Bearer ${config.requiredHeaders.Authorization.split(' ')[1].substring(0, 20)}...`
+      },
+      endpoints: Object.entries(config.endpoints).map(([name, path]) => ({
+        name,
+        path,
+        method: 'GET',
+        description: this.getEndpointDescription(name)
+      })),
+      rateLimits: config.rateLimits,
+      examples: this.generateAPIExamples(partner)
+    };
+  }
+
+  /**
+   * Generate embed code for iFrame integration
+   */
+  generateEmbedCode(partner, config) {
+    return `
+<iframe
+  src="${config.embedUrl}"
+  width="${config.defaultSize.width}"
+  height="${config.defaultSize.height}"
+  frameborder="0"
+  allowtransparency="true"
+  data-partner="${partner.partner_id}"
+  title="NaturineX Natural Alternatives">
+</iframe>
+
+<script>
+// Optional: Dynamic resizing
+window.addEventListener('message', function(event) {
+  if (event.origin !== '${process.env.REACT_APP_BASE_URL}') return;
+  if (event.data.type === 'resize') {
+    const iframe = document.querySelector('[data-partner="${partner.partner_id}"]');
+    if (iframe) {
+      iframe.style.height = event.data.height + 'px';
+    }
+  }
+});
+</script>
+    `.trim();
+  }
+
+  /**
+   * Generate widget initialization code
+   */
+  generateWidgetInitCode(partner) {
+    return `
+<script>
+(function() {
+  var script = document.createElement('script');
+  script.src = '${process.env.REACT_APP_CDN_URL}/widgets/naturinex-widget.js';
+  script.async = true;
+  script.onload = function() {
+    NaturineXWidget.init({
+      partnerId: '${partner.partner_id}',
+      apiKey: 'public_${partner.partner_id}',
+      theme: 'auto',
+      position: 'bottom-right',
+      features: ['scanner', 'search', 'alternatives'],
+      branding: ${JSON.stringify(partner.custom_branding || {})}
+    });
+  };
+  document.head.appendChild(script);
+})();
+</script>
+    `.trim();
+  }
+
+  /**
+   * Test webhook endpoint
+   */
+  async testWebhookEndpoint(webhookUrl) {
+    try {
+      const testPayload = {
+        test: true,
+        timestamp: new Date().toISOString(),
+        event: 'webhook.test'
+      };
+
+      const response = await fetch(webhookUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'NaturineX-Webhook-Test/1.0'
+        },
+        body: JSON.stringify(testPayload)
+      });
+
+      return {
+        success: response.ok,
+        status: response.status,
+        error: response.ok ? null : `HTTP ${response.status}`
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Create onboarding checklist
+   */
+  async createOnboardingChecklist(partnerId) {
+    const checklist = {
+      steps: [
+        { id: 'application_review', name: 'Application Review', status: 'pending' },
+        { id: 'credential_verification', name: 'Credential Verification', status: 'pending' },
+        { id: 'integration_setup', name: 'Integration Setup', status: 'pending' },
+        { id: 'testing_phase', name: 'Testing & QA', status: 'pending' },
+        { id: 'go_live', name: 'Go Live', status: 'pending' }
+      ],
+      created_at: new Date().toISOString()
+    };
+
+    // Store checklist in database
+    return checklist;
+  }
+
+  /**
+   * Send partner welcome email
+   */
+  async sendPartnerWelcomeEmail(partner) {
+    console.log(`Sending welcome email to partner: ${partner.contact_email}`);
+    // Implementation would integrate with email service
+  }
+
+  /**
+   * Notify admin of new partner
+   */
+  async notifyAdminNewPartner(partner) {
+    console.log(`New partner registration: ${partner.partner_name} (${partner.partner_type})`);
+    // Implementation would notify admin team
+  }
+
+  /**
+   * Verify healthcare credentials
+   */
+  async verifyHealthcareCredentials(credentials) {
+    // Integration with healthcare credential verification service
+    // For demo purposes, return true
+    return {
+      verified: true,
+      details: {
+        licenseValid: true,
+        providerActive: true,
+        specialtiesConfirmed: true
+      }
+    };
+  }
+
+  /**
+   * Get endpoint description
+   */
+  getEndpointDescription(name) {
+    const descriptions = {
+      authenticate: 'Verify API credentials and get access token',
+      trackReferral: 'Track referral clicks and conversions',
+      getProducts: 'Retrieve product recommendations',
+      getCommissions: 'Get commission earnings data',
+      getAnalytics: 'Access performance analytics'
+    };
+
+    return descriptions[name] || 'API endpoint';
+  }
+
+  /**
+   * Generate API examples
+   */
+  generateAPIExamples(partner) {
+    return {
+      trackReferral: {
+        method: 'POST',
+        url: `/api/partners/${partner.partner_id}/track`,
+        headers: {
+          'Authorization': 'Bearer YOUR_API_KEY',
+          'Content-Type': 'application/json'
+        },
+        body: {
+          visitor_id: 'visitor_123',
+          product_id: 'product_456',
+          source: 'blog_post',
+          utm_campaign: 'natural_health_series'
+        }
+      },
+      getRecommendations: {
+        method: 'GET',
+        url: `/api/partners/${partner.partner_id}/products?medication=ibuprofen`,
+        headers: {
+          'Authorization': 'Bearer YOUR_API_KEY'
+        },
+        response: {
+          alternatives: [
+            {
+              id: 'alt_1',
+              name: 'Turmeric Extract',
+              type: 'supplement',
+              price: 29.99,
+              affiliate_url: 'https://naturinex.com/ref/...'
+            }
+          ]
+        }
+      }
+    };
+  }
+}
+
+// Create singleton instance
+const partnerIntegrationService = new PartnerIntegrationService();
+
+export default partnerIntegrationService;

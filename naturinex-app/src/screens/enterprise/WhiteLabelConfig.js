@@ -1,0 +1,741 @@
+/**
+ * White Label Configuration Screen
+ * Allows organizations to customize branding, themes, and white-label settings
+ */
+
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  TextInput,
+  Alert,
+  Switch,
+  Modal,
+  Image,
+  RefreshControl
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { ColorPicker } from 'react-native-color-picker';
+import * as ImagePicker from 'expo-image-picker';
+import WhiteLabelService from '../../services/WhiteLabelService';
+
+const WhiteLabelConfig = ({ navigation, route }) => {
+  const [config, setConfig] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [activeColorField, setActiveColorField] = useState(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const { organizationId } = route.params;
+
+  const colorFields = [
+    { key: 'primary_color', label: 'Primary Color', icon: 'color-palette' },
+    { key: 'secondary_color', label: 'Secondary Color', icon: 'color-palette' },
+    { key: 'accent_color', label: 'Accent Color', icon: 'color-palette' },
+    { key: 'background_color', label: 'Background Color', icon: 'color-palette' },
+    { key: 'text_color', label: 'Text Color', icon: 'color-palette' }
+  ];
+
+  useEffect(() => {
+    loadWhiteLabelConfig();
+  }, [organizationId]);
+
+  const loadWhiteLabelConfig = async () => {
+    try {
+      const result = await WhiteLabelService.getWhiteLabelConfig(organizationId);
+      if (result.success) {
+        setConfig(result.data);
+      } else {
+        Alert.alert('Error', result.error);
+      }
+    } catch (error) {
+      console.error('Error loading config:', error);
+      Alert.alert('Error', 'Failed to load configuration');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    loadWhiteLabelConfig();
+  };
+
+  const updateConfig = (field, value) => {
+    setConfig(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const result = await WhiteLabelService.updateWhiteLabelConfig(
+        organizationId,
+        config,
+        'current-user-id'
+      );
+
+      if (result.success) {
+        Alert.alert('Success', 'Configuration saved successfully');
+        setConfig(result.data);
+      } else {
+        Alert.alert('Error', result.error);
+      }
+    } catch (error) {
+      console.error('Error saving config:', error);
+      Alert.alert('Error', 'Failed to save configuration');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDeploy = async () => {
+    Alert.alert(
+      'Deploy Configuration',
+      'This will make your white-label configuration live. Are you sure?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Deploy',
+          onPress: async () => {
+            try {
+              const result = await WhiteLabelService.deployWhiteLabelConfig(
+                organizationId,
+                'current-user-id'
+              );
+
+              if (result.success) {
+                Alert.alert('Success', 'Configuration deployed successfully');
+                loadWhiteLabelConfig();
+              } else {
+                Alert.alert('Error', result.error);
+              }
+            } catch (error) {
+              console.error('Error deploying config:', error);
+              Alert.alert('Error', 'Failed to deploy configuration');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handlePreview = async () => {
+    try {
+      const result = await WhiteLabelService.previewWhiteLabelConfig(organizationId);
+      if (result.success) {
+        setPreviewUrl(result.data.preview_url);
+        setShowPreview(true);
+      } else {
+        Alert.alert('Error', result.error);
+      }
+    } catch (error) {
+      console.error('Error generating preview:', error);
+      Alert.alert('Error', 'Failed to generate preview');
+    }
+  };
+
+  const pickImage = async (field) => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: field === 'logo_url' ? [4, 3] : [1, 1],
+      quality: 1,
+    });
+
+    if (!result.canceled) {
+      // Upload image and get URL (implement upload logic)
+      const uploadedUrl = await uploadImage(result.assets[0].uri);
+      updateConfig(field, uploadedUrl);
+    }
+  };
+
+  const uploadImage = async (imageUri) => {
+    // Implement image upload logic
+    // This would typically upload to your cloud storage and return the URL
+    return imageUri; // Placeholder
+  };
+
+  const openColorPicker = (field) => {
+    setActiveColorField(field);
+    setShowColorPicker(true);
+  };
+
+  const handleColorSelect = (color) => {
+    if (activeColorField) {
+      updateConfig(activeColorField, color);
+    }
+    setShowColorPicker(false);
+    setActiveColorField(null);
+  };
+
+  const renderHeader = () => (
+    <View style={styles.header}>
+      <TouchableOpacity onPress={() => navigation.goBack()}>
+        <Ionicons name="arrow-back" size={24} color="white" />
+      </TouchableOpacity>
+      <Text style={styles.headerTitle}>White Label Configuration</Text>
+      <TouchableOpacity onPress={handlePreview}>
+        <Ionicons name="eye" size={24} color="white" />
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderBasicSettings = () => (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Basic Information</Text>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Company Name</Text>
+        <TextInput
+          style={styles.textInput}
+          value={config?.company_name || ''}
+          onChangeText={(text) => updateConfig('company_name', text)}
+          placeholder="Enter company name"
+        />
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>App Name</Text>
+        <TextInput
+          style={styles.textInput}
+          value={config?.app_name || ''}
+          onChangeText={(text) => updateConfig('app_name', text)}
+          placeholder="Enter app name"
+        />
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>App Tagline</Text>
+        <TextInput
+          style={styles.textInput}
+          value={config?.app_tagline || ''}
+          onChangeText={(text) => updateConfig('app_tagline', text)}
+          placeholder="Enter app tagline"
+        />
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>App Description</Text>
+        <TextInput
+          style={[styles.textInput, styles.textArea]}
+          value={config?.app_description || ''}
+          onChangeText={(text) => updateConfig('app_description', text)}
+          placeholder="Enter app description"
+          multiline
+          numberOfLines={3}
+        />
+      </View>
+    </View>
+  );
+
+  const renderBrandingSettings = () => (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Branding Assets</Text>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Logo</Text>
+        <TouchableOpacity
+          style={styles.imageUpload}
+          onPress={() => pickImage('logo_url')}
+        >
+          {config?.logo_url ? (
+            <Image source={{ uri: config.logo_url }} style={styles.uploadedImage} />
+          ) : (
+            <View style={styles.uploadPlaceholder}>
+              <Ionicons name="cloud-upload" size={32} color="#999" />
+              <Text style={styles.uploadText}>Upload Logo</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Favicon</Text>
+        <TouchableOpacity
+          style={styles.imageUpload}
+          onPress={() => pickImage('favicon_url')}
+        >
+          {config?.favicon_url ? (
+            <Image source={{ uri: config.favicon_url }} style={styles.uploadedImage} />
+          ) : (
+            <View style={styles.uploadPlaceholder}>
+              <Ionicons name="cloud-upload" size={32} color="#999" />
+              <Text style={styles.uploadText}>Upload Favicon</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  const renderColorSettings = () => (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Color Scheme</Text>
+
+      {colorFields.map((field) => (
+        <TouchableOpacity
+          key={field.key}
+          style={styles.colorInput}
+          onPress={() => openColorPicker(field.key)}
+        >
+          <View style={styles.colorInputLeft}>
+            <Ionicons name={field.icon} size={20} color="#666" />
+            <Text style={styles.colorLabel}>{field.label}</Text>
+          </View>
+          <View style={styles.colorInputRight}>
+            <View
+              style={[
+                styles.colorPreview,
+                { backgroundColor: config?.[field.key] || '#999' }
+              ]}
+            />
+            <Text style={styles.colorValue}>
+              {config?.[field.key] || '#999999'}
+            </Text>
+            <Ionicons name="chevron-forward" size={16} color="#999" />
+          </View>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+
+  const renderAdvancedSettings = () => (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Advanced Settings</Text>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Custom Domain</Text>
+        <TextInput
+          style={styles.textInput}
+          value={config?.custom_domain || ''}
+          onChangeText={(text) => updateConfig('custom_domain', text)}
+          placeholder="app.yourcompany.com"
+          autoCapitalize="none"
+        />
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Support Email</Text>
+        <TextInput
+          style={styles.textInput}
+          value={config?.support_email || ''}
+          onChangeText={(text) => updateConfig('support_email', text)}
+          placeholder="support@yourcompany.com"
+          keyboardType="email-address"
+          autoCapitalize="none"
+        />
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Support URL</Text>
+        <TextInput
+          style={styles.textInput}
+          value={config?.support_url || ''}
+          onChangeText={(text) => updateConfig('support_url', text)}
+          placeholder="https://support.yourcompany.com"
+          autoCapitalize="none"
+        />
+      </View>
+
+      <View style={styles.switchGroup}>
+        <Text style={styles.switchLabel}>Hide NaturineX Branding</Text>
+        <Switch
+          value={config?.hide_naturinex_branding || false}
+          onValueChange={(value) => updateConfig('hide_naturinex_branding', value)}
+          trackColor={{ false: '#767577', true: '#8641f4' }}
+          thumbColor={config?.hide_naturinex_branding ? '#ffffff' : '#f4f3f4'}
+        />
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Custom CSS</Text>
+        <TextInput
+          style={[styles.textInput, styles.textArea]}
+          value={config?.custom_css || ''}
+          onChangeText={(text) => updateConfig('custom_css', text)}
+          placeholder="/* Custom CSS styles */"
+          multiline
+          numberOfLines={5}
+          fontFamily="monospace"
+        />
+      </View>
+    </View>
+  );
+
+  const renderMobileSettings = () => (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>Mobile App Settings</Text>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>iOS Bundle ID</Text>
+        <TextInput
+          style={styles.textInput}
+          value={config?.ios_bundle_id || ''}
+          onChangeText={(text) => updateConfig('ios_bundle_id', text)}
+          placeholder="com.yourcompany.app"
+          autoCapitalize="none"
+        />
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Android Package Name</Text>
+        <TextInput
+          style={styles.textInput}
+          value={config?.android_package_name || ''}
+          onChangeText={(text) => updateConfig('android_package_name', text)}
+          placeholder="com.yourcompany.app"
+          autoCapitalize="none"
+        />
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>App Store URL</Text>
+        <TextInput
+          style={styles.textInput}
+          value={config?.app_store_url || ''}
+          onChangeText={(text) => updateConfig('app_store_url', text)}
+          placeholder="https://apps.apple.com/app/..."
+          autoCapitalize="none"
+        />
+      </View>
+
+      <View style={styles.inputGroup}>
+        <Text style={styles.inputLabel}>Play Store URL</Text>
+        <TextInput
+          style={styles.textInput}
+          value={config?.play_store_url || ''}
+          onChangeText={(text) => updateConfig('play_store_url', text)}
+          placeholder="https://play.google.com/store/apps/..."
+          autoCapitalize="none"
+        />
+      </View>
+    </View>
+  );
+
+  const renderActionButtons = () => (
+    <View style={styles.actionButtons}>
+      <TouchableOpacity
+        style={[styles.actionButton, styles.saveButton]}
+        onPress={handleSave}
+        disabled={saving}
+      >
+        <Ionicons name="save" size={20} color="white" />
+        <Text style={styles.actionButtonText}>
+          {saving ? 'Saving...' : 'Save Draft'}
+        </Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity
+        style={[styles.actionButton, styles.deployButton]}
+        onPress={handleDeploy}
+        disabled={config?.status !== 'draft'}
+      >
+        <Ionicons name="rocket" size={20} color="white" />
+        <Text style={styles.actionButtonText}>Deploy Live</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text>Loading configuration...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      {renderHeader()}
+
+      <ScrollView
+        style={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        {renderBasicSettings()}
+        {renderBrandingSettings()}
+        {renderColorSettings()}
+        {renderAdvancedSettings()}
+        {renderMobileSettings()}
+        {renderActionButtons()}
+      </ScrollView>
+
+      {/* Color Picker Modal */}
+      <Modal
+        visible={showColorPicker}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setShowColorPicker(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.colorPickerModal}>
+            <Text style={styles.modalTitle}>Select Color</Text>
+            <ColorPicker
+              onColorSelected={handleColorSelect}
+              style={styles.colorPicker}
+              defaultColor={config?.[activeColorField] || '#8641f4'}
+            />
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={() => setShowColorPicker(false)}
+            >
+              <Text style={styles.modalButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Preview Modal */}
+      <Modal
+        visible={showPreview}
+        animationType="slide"
+        onRequestClose={() => setShowPreview(false)}
+      >
+        <View style={styles.previewModal}>
+          <View style={styles.previewHeader}>
+            <Text style={styles.previewTitle}>Preview</Text>
+            <TouchableOpacity onPress={() => setShowPreview(false)}>
+              <Ionicons name="close" size={24} color="#333" />
+            </TouchableOpacity>
+          </View>
+          {/* Implement preview content here */}
+          <View style={styles.previewContent}>
+            <Text>Preview functionality coming soon...</Text>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f5f5'
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  header: {
+    backgroundColor: '#8641f4',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 40,
+    paddingBottom: 20
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: 'white'
+  },
+  content: {
+    flex: 1
+  },
+  section: {
+    backgroundColor: 'white',
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 12,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginBottom: 16
+  },
+  inputGroup: {
+    marginBottom: 16
+  },
+  inputLabel: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#333',
+    marginBottom: 8
+  },
+  textInput: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 8,
+    padding: 12,
+    fontSize: 16,
+    backgroundColor: '#fff'
+  },
+  textArea: {
+    height: 80,
+    textAlignVertical: 'top'
+  },
+  imageUpload: {
+    borderWidth: 2,
+    borderColor: '#ddd',
+    borderStyle: 'dashed',
+    borderRadius: 8,
+    height: 120,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f9f9f9'
+  },
+  uploadPlaceholder: {
+    alignItems: 'center'
+  },
+  uploadText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#999'
+  },
+  uploadedImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 8
+  },
+  colorInput: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  colorInputLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1
+  },
+  colorLabel: {
+    fontSize: 16,
+    color: '#333',
+    marginLeft: 12
+  },
+  colorInputRight: {
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  colorPreview: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    marginRight: 8,
+    borderWidth: 1,
+    borderColor: '#ddd'
+  },
+  colorValue: {
+    fontSize: 14,
+    color: '#666',
+    marginRight: 8,
+    fontFamily: 'monospace'
+  },
+  switchGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12
+  },
+  switchLabel: {
+    fontSize: 16,
+    color: '#333',
+    flex: 1
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+    gap: 12
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 8,
+    gap: 8
+  },
+  saveButton: {
+    backgroundColor: '#4CAF50'
+  },
+  deployButton: {
+    backgroundColor: '#FF5722'
+  },
+  actionButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '500'
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  colorPickerModal: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 20,
+    width: '90%',
+    maxWidth: 400
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginBottom: 20
+  },
+  colorPicker: {
+    height: 200,
+    marginBottom: 20
+  },
+  modalButton: {
+    backgroundColor: '#8641f4',
+    padding: 12,
+    borderRadius: 8,
+    alignItems: 'center'
+  },
+  modalButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '500'
+  },
+  previewModal: {
+    flex: 1,
+    backgroundColor: 'white'
+  },
+  previewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 20,
+    paddingTop: 40,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee'
+  },
+  previewTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#333'
+  },
+  previewContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center'
+  }
+});
+
+export default WhiteLabelConfig;

@@ -1,0 +1,602 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  RefreshControl,
+  TouchableOpacity,
+  Dimensions,
+  Alert
+} from 'react-native';
+import { LineChart, BarChart, ProgressChart } from 'react-native-chart-kit';
+import { MaterialIcons } from '@expo/vector-icons';
+import HealthIntegrationService from '../services/HealthIntegrationService';
+import HealthDataModel from '../models/HealthDataModel';
+
+const { width: screenWidth } = Dimensions.get('window');
+
+/**
+ * Activity Tracker Component
+ * Tracks and displays physical activity data
+ */
+const ActivityTracker = ({ navigation }) => {
+  const [activityData, setActivityData] = useState({
+    steps: [],
+    distance: [],
+    calories: [],
+    activeMinutes: [],
+    floors: []
+  });
+  const [goals, setGoals] = useState({
+    steps: 10000,
+    distance: 5000, // meters
+    calories: 2000,
+    activeMinutes: 30,
+    floors: 10
+  });
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [selectedDay, setSelectedDay] = useState(new Date());
+  const [weeklyProgress, setWeeklyProgress] = useState({});
+
+  const healthDataModel = new HealthDataModel();
+
+  useEffect(() => {
+    initializeTracker();
+  }, []);
+
+  useEffect(() => {
+    loadActivityData();
+  }, [selectedDay]);
+
+  const initializeTracker = async () => {
+    try {
+      setIsLoading(true);
+      await loadActivityData();
+      await loadGoals();
+      calculateWeeklyProgress();
+    } catch (error) {
+      console.error('Activity tracker initialization failed:', error);
+      Alert.alert('Error', 'Failed to initialize activity tracker');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadActivityData = async () => {
+    try {
+      const startDate = new Date(selectedDay);
+      startDate.setDate(startDate.getDate() - 7); // Last 7 days
+
+      const dataTypes = ['steps', 'distance', 'calories', 'activeMinutes', 'floors'];
+      const loadedData = {};
+
+      for (const type of dataTypes) {
+        const result = await HealthIntegrationService.readHealthData(type, {
+          startDate,
+          endDate: selectedDay
+        });
+
+        if (result.success) {
+          loadedData[type] = result.data;
+        } else {
+          loadedData[type] = [];
+        }
+      }
+
+      setActivityData(loadedData);
+    } catch (error) {
+      console.error('Failed to load activity data:', error);
+    }
+  };
+
+  const loadGoals = async () => {
+    try {
+      // In a real app, this would load user-specific goals from storage
+      // For now, using default goals
+    } catch (error) {
+      console.error('Failed to load goals:', error);
+    }
+  };
+
+  const calculateWeeklyProgress = () => {
+    const progress = {};
+    Object.keys(goals).forEach(activityType => {
+      const weekData = activityData[activityType] || [];
+      const totalValue = weekData.reduce((sum, entry) => sum + entry.value, 0);
+      const weeklyGoal = goals[activityType] * 7; // Weekly goal = daily goal * 7
+      progress[activityType] = Math.min((totalValue / weeklyGoal) * 100, 100);
+    });
+    setWeeklyProgress(progress);
+  };
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await HealthIntegrationService.syncAllData();
+      await loadActivityData();
+      calculateWeeklyProgress();
+    } catch (error) {
+      console.error('Refresh failed:', error);
+      Alert.alert('Error', 'Failed to refresh activity data');
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  const getCurrentDayValue = (activityType) => {
+    const todayData = activityData[activityType]?.filter(entry => {
+      const entryDate = new Date(entry.timestamp);
+      return entryDate.toDateString() === selectedDay.toDateString();
+    }) || [];
+
+    return todayData.reduce((sum, entry) => sum + entry.value, 0);
+  };
+
+  const getGoalProgress = (activityType) => {
+    const currentValue = getCurrentDayValue(activityType);
+    const goal = goals[activityType];
+    return Math.min((currentValue / goal) * 100, 100);
+  };
+
+  const renderProgressCard = (title, activityType, icon, color, unit) => {
+    const currentValue = getCurrentDayValue(activityType);
+    const goal = goals[activityType];
+    const progress = getGoalProgress(activityType);
+    const isGoalMet = currentValue >= goal;
+
+    return (
+      <View style={[styles.progressCard, { borderLeftColor: color }]}>
+        <View style={styles.progressHeader}>
+          <View style={styles.progressTitleContainer}>
+            <MaterialIcons name={icon} size={20} color={color} />
+            <Text style={styles.progressTitle}>{title}</Text>
+          </View>
+          {isGoalMet && (
+            <MaterialIcons name="check-circle" size={20} color="#2ecc71" />
+          )}
+        </View>
+
+        <View style={styles.progressValueContainer}>
+          <Text style={styles.progressValue}>
+            {currentValue.toLocaleString()}
+          </Text>
+          <Text style={styles.progressUnit}>/ {goal.toLocaleString()} {unit}</Text>
+        </View>
+
+        <View style={styles.progressBarContainer}>
+          <View style={styles.progressBarBackground}>
+            <View
+              style={[
+                styles.progressBarFill,
+                { width: `${progress}%`, backgroundColor: color }
+              ]}
+            />
+          </View>
+          <Text style={styles.progressPercentage}>{Math.round(progress)}%</Text>
+        </View>
+      </View>
+    );
+  };
+
+  const renderActivityChart = (activityType, title, color) => {
+    const data = activityData[activityType] || [];
+    if (data.length === 0) {
+      return (
+        <View style={styles.chartContainer}>
+          <Text style={styles.chartTitle}>{title}</Text>
+          <View style={styles.noDataContainer}>
+            <MaterialIcons name="info" size={48} color="#ccc" />
+            <Text style={styles.noDataText}>No data available</Text>
+          </View>
+        </View>
+      );
+    }
+
+    const aggregated = healthDataModel.aggregateData(data, 'day');
+    const entries = Object.entries(aggregated).slice(-7);
+
+    const chartData = {
+      labels: entries.map(([date]) =>
+        new Date(date).toLocaleDateString('en-US', { weekday: 'short' })
+      ),
+      datasets: [{
+        data: entries.map(([, stats]) => Math.round(stats.sum || 0)),
+        color: (opacity = 1) => color,
+        strokeWidth: 2
+      }]
+    };
+
+    const chartConfig = {
+      backgroundGradientFrom: '#fff',
+      backgroundGradientTo: '#fff',
+      color: (opacity = 1) => color,
+      strokeWidth: 2,
+      barPercentage: 0.5,
+      useShadowColorFromDataset: false,
+      decimalPlaces: 0
+    };
+
+    return (
+      <View style={styles.chartContainer}>
+        <Text style={styles.chartTitle}>{title}</Text>
+        <LineChart
+          data={chartData}
+          width={screenWidth - 60}
+          height={200}
+          chartConfig={chartConfig}
+          bezier
+        />
+      </View>
+    );
+  };
+
+  const renderWeeklyOverview = () => {
+    const overviewData = Object.keys(goals).map(activityType => ({
+      name: activityType,
+      population: weeklyProgress[activityType] || 0,
+      color: getActivityColor(activityType),
+      legendFontColor: '#7F7F7F',
+      legendFontSize: 12
+    }));
+
+    const chartConfig = {
+      backgroundGradientFrom: '#fff',
+      backgroundGradientTo: '#fff',
+      color: (opacity = 1) => `rgba(74, 144, 226, ${opacity})`
+    };
+
+    return (
+      <View style={styles.chartContainer}>
+        <Text style={styles.chartTitle}>Weekly Progress</Text>
+        <ProgressChart
+          data={{
+            labels: ['Steps', 'Distance', 'Calories', 'Active', 'Floors'],
+            data: [
+              weeklyProgress.steps / 100,
+              weeklyProgress.distance / 100,
+              weeklyProgress.calories / 100,
+              weeklyProgress.activeMinutes / 100,
+              weeklyProgress.floors / 100
+            ]
+          }}
+          width={screenWidth - 60}
+          height={220}
+          strokeWidth={16}
+          radius={32}
+          chartConfig={chartConfig}
+          hideLegend={false}
+        />
+      </View>
+    );
+  };
+
+  const getActivityColor = (activityType) => {
+    const colors = {
+      steps: '#4a90e2',
+      distance: '#f39c12',
+      calories: '#e74c3c',
+      activeMinutes: '#2ecc71',
+      floors: '#9b59b6'
+    };
+    return colors[activityType] || '#95a5a6';
+  };
+
+  const navigateDay = (direction) => {
+    const newDate = new Date(selectedDay);
+    newDate.setDate(newDate.getDate() + direction);
+    setSelectedDay(newDate);
+  };
+
+  const renderDaySelector = () => (
+    <View style={styles.daySelector}>
+      <TouchableOpacity
+        style={styles.dayNavigationButton}
+        onPress={() => navigateDay(-1)}
+      >
+        <MaterialIcons name="chevron-left" size={24} color="#4a90e2" />
+      </TouchableOpacity>
+
+      <View style={styles.dayDisplay}>
+        <Text style={styles.selectedDayText}>
+          {selectedDay.toLocaleDateString('en-US', {
+            weekday: 'long',
+            month: 'short',
+            day: 'numeric'
+          })}
+        </Text>
+        {selectedDay.toDateString() === new Date().toDateString() && (
+          <Text style={styles.todayIndicator}>Today</Text>
+        )}
+      </View>
+
+      <TouchableOpacity
+        style={styles.dayNavigationButton}
+        onPress={() => navigateDay(1)}
+        disabled={selectedDay.toDateString() === new Date().toDateString()}
+      >
+        <MaterialIcons
+          name="chevron-right"
+          size={24}
+          color={selectedDay.toDateString() === new Date().toDateString() ? '#ccc' : '#4a90e2'}
+        />
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderQuickActions = () => (
+    <View style={styles.quickActionsContainer}>
+      <Text style={styles.sectionTitle}>Quick Actions</Text>
+      <View style={styles.quickActionsGrid}>
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={() => navigation.navigate('ManualActivityEntry')}
+        >
+          <MaterialIcons name="add" size={24} color="#4a90e2" />
+          <Text style={styles.quickActionText}>Log Activity</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={() => navigation.navigate('ActivityGoals')}
+        >
+          <MaterialIcons name="flag" size={24} color="#4a90e2" />
+          <Text style={styles.quickActionText}>Set Goals</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={() => navigation.navigate('ActivityHistory')}
+        >
+          <MaterialIcons name="history" size={24} color="#4a90e2" />
+          <Text style={styles.quickActionText}>History</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={() => navigation.navigate('ShareActivity')}
+        >
+          <MaterialIcons name="share" size={24} color="#4a90e2" />
+          <Text style={styles.quickActionText}>Share</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <MaterialIcons name="directions-run" size={48} color="#4a90e2" />
+        <Text style={styles.loadingText}>Loading activity data...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView
+      style={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Activity Tracker</Text>
+        <TouchableOpacity onPress={onRefresh}>
+          <MaterialIcons name="refresh" size={24} color="#4a90e2" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Day Selector */}
+      {renderDaySelector()}
+
+      {/* Progress Cards */}
+      <View style={styles.progressContainer}>
+        {renderProgressCard('Steps', 'steps', 'directions-walk', '#4a90e2', 'steps')}
+        {renderProgressCard('Distance', 'distance', 'straighten', '#f39c12', 'm')}
+        {renderProgressCard('Calories', 'calories', 'local-fire-department', '#e74c3c', 'kcal')}
+        {renderProgressCard('Active Minutes', 'activeMinutes', 'timer', '#2ecc71', 'min')}
+        {renderProgressCard('Floors', 'floors', 'stairs', '#9b59b6', 'floors')}
+      </View>
+
+      {/* Weekly Overview */}
+      {renderWeeklyOverview()}
+
+      {/* Activity Charts */}
+      {renderActivityChart('steps', 'Steps Trend', '#4a90e2')}
+      {renderActivityChart('calories', 'Calories Burned', '#e74c3c')}
+
+      {/* Quick Actions */}
+      {renderQuickActions()}
+    </ScrollView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f8f9fa'
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa'
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#666'
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef'
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#2c3e50'
+  },
+  daySelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    backgroundColor: '#fff',
+    marginBottom: 10
+  },
+  dayNavigationButton: {
+    padding: 5
+  },
+  dayDisplay: {
+    alignItems: 'center'
+  },
+  selectedDayText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2c3e50'
+  },
+  todayIndicator: {
+    fontSize: 12,
+    color: '#4a90e2',
+    marginTop: 2
+  },
+  progressContainer: {
+    padding: 20,
+    paddingBottom: 10
+  },
+  progressCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  progressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12
+  },
+  progressTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  progressTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2c3e50',
+    marginLeft: 8
+  },
+  progressValueContainer: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginBottom: 12
+  },
+  progressValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#2c3e50'
+  },
+  progressUnit: {
+    fontSize: 14,
+    color: '#666',
+    marginLeft: 4
+  },
+  progressBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  progressBarBackground: {
+    flex: 1,
+    height: 6,
+    backgroundColor: '#e9ecef',
+    borderRadius: 3,
+    marginRight: 10
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 3
+  },
+  progressPercentage: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666',
+    minWidth: 35
+  },
+  chartContainer: {
+    backgroundColor: '#fff',
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  chartTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    marginBottom: 10
+  },
+  noDataContainer: {
+    alignItems: 'center',
+    padding: 40
+  },
+  noDataText: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 8
+  },
+  quickActionsContainer: {
+    marginHorizontal: 20,
+    marginBottom: 30
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    marginBottom: 12
+  },
+  quickActionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between'
+  },
+  quickActionButton: {
+    width: '48%',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  quickActionText: {
+    fontSize: 12,
+    color: '#4a90e2',
+    marginTop: 4,
+    fontWeight: '500'
+  }
+});
+
+export default ActivityTracker;

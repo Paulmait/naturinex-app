@@ -217,6 +217,15 @@ export default function ProfileScreen({ navigation }) {
             <MaterialIcons name="chevron-right" size={24} color="#6B7280" />
           </TouchableOpacity>
 
+          <TouchableOpacity
+            style={styles.actionItem}
+            onPress={() => navigation.navigate('TwoFactorSettings')}
+          >
+            <MaterialIcons name="security" size={24} color="#10B981" />
+            <Text style={styles.actionText}>Two-Factor Authentication</Text>
+            <MaterialIcons name="chevron-right" size={24} color="#6B7280" />
+          </TouchableOpacity>
+
           {isAdmin && (
             <>
               <TouchableOpacity 

@@ -77,7 +77,23 @@
           "savePhotosPermission": "Naturinex needs permission to save analysis results to your photos"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#10B981",
+          "sounds": ["./assets/notification.wav"]
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow Naturinex to use Face ID for secure access to your health data"
+        }
+      ],
+      "expo-firebase-analytics",
+      "@sentry/react-native"
     ],
     "extra": {
       "apiUrl": "https://hxhbsxzkzarqwksbjpce.supabase.co",

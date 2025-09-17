@@ -1,0 +1,716 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  RefreshControl,
+  TouchableOpacity,
+  Alert,
+  Dimensions
+} from 'react-native';
+import { LineChart } from 'react-native-chart-kit';
+import { MaterialIcons } from '@expo/vector-icons';
+import HealthIntegrationService from '../services/HealthIntegrationService';
+import HealthDataModel from '../models/HealthDataModel';
+
+const { width: screenWidth } = Dimensions.get('window');
+
+/**
+ * Vital Signs Monitor Component
+ * Monitors and displays vital signs with alerts
+ */
+const VitalSignsMonitor = ({ navigation }) => {
+  const [vitalSigns, setVitalSigns] = useState({
+    heartRate: [],
+    bloodPressure: [],
+    temperature: [],
+    oxygenSaturation: [],
+    respiratoryRate: []
+  });
+  const [currentReadings, setCurrentReadings] = useState({});
+  const [alerts, setAlerts] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [selectedVital, setSelectedVital] = useState('heartRate');
+
+  const healthDataModel = new HealthDataModel();
+
+  // Normal ranges for vital signs
+  const normalRanges = {
+    heartRate: { min: 60, max: 100, unit: 'bpm' },
+    bloodPressure: {
+      systolic: { min: 90, max: 140 },
+      diastolic: { min: 60, max: 90 },
+      unit: 'mmHg'
+    },
+    temperature: { min: 36.1, max: 37.2, unit: '°C' },
+    oxygenSaturation: { min: 95, max: 100, unit: '%' },
+    respiratoryRate: { min: 12, max: 20, unit: '/min' }
+  };
+
+  useEffect(() => {
+    initializeMonitor();
+  }, []);
+
+  const initializeMonitor = async () => {
+    try {
+      setIsLoading(true);
+      await loadVitalSigns();
+      checkForAlerts();
+    } catch (error) {
+      console.error('Vital signs monitor initialization failed:', error);
+      Alert.alert('Error', 'Failed to initialize vital signs monitor');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadVitalSigns = async () => {
+    try {
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - 7); // Last 7 days
+
+      const vitalTypes = ['heartRate', 'bloodPressure', 'temperature', 'oxygenSaturation', 'respiratoryRate'];
+      const loadedData = {};
+      const latestReadings = {};
+
+      for (const type of vitalTypes) {
+        const result = await HealthIntegrationService.readHealthData(type, {
+          startDate,
+          endDate
+        });
+
+        if (result.success) {
+          loadedData[type] = result.data;
+          // Get the latest reading
+          if (result.data.length > 0) {
+            latestReadings[type] = result.data[result.data.length - 1];
+          }
+        } else {
+          loadedData[type] = [];
+        }
+      }
+
+      setVitalSigns(loadedData);
+      setCurrentReadings(latestReadings);
+    } catch (error) {
+      console.error('Failed to load vital signs:', error);
+    }
+  };
+
+  const checkForAlerts = () => {
+    const newAlerts = [];
+
+    Object.keys(currentReadings).forEach(vitalType => {
+      const reading = currentReadings[vitalType];
+      const range = normalRanges[vitalType];
+
+      if (!reading || !range) return;
+
+      if (vitalType === 'bloodPressure') {
+        const { systolic, diastolic } = reading.value;
+        if (systolic < range.systolic.min || systolic > range.systolic.max ||
+            diastolic < range.diastolic.min || diastolic > range.diastolic.max) {
+          newAlerts.push({
+            type: 'warning',
+            vital: vitalType,
+            message: `Blood pressure outside normal range: ${systolic}/${diastolic} ${range.unit}`,
+            timestamp: reading.timestamp
+          });
+        }
+      } else {
+        if (reading.value < range.min || reading.value > range.max) {
+          newAlerts.push({
+            type: reading.value < range.min ? 'low' : 'high',
+            vital: vitalType,
+            message: `${getVitalDisplayName(vitalType)} ${reading.value < range.min ? 'below' : 'above'} normal range: ${reading.value} ${range.unit}`,
+            timestamp: reading.timestamp
+          });
+        }
+      }
+    });
+
+    setAlerts(newAlerts);
+  };
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await HealthIntegrationService.syncAllData();
+      await loadVitalSigns();
+      checkForAlerts();
+    } catch (error) {
+      console.error('Refresh failed:', error);
+      Alert.alert('Error', 'Failed to refresh vital signs data');
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  const getVitalDisplayName = (vitalType) => {
+    const names = {
+      heartRate: 'Heart Rate',
+      bloodPressure: 'Blood Pressure',
+      temperature: 'Temperature',
+      oxygenSaturation: 'Oxygen Saturation',
+      respiratoryRate: 'Respiratory Rate'
+    };
+    return names[vitalType] || vitalType;
+  };
+
+  const getVitalIcon = (vitalType) => {
+    const icons = {
+      heartRate: 'favorite',
+      bloodPressure: 'bloodtype',
+      temperature: 'thermostat',
+      oxygenSaturation: 'air',
+      respiratoryRate: 'waves'
+    };
+    return icons[vitalType] || 'monitor';
+  };
+
+  const getVitalColor = (vitalType) => {
+    const colors = {
+      heartRate: '#e74c3c',
+      bloodPressure: '#9b59b6',
+      temperature: '#f39c12',
+      oxygenSaturation: '#3498db',
+      respiratoryRate: '#2ecc71'
+    };
+    return colors[vitalType] || '#95a5a6';
+  };
+
+  const getReadingStatus = (vitalType, value) => {
+    const range = normalRanges[vitalType];
+    if (!range) return 'normal';
+
+    if (vitalType === 'bloodPressure') {
+      const { systolic, diastolic } = value;
+      if (systolic < range.systolic.min || diastolic < range.diastolic.min) return 'low';
+      if (systolic > range.systolic.max || diastolic > range.diastolic.max) return 'high';
+      return 'normal';
+    } else {
+      if (value < range.min) return 'low';
+      if (value > range.max) return 'high';
+      return 'normal';
+    }
+  };
+
+  const formatValue = (vitalType, value) => {
+    if (vitalType === 'bloodPressure' && typeof value === 'object') {
+      return `${value.systolic}/${value.diastolic}`;
+    }
+    return typeof value === 'number' ? value.toFixed(1) : value;
+  };
+
+  const renderVitalCard = (vitalType) => {
+    const reading = currentReadings[vitalType];
+    const color = getVitalColor(vitalType);
+    const icon = getVitalIcon(vitalType);
+    const displayName = getVitalDisplayName(vitalType);
+    const range = normalRanges[vitalType];
+
+    const status = reading ? getReadingStatus(vitalType, reading.value) : 'unknown';
+    const statusColor = status === 'normal' ? '#2ecc71' :
+                       status === 'low' ? '#3498db' :
+                       status === 'high' ? '#e74c3c' : '#95a5a6';
+
+    return (
+      <TouchableOpacity
+        key={vitalType}
+        style={[styles.vitalCard, { borderLeftColor: color }]}
+        onPress={() => setSelectedVital(vitalType)}
+      >
+        <View style={styles.vitalHeader}>
+          <View style={styles.vitalTitleContainer}>
+            <MaterialIcons name={icon} size={20} color={color} />
+            <Text style={styles.vitalTitle}>{displayName}</Text>
+          </View>
+          <View style={[styles.statusIndicator, { backgroundColor: statusColor }]} />
+        </View>
+
+        {reading ? (
+          <View style={styles.vitalContent}>
+            <Text style={styles.vitalValue}>
+              {formatValue(vitalType, reading.value)}
+            </Text>
+            <Text style={styles.vitalUnit}>{range.unit}</Text>
+            <Text style={styles.vitalTimestamp}>
+              {new Date(reading.timestamp).toLocaleTimeString()}
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.noReadingContainer}>
+            <Text style={styles.noReadingText}>No recent reading</Text>
+          </View>
+        )}
+
+        <View style={styles.normalRangeContainer}>
+          <Text style={styles.normalRangeText}>
+            Normal: {vitalType === 'bloodPressure'
+              ? `${range.systolic.min}-${range.systolic.max}/${range.diastolic.min}-${range.diastolic.max}`
+              : `${range.min}-${range.max}`} {range.unit}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderChart = () => {
+    const data = vitalSigns[selectedVital] || [];
+    if (data.length === 0) {
+      return (
+        <View style={styles.chartContainer}>
+          <Text style={styles.chartTitle}>{getVitalDisplayName(selectedVital)} Trend</Text>
+          <View style={styles.noDataContainer}>
+            <MaterialIcons name="info" size={48} color="#ccc" />
+            <Text style={styles.noDataText}>No data available</Text>
+          </View>
+        </View>
+      );
+    }
+
+    const aggregated = healthDataModel.aggregateData(data, 'day');
+    const entries = Object.entries(aggregated).slice(-7);
+
+    let chartData;
+    if (selectedVital === 'bloodPressure') {
+      // For blood pressure, show both systolic and diastolic
+      chartData = {
+        labels: entries.map(([date]) =>
+          new Date(date).toLocaleDateString('en-US', { weekday: 'short' })
+        ),
+        datasets: [
+          {
+            data: entries.map(([, stats]) => {
+              // Extract systolic values
+              const values = data.filter(d => {
+                const entryDate = new Date(d.timestamp).toDateString();
+                return entryDate === new Date(date).toDateString();
+              }).map(d => d.value.systolic);
+              return values.length > 0 ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : 0;
+            }),
+            color: (opacity = 1) => `rgba(231, 76, 60, ${opacity})`,
+            strokeWidth: 2
+          },
+          {
+            data: entries.map(([, stats]) => {
+              // Extract diastolic values
+              const values = data.filter(d => {
+                const entryDate = new Date(d.timestamp).toDateString();
+                return entryDate === new Date(date).toDateString();
+              }).map(d => d.value.diastolic);
+              return values.length > 0 ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : 0;
+            }),
+            color: (opacity = 1) => `rgba(155, 89, 182, ${opacity})`,
+            strokeWidth: 2
+          }
+        ],
+        legend: ['Systolic', 'Diastolic']
+      };
+    } else {
+      chartData = {
+        labels: entries.map(([date]) =>
+          new Date(date).toLocaleDateString('en-US', { weekday: 'short' })
+        ),
+        datasets: [{
+          data: entries.map(([, stats]) => Number(stats.average.toFixed(1))),
+          color: (opacity = 1) => getVitalColor(selectedVital),
+          strokeWidth: 2
+        }]
+      };
+    }
+
+    const chartConfig = {
+      backgroundGradientFrom: '#fff',
+      backgroundGradientTo: '#fff',
+      color: (opacity = 1) => getVitalColor(selectedVital),
+      strokeWidth: 2,
+      barPercentage: 0.5,
+      useShadowColorFromDataset: false,
+      decimalPlaces: 1
+    };
+
+    return (
+      <View style={styles.chartContainer}>
+        <Text style={styles.chartTitle}>{getVitalDisplayName(selectedVital)} Trend</Text>
+        <LineChart
+          data={chartData}
+          width={screenWidth - 60}
+          height={220}
+          chartConfig={chartConfig}
+          bezier
+        />
+      </View>
+    );
+  };
+
+  const renderVitalSelector = () => (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.vitalSelector}>
+      {Object.keys(vitalSigns).map(vitalType => (
+        <TouchableOpacity
+          key={vitalType}
+          style={[
+            styles.vitalSelectorButton,
+            selectedVital === vitalType && styles.vitalSelectorButtonActive
+          ]}
+          onPress={() => setSelectedVital(vitalType)}
+        >
+          <MaterialIcons
+            name={getVitalIcon(vitalType)}
+            size={20}
+            color={selectedVital === vitalType ? '#fff' : getVitalColor(vitalType)}
+          />
+          <Text style={[
+            styles.vitalSelectorText,
+            selectedVital === vitalType && styles.vitalSelectorTextActive
+          ]}>
+            {getVitalDisplayName(vitalType)}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </ScrollView>
+  );
+
+  const renderAlerts = () => {
+    if (alerts.length === 0) return null;
+
+    return (
+      <View style={styles.alertsContainer}>
+        <Text style={styles.sectionTitle}>Health Alerts</Text>
+        {alerts.map((alert, index) => (
+          <View key={index} style={[styles.alertCard, { borderLeftColor: '#e74c3c' }]}>
+            <View style={styles.alertHeader}>
+              <MaterialIcons name="warning" size={20} color="#e74c3c" />
+              <Text style={styles.alertTitle}>
+                {getVitalDisplayName(alert.vital)} Alert
+              </Text>
+            </View>
+            <Text style={styles.alertMessage}>{alert.message}</Text>
+            <Text style={styles.alertTimestamp}>
+              {new Date(alert.timestamp).toLocaleString()}
+            </Text>
+          </View>
+        ))}
+      </View>
+    );
+  };
+
+  const renderQuickActions = () => (
+    <View style={styles.quickActionsContainer}>
+      <Text style={styles.sectionTitle}>Quick Actions</Text>
+      <View style={styles.quickActionsGrid}>
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={() => navigation.navigate('ManualVitalEntry')}
+        >
+          <MaterialIcons name="add" size={24} color="#4a90e2" />
+          <Text style={styles.quickActionText}>Add Reading</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={() => navigation.navigate('VitalHistory')}
+        >
+          <MaterialIcons name="history" size={24} color="#4a90e2" />
+          <Text style={styles.quickActionText}>History</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={() => navigation.navigate('VitalAlerts')}
+        >
+          <MaterialIcons name="notifications" size={24} color="#4a90e2" />
+          <Text style={styles.quickActionText}>Alerts</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={() => navigation.navigate('ShareVitals')}
+        >
+          <MaterialIcons name="share" size={24} color="#4a90e2" />
+          <Text style={styles.quickActionText}>Share</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <MaterialIcons name="monitor-heart" size={48} color="#e74c3c" />
+        <Text style={styles.loadingText}>Loading vital signs...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView
+      style={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Vital Signs Monitor</Text>
+        <TouchableOpacity onPress={onRefresh}>
+          <MaterialIcons name="refresh" size={24} color="#e74c3c" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Alerts */}
+      {renderAlerts()}
+
+      {/* Vital Signs Cards */}
+      <View style={styles.vitalsContainer}>
+        {Object.keys(vitalSigns).map(renderVitalCard)}
+      </View>
+
+      {/* Vital Selector */}
+      {renderVitalSelector()}
+
+      {/* Chart */}
+      {renderChart()}
+
+      {/* Quick Actions */}
+      {renderQuickActions()}
+    </ScrollView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f8f9fa'
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa'
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#666'
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef'
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#2c3e50'
+  },
+  alertsContainer: {
+    marginHorizontal: 20,
+    marginTop: 10
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    marginBottom: 12
+  },
+  alertCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 8,
+    borderLeftWidth: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  alertHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8
+  },
+  alertTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#e74c3c',
+    marginLeft: 8
+  },
+  alertMessage: {
+    fontSize: 14,
+    color: '#555',
+    marginBottom: 4
+  },
+  alertTimestamp: {
+    fontSize: 12,
+    color: '#999'
+  },
+  vitalsContainer: {
+    padding: 20,
+    paddingBottom: 10
+  },
+  vitalCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderLeftWidth: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  vitalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12
+  },
+  vitalTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  vitalTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2c3e50',
+    marginLeft: 8
+  },
+  statusIndicator: {
+    width: 10,
+    height: 10,
+    borderRadius: 5
+  },
+  vitalContent: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginBottom: 8
+  },
+  vitalValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#2c3e50'
+  },
+  vitalUnit: {
+    fontSize: 14,
+    color: '#666',
+    marginLeft: 4,
+    marginRight: 10
+  },
+  vitalTimestamp: {
+    fontSize: 12,
+    color: '#999'
+  },
+  noReadingContainer: {
+    paddingVertical: 20,
+    alignItems: 'center'
+  },
+  noReadingText: {
+    fontSize: 14,
+    color: '#999',
+    fontStyle: 'italic'
+  },
+  normalRangeContainer: {
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e9ecef'
+  },
+  normalRangeText: {
+    fontSize: 12,
+    color: '#666'
+  },
+  vitalSelector: {
+    marginHorizontal: 20,
+    marginBottom: 10
+  },
+  vitalSelectorButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginRight: 8,
+    borderRadius: 20,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#e9ecef'
+  },
+  vitalSelectorButtonActive: {
+    backgroundColor: '#4a90e2',
+    borderColor: '#4a90e2'
+  },
+  vitalSelectorText: {
+    fontSize: 12,
+    color: '#666',
+    marginLeft: 4
+  },
+  vitalSelectorTextActive: {
+    color: '#fff'
+  },
+  chartContainer: {
+    backgroundColor: '#fff',
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  chartTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    marginBottom: 10
+  },
+  noDataContainer: {
+    alignItems: 'center',
+    padding: 40
+  },
+  noDataText: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 8
+  },
+  quickActionsContainer: {
+    marginHorizontal: 20,
+    marginBottom: 30
+  },
+  quickActionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between'
+  },
+  quickActionButton: {
+    width: '48%',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  quickActionText: {
+    fontSize: 12,
+    color: '#4a90e2',
+    marginTop: 4,
+    fontWeight: '500'
+  }
+});
+
+export default VitalSignsMonitor;

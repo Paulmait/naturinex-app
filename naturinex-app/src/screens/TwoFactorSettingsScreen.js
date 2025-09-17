@@ -1,0 +1,642 @@
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+  Alert,
+  ActivityIndicator,
+  Switch
+} from 'react-native';
+import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { useAuth } from '../contexts/AuthContext';
+import TwoFactorSetupWizard from '../components/TwoFactorSetupWizard';
+import TwoFactorVerificationModal from '../components/TwoFactorVerificationModal';
+import BackupCodesComponent from '../components/BackupCodesComponent';
+
+const TwoFactorSettingsScreen = ({ navigation }) => {
+  const {
+    currentUser,
+    twoFactorSettings,
+    get2FASettings,
+    disable2FA,
+    createSecureSession
+  } = useAuth();
+
+  const [loading, setLoading] = useState(false);
+  const [settings, setSettings] = useState({});
+  const [showSetupWizard, setShowSetupWizard] = useState(false);
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [showBackupCodes, setShowBackupCodes] = useState(false);
+  const [pendingDisableMethod, setPendingDisableMethod] = useState(null);
+
+  useEffect(() => {
+    loadSettings();
+  }, []);
+
+  useEffect(() => {
+    setSettings(twoFactorSettings);
+  }, [twoFactorSettings]);
+
+  const loadSettings = async () => {
+    try {
+      setLoading(true);
+      const userSettings = await get2FASettings();
+      setSettings(userSettings);
+    } catch (error) {
+      console.error('Load settings error:', error);
+      Alert.alert('Error', 'Failed to load 2FA settings.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSetupComplete = (completedMethods) => {
+    setShowSetupWizard(false);
+    loadSettings();
+
+    Alert.alert(
+      'Setup Complete!',
+      `Successfully configured ${completedMethods.length} two-factor authentication method${completedMethods.length !== 1 ? 's' : ''}.`
+    );
+  };
+
+  const handleDisableMethod = (method) => {
+    const methodNames = {
+      phone: 'Phone SMS',
+      totp: 'Authenticator App',
+      biometric: 'Biometric',
+      all: 'All 2FA Methods'
+    };
+
+    Alert.alert(
+      'Disable 2FA Method',
+      `Are you sure you want to disable ${methodNames[method]}? This will reduce your account security.`,
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Disable',
+          style: 'destructive',
+          onPress: () => {
+            setPendingDisableMethod(method);
+            setShowVerificationModal(true);
+          }
+        }
+      ]
+    );
+  };
+
+  const handleVerificationSuccess = async () => {
+    if (!pendingDisableMethod) return;
+
+    try {
+      setLoading(true);
+      setShowVerificationModal(false);
+
+      await disable2FA(pendingDisableMethod);
+      await loadSettings();
+
+      const methodNames = {
+        phone: 'Phone SMS',
+        totp: 'Authenticator App',
+        biometric: 'Biometric',
+        all: 'All 2FA Methods'
+      };
+
+      Alert.alert(
+        'Method Disabled',
+        `${methodNames[pendingDisableMethod]} has been disabled.`
+      );
+
+    } catch (error) {
+      console.error('Disable 2FA error:', error);
+      Alert.alert('Error', 'Failed to disable 2FA method.');
+    } finally {
+      setLoading(false);
+      setPendingDisableMethod(null);
+    }
+  };
+
+  const handleVerificationCancel = () => {
+    setShowVerificationModal(false);
+    setPendingDisableMethod(null);
+  };
+
+  const handleViewBackupCodes = () => {
+    if (!settings.backup_codes) {
+      Alert.alert(
+        'No Backup Codes',
+        'You don\'t have backup codes yet. Set up 2FA to generate backup codes.',
+        [
+          {
+            text: 'Setup 2FA',
+            onPress: () => setShowSetupWizard(true)
+          },
+          {
+            text: 'Cancel',
+            style: 'cancel'
+          }
+        ]
+      );
+      return;
+    }
+
+    setShowBackupCodes(true);
+  };
+
+  const getEnabledMethodsCount = () => {
+    let count = 0;
+    if (settings.phone_2fa_enabled) count++;
+    if (settings.totp_enabled) count++;
+    if (settings.biometric_enabled) count++;
+    return count;
+  };
+
+  const renderHeader = () => (
+    <View style={styles.header}>
+      <TouchableOpacity
+        style={styles.backButton}
+        onPress={() => navigation.goBack()}
+      >
+        <MaterialIcons name="arrow-back" size={24} color="#007AFF" />
+      </TouchableOpacity>
+      <Text style={styles.headerTitle}>Two-Factor Authentication</Text>
+    </View>
+  );
+
+  const renderStatusCard = () => {
+    const enabledCount = getEnabledMethodsCount();
+    const isEnabled = enabledCount > 0;
+
+    return (
+      <View style={[styles.statusCard, isEnabled ? styles.statusCardEnabled : styles.statusCardDisabled]}>
+        <MaterialIcons
+          name={isEnabled ? 'security' : 'security'}
+          size={32}
+          color={isEnabled ? '#4CAF50' : '#FF9500'}
+        />
+        <View style={styles.statusContent}>
+          <Text style={[styles.statusTitle, isEnabled ? styles.statusTitleEnabled : styles.statusTitleDisabled]}>
+            {isEnabled ? '2FA Enabled' : '2FA Disabled'}
+          </Text>
+          <Text style={styles.statusDescription}>
+            {isEnabled
+              ? `${enabledCount} method${enabledCount !== 1 ? 's' : ''} configured`
+              : 'Your account is not protected by 2FA'
+            }
+          </Text>
+        </View>
+        {!isEnabled && (
+          <TouchableOpacity
+            style={styles.setupButton}
+            onPress={() => setShowSetupWizard(true)}
+          >
+            <Text style={styles.setupButtonText}>Setup</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
+
+  const renderMethodsList = () => (
+    <View style={styles.methodsContainer}>
+      <Text style={styles.sectionTitle}>Authentication Methods</Text>
+
+      {/* Phone SMS */}
+      <View style={styles.methodItem}>
+        <MaterialIcons name="smartphone" size={24} color="#007AFF" />
+        <View style={styles.methodContent}>
+          <Text style={styles.methodTitle}>Phone SMS</Text>
+          <Text style={styles.methodDescription}>
+            {settings.phone_2fa_enabled
+              ? `SMS to ${settings.phone_number?.replace(/(\d{3})\d{3}(\d{4})/, '$1***$2') || '***'}`
+              : 'Not configured'
+            }
+          </Text>
+        </View>
+        <View style={styles.methodControls}>
+          {settings.phone_2fa_enabled ? (
+            <TouchableOpacity
+              style={styles.disableButton}
+              onPress={() => handleDisableMethod('phone')}
+            >
+              <Text style={styles.disableButtonText}>Disable</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.enableButton}
+              onPress={() => setShowSetupWizard(true)}
+            >
+              <Text style={styles.enableButtonText}>Setup</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      {/* Authenticator App */}
+      <View style={styles.methodItem}>
+        <MaterialCommunityIcons name="shield-key" size={24} color="#007AFF" />
+        <View style={styles.methodContent}>
+          <Text style={styles.methodTitle}>Authenticator App</Text>
+          <Text style={styles.methodDescription}>
+            {settings.totp_enabled
+              ? 'Google Authenticator, Authy, etc.'
+              : 'Not configured'
+            }
+          </Text>
+        </View>
+        <View style={styles.methodControls}>
+          {settings.totp_enabled ? (
+            <TouchableOpacity
+              style={styles.disableButton}
+              onPress={() => handleDisableMethod('totp')}
+            >
+              <Text style={styles.disableButtonText}>Disable</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.enableButton}
+              onPress={() => setShowSetupWizard(true)}
+            >
+              <Text style={styles.enableButtonText}>Setup</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      {/* Biometric */}
+      <View style={styles.methodItem}>
+        <MaterialIcons name="fingerprint" size={24} color="#007AFF" />
+        <View style={styles.methodContent}>
+          <Text style={styles.methodTitle}>Biometric</Text>
+          <Text style={styles.methodDescription}>
+            {settings.biometric_enabled
+              ? 'Face ID, Touch ID, or fingerprint'
+              : 'Not configured'
+            }
+          </Text>
+        </View>
+        <View style={styles.methodControls}>
+          {settings.biometric_enabled ? (
+            <TouchableOpacity
+              style={styles.disableButton}
+              onPress={() => handleDisableMethod('biometric')}
+            >
+              <Text style={styles.disableButtonText}>Disable</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={styles.enableButton}
+              onPress={() => setShowSetupWizard(true)}
+            >
+              <Text style={styles.enableButtonText}>Setup</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    </View>
+  );
+
+  const renderBackupCodes = () => (
+    <View style={styles.backupContainer}>
+      <Text style={styles.sectionTitle}>Backup Codes</Text>
+      <View style={styles.backupItem}>
+        <MaterialIcons name="backup" size={24} color="#FF9500" />
+        <View style={styles.backupContent}>
+          <Text style={styles.backupTitle}>Recovery Codes</Text>
+          <Text style={styles.backupDescription}>
+            Use these if you lose access to your 2FA methods
+          </Text>
+        </View>
+        <TouchableOpacity
+          style={styles.backupButton}
+          onPress={handleViewBackupCodes}
+        >
+          <Text style={styles.backupButtonText}>
+            {settings.backup_codes ? 'View' : 'Generate'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  const renderAdvancedSettings = () => {
+    const hasAnyMethod = getEnabledMethodsCount() > 0;
+
+    return (
+      <View style={styles.advancedContainer}>
+        <Text style={styles.sectionTitle}>Advanced</Text>
+
+        <TouchableOpacity
+          style={styles.advancedItem}
+          onPress={() => setShowSetupWizard(true)}
+        >
+          <MaterialIcons name="add" size={24} color="#007AFF" />
+          <View style={styles.advancedContent}>
+            <Text style={styles.advancedTitle}>Add Method</Text>
+            <Text style={styles.advancedDescription}>Configure additional 2FA methods</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={24} color="#C7C7CC" />
+        </TouchableOpacity>
+
+        {hasAnyMethod && (
+          <TouchableOpacity
+            style={styles.advancedItem}
+            onPress={() => handleDisableMethod('all')}
+          >
+            <MaterialIcons name="security" size={24} color="#FF3B30" />
+            <View style={styles.advancedContent}>
+              <Text style={styles.dangerTitle}>Disable All 2FA</Text>
+              <Text style={styles.advancedDescription}>Remove all two-factor authentication</Text>
+            </View>
+            <MaterialIcons name="chevron-right" size={24} color="#C7C7CC" />
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#007AFF" />
+        <Text style={styles.loadingText}>Loading 2FA settings...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      {renderHeader()}
+
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {renderStatusCard()}
+        {renderMethodsList()}
+        {renderBackupCodes()}
+        {renderAdvancedSettings()}
+
+        <View style={styles.infoContainer}>
+          <MaterialIcons name="info" size={20} color="#007AFF" />
+          <Text style={styles.infoText}>
+            Two-factor authentication adds an extra layer of security to your account by requiring a second form of verification when signing in.
+          </Text>
+        </View>
+      </ScrollView>
+
+      <TwoFactorSetupWizard
+        visible={showSetupWizard}
+        onClose={() => setShowSetupWizard(false)}
+        onComplete={handleSetupComplete}
+      />
+
+      <TwoFactorVerificationModal
+        visible={showVerificationModal}
+        onClose={handleVerificationCancel}
+        onSuccess={handleVerificationSuccess}
+        userId={currentUser?.uid || currentUser?.id}
+        operation="security_settings"
+      />
+
+      {showBackupCodes && (
+        <BackupCodesComponent
+          userId={currentUser?.uid || currentUser?.id}
+          onComplete={() => setShowBackupCodes(false)}
+          onBack={() => setShowBackupCodes(false)}
+          showAsModal={true}
+        />
+      )}
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F2F2F7'
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#F2F2F7'
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#666'
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 20,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5E7'
+  },
+  backButton: {
+    padding: 8,
+    marginRight: 12
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1D1D1F'
+  },
+  content: {
+    flex: 1,
+    padding: 20
+  },
+  statusCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 20,
+    marginBottom: 30,
+    borderWidth: 2
+  },
+  statusCardEnabled: {
+    borderColor: '#4CAF50'
+  },
+  statusCardDisabled: {
+    borderColor: '#FF9500'
+  },
+  statusContent: {
+    flex: 1,
+    marginLeft: 16
+  },
+  statusTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 4
+  },
+  statusTitleEnabled: {
+    color: '#4CAF50'
+  },
+  statusTitleDisabled: {
+    color: '#FF9500'
+  },
+  statusDescription: {
+    fontSize: 14,
+    color: '#666'
+  },
+  setupButton: {
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8
+  },
+  setupButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600'
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#1D1D1F',
+    marginBottom: 16
+  },
+  methodsContainer: {
+    marginBottom: 30
+  },
+  methodItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12
+  },
+  methodContent: {
+    flex: 1,
+    marginLeft: 16
+  },
+  methodTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1D1D1F',
+    marginBottom: 4
+  },
+  methodDescription: {
+    fontSize: 14,
+    color: '#666'
+  },
+  methodControls: {
+    marginLeft: 16
+  },
+  enableButton: {
+    backgroundColor: '#007AFF',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6
+  },
+  enableButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600'
+  },
+  disableButton: {
+    backgroundColor: 'transparent',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#FF3B30'
+  },
+  disableButtonText: {
+    color: '#FF3B30',
+    fontSize: 14,
+    fontWeight: '600'
+  },
+  backupContainer: {
+    marginBottom: 30
+  },
+  backupItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16
+  },
+  backupContent: {
+    flex: 1,
+    marginLeft: 16
+  },
+  backupTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1D1D1F',
+    marginBottom: 4
+  },
+  backupDescription: {
+    fontSize: 14,
+    color: '#666'
+  },
+  backupButton: {
+    backgroundColor: '#FF9500',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginLeft: 16
+  },
+  backupButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600'
+  },
+  advancedContainer: {
+    marginBottom: 30
+  },
+  advancedItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12
+  },
+  advancedContent: {
+    flex: 1,
+    marginLeft: 16
+  },
+  advancedTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1D1D1F',
+    marginBottom: 4
+  },
+  dangerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FF3B30',
+    marginBottom: 4
+  },
+  advancedDescription: {
+    fontSize: 14,
+    color: '#666'
+  },
+  infoContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#E3F2FD',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 40
+  },
+  infoText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#1976D2',
+    marginLeft: 8,
+    lineHeight: 20
+  }
+});
+
+export default TwoFactorSettingsScreen;

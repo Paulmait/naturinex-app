@@ -1,0 +1,1079 @@
+// Comprehensive Affiliate Management Service for NaturineX
+// Handles registration, tracking, commissions, payouts, and fraud prevention
+// Created: 2025-09-16
+
+import { supabase } from '../config/supabase';
+import CryptoJS from 'crypto-js';
+
+class AffiliateManagementService {
+  constructor() {
+    this.sessionId = this.getSessionId();
+    this.userId = null;
+    this.trackingEnabled = true;
+    this.fraudDetection = true;
+    this.cookieDuration = 30; // days
+    this.commissionTiers = {
+      bronze: 0.15,
+      silver: 0.20,
+      gold: 0.25,
+      platinum: 0.30,
+      healthcare: 0.25
+    };
+  }
+
+  // ================================================
+  // AFFILIATE REGISTRATION & MANAGEMENT
+  // ================================================
+
+  /**
+   * Register new affiliate
+   */
+  async registerAffiliate(registrationData) {
+    try {
+      const {
+        firstName,
+        lastName,
+        email,
+        phone,
+        website,
+        businessType,
+        businessName,
+        taxId,
+        socialMedia,
+        signupSource,
+        paymentMethod,
+        bankDetails
+      } = registrationData;
+
+      // Generate unique affiliate code
+      const affiliateCode = this.generateAffiliateCode(email);
+
+      // Encrypt sensitive payment information
+      const encryptedBankDetails = this.encryptSensitiveData(bankDetails);
+
+      // Device fingerprint for fraud prevention
+      const deviceFingerprint = await this.getDeviceFingerprint();
+
+      const affiliateData = {
+        affiliate_code: affiliateCode,
+        email: email.toLowerCase(),
+        first_name: firstName,
+        last_name: lastName,
+        phone,
+        website,
+        business_type: businessType || 'individual',
+        business_name: businessName,
+        tax_id: taxId,
+        social_media: socialMedia || {},
+        signup_source: signupSource,
+        payment_method: paymentMethod || 'bank_transfer',
+        payment_details: encryptedBankDetails,
+        device_fingerprint: deviceFingerprint,
+        last_login_ip: await this.getClientIP(),
+        terms_accepted_at: new Date().toISOString(),
+        terms_version: '1.0'
+      };
+
+      // Insert affiliate record
+      const { data: affiliate, error } = await supabase
+        .from('affiliates')
+        .insert([affiliateData])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Send verification email
+      await this.sendVerificationEmail(affiliate);
+
+      // Create notification
+      await this.createNotification(affiliate.id, {
+        title: 'Welcome to NaturineX Affiliate Program',
+        message: 'Your application has been submitted and is under review. We\'ll notify you once approved.',
+        type: 'welcome',
+        priority: 'normal'
+      });
+
+      return {
+        success: true,
+        affiliate,
+        message: 'Affiliate registration successful. Please check your email for verification.'
+      };
+
+    } catch (error) {
+      console.error('Affiliate registration error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Approve affiliate application
+   */
+  async approveAffiliate(affiliateId, approvalData = {}) {
+    try {
+      const { tier = 'bronze', customCommissionRate, notes } = approvalData;
+
+      const updateData = {
+        status: 'approved',
+        tier,
+        approved_at: new Date().toISOString(),
+        commission_rate: customCommissionRate || this.commissionTiers[tier]
+      };
+
+      const { data, error } = await supabase
+        .from('affiliates')
+        .update(updateData)
+        .eq('id', affiliateId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Send approval notification
+      await this.createNotification(affiliateId, {
+        title: 'Affiliate Application Approved!',
+        message: `Congratulations! Your affiliate application has been approved with ${tier} tier status.`,
+        type: 'approval',
+        priority: 'high',
+        action_url: '/affiliate/dashboard',
+        action_label: 'View Dashboard'
+      });
+
+      // Send approval email
+      await this.sendApprovalEmail(data);
+
+      return { success: true, affiliate: data };
+
+    } catch (error) {
+      console.error('Affiliate approval error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Update affiliate tier based on performance
+   */
+  async updateAffiliateTier(affiliateId) {
+    try {
+      // Get affiliate performance
+      const { data: affiliate } = await supabase
+        .from('affiliates')
+        .select('*, performance_analytics(*)')
+        .eq('id', affiliateId)
+        .single();
+
+      if (!affiliate) throw new Error('Affiliate not found');
+
+      // Calculate new tier based on performance
+      const newTier = this.calculateTierFromPerformance(affiliate);
+
+      if (newTier !== affiliate.tier) {
+        const { data: updatedAffiliate, error } = await supabase
+          .from('affiliates')
+          .update({
+            tier: newTier,
+            commission_rate: this.commissionTiers[newTier]
+          })
+          .eq('id', affiliateId)
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        // Notify about tier upgrade
+        await this.createNotification(affiliateId, {
+          title: `Tier Upgraded to ${newTier.charAt(0).toUpperCase() + newTier.slice(1)}!`,
+          message: `Congratulations! You've been upgraded to ${newTier} tier with ${(this.commissionTiers[newTier] * 100).toFixed(0)}% commission rate.`,
+          type: 'tier_upgrade',
+          priority: 'high'
+        });
+
+        return { success: true, newTier, affiliate: updatedAffiliate };
+      }
+
+      return { success: true, message: 'No tier change needed' };
+
+    } catch (error) {
+      console.error('Tier update error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ================================================
+  // REFERRAL TRACKING & ANALYTICS
+  // ================================================
+
+  /**
+   * Track affiliate click with comprehensive analytics
+   */
+  async trackClick(trackingData) {
+    try {
+      if (!this.trackingEnabled) return;
+
+      const {
+        affiliateCode,
+        productId,
+        utmParams = {},
+        customParams = {}
+      } = trackingData;
+
+      // Get affiliate by code
+      const { data: affiliate } = await supabase
+        .from('affiliates')
+        .select('id, status')
+        .eq('affiliate_code', affiliateCode)
+        .eq('status', 'approved')
+        .single();
+
+      if (!affiliate) {
+        console.warn('Invalid affiliate code:', affiliateCode);
+        return { success: false, error: 'Invalid affiliate code' };
+      }
+
+      // Get visitor information
+      const visitorInfo = await this.getVisitorInformation();
+      const deviceFingerprint = await this.getDeviceFingerprint();
+
+      // Generate unique click ID
+      const clickId = this.generateClickId();
+
+      // Check for fraud indicators
+      const fraudScore = await this.calculateFraudScore(visitorInfo, affiliate.id);
+
+      const trackingRecord = {
+        affiliate_id: affiliate.id,
+        tracking_code: trackingData.trackingCode || this.generateTrackingCode(),
+        click_id: clickId,
+        visitor_ip: visitorInfo.ip,
+        visitor_user_agent: visitorInfo.userAgent,
+        visitor_fingerprint: deviceFingerprint,
+        referrer_url: document.referrer,
+        landing_page: window.location.href,
+        utm_source: utmParams.source,
+        utm_medium: utmParams.medium,
+        utm_campaign: utmParams.campaign,
+        utm_term: utmParams.term,
+        utm_content: utmParams.content,
+        product_id: productId,
+        country_code: visitorInfo.countryCode,
+        region: visitorInfo.region,
+        city: visitorInfo.city,
+        device_type: visitorInfo.deviceType,
+        browser: visitorInfo.browser,
+        operating_system: visitorInfo.os,
+        quality_score: Math.max(0, 100 - fraudScore),
+        fraud_indicators: fraudScore > 50 ? { high_risk: true, score: fraudScore } : {},
+        expires_at: new Date(Date.now() + (this.cookieDuration * 24 * 60 * 60 * 1000)).toISOString()
+      };
+
+      // Insert tracking record
+      const { data: trackingResult, error } = await supabase
+        .from('referral_tracking')
+        .insert([trackingRecord])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Set tracking cookie
+      this.setTrackingCookie(clickId, affiliateCode);
+
+      // Store in localStorage for client-side attribution
+      this.storeClickData(trackingResult);
+
+      // Check for fraud and flag if necessary
+      if (fraudScore > 70) {
+        await this.flagPotentialFraud(trackingResult.id, 'click_fraud', fraudScore);
+      }
+
+      return {
+        success: true,
+        clickId,
+        trackingId: trackingResult.id
+      };
+
+    } catch (error) {
+      console.error('Click tracking error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Track conversion and calculate commission
+   */
+  async trackConversion(conversionData) {
+    try {
+      const {
+        transactionId,
+        orderId,
+        customerId,
+        grossAmount,
+        netAmount,
+        productId,
+        productName,
+        productCategory
+      } = conversionData;
+
+      // Get tracking information from cookie or localStorage
+      const trackingInfo = this.getTrackingInfo();
+      if (!trackingInfo) {
+        console.warn('No tracking information found for conversion');
+        return { success: false, error: 'No tracking information' };
+      }
+
+      // Get referral tracking record
+      const { data: referralRecord } = await supabase
+        .from('referral_tracking')
+        .select('*, affiliates(*)')
+        .eq('click_id', trackingInfo.clickId)
+        .eq('status', 'click')
+        .gte('expires_at', new Date().toISOString())
+        .single();
+
+      if (!referralRecord) {
+        console.warn('No valid referral found for conversion');
+        return { success: false, error: 'No valid referral found' };
+      }
+
+      // Calculate commission
+      const commissionRate = referralRecord.affiliates.commission_rate;
+      const commissionAmount = (netAmount * commissionRate);
+      const tierBonus = this.calculateTierBonus(referralRecord.affiliates.tier, netAmount);
+
+      // Create commission record
+      const commissionData = {
+        affiliate_id: referralRecord.affiliate_id,
+        referral_id: referralRecord.id,
+        transaction_id: transactionId,
+        order_id: orderId,
+        customer_id: customerId,
+        product_id: productId,
+        product_name: productName,
+        product_category: productCategory,
+        gross_sale_amount: grossAmount,
+        net_sale_amount: netAmount,
+        commission_rate: commissionRate,
+        commission_amount: commissionAmount,
+        tier_at_time: referralRecord.affiliates.tier,
+        tier_bonus_amount: tierBonus,
+        transaction_date: new Date().toISOString(),
+        quality_score: referralRecord.quality_score
+      };
+
+      // Insert commission record
+      const { data: commission, error: commissionError } = await supabase
+        .from('commission_calculations')
+        .insert([commissionData])
+        .select()
+        .single();
+
+      if (commissionError) throw commissionError;
+
+      // Update referral tracking record
+      await supabase
+        .from('referral_tracking')
+        .update({
+          status: 'conversion',
+          converted: true,
+          converted_at: new Date().toISOString(),
+          conversion_id: commission.id,
+          conversion_value: netAmount,
+          commission_earned: commissionAmount + tierBonus
+        })
+        .eq('id', referralRecord.id);
+
+      // Send conversion notification to affiliate
+      await this.createNotification(referralRecord.affiliate_id, {
+        title: 'New Commission Earned!',
+        message: `You earned $${(commissionAmount + tierBonus).toFixed(2)} commission from a $${netAmount.toFixed(2)} sale.`,
+        type: 'commission',
+        priority: 'normal'
+      });
+
+      // Clear tracking cookie
+      this.clearTrackingCookie();
+
+      return {
+        success: true,
+        commission,
+        commissionAmount: commissionAmount + tierBonus
+      };
+
+    } catch (error) {
+      console.error('Conversion tracking error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ================================================
+  // COMMISSION & PAYOUT MANAGEMENT
+  // ================================================
+
+  /**
+   * Calculate affiliate payouts
+   */
+  async calculatePayouts(affiliateId = null) {
+    try {
+      let query = supabase
+        .from('commission_calculations')
+        .select('*, affiliates(*)')
+        .eq('status', 'confirmed')
+        .is('payout_id', null);
+
+      if (affiliateId) {
+        query = query.eq('affiliate_id', affiliateId);
+      }
+
+      const { data: commissions, error } = await query;
+      if (error) throw error;
+
+      // Group by affiliate
+      const payoutsByAffiliate = commissions.reduce((acc, commission) => {
+        const id = commission.affiliate_id;
+        if (!acc[id]) {
+          acc[id] = {
+            affiliate: commission.affiliates,
+            commissions: [],
+            totalAmount: 0,
+            count: 0
+          };
+        }
+        acc[id].commissions.push(commission);
+        acc[id].totalAmount += parseFloat(commission.commission_amount);
+        acc[id].count++;
+        return acc;
+      }, {});
+
+      // Filter affiliates who meet minimum payout threshold
+      const eligiblePayouts = Object.values(payoutsByAffiliate).filter(
+        payout => payout.totalAmount >= payout.affiliate.minimum_payout
+      );
+
+      return { success: true, payouts: eligiblePayouts };
+
+    } catch (error) {
+      console.error('Payout calculation error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Process affiliate payout
+   */
+  async processPayout(affiliateId, commissionIds, payoutData = {}) {
+    try {
+      const { paymentMethod, paymentReference, notes } = payoutData;
+
+      // Calculate total amount
+      const { data: commissions } = await supabase
+        .from('commission_calculations')
+        .select('commission_amount')
+        .in('id', commissionIds)
+        .eq('affiliate_id', affiliateId)
+        .eq('status', 'confirmed');
+
+      const totalAmount = commissions.reduce((sum, c) => sum + parseFloat(c.commission_amount), 0);
+
+      // Create payout record
+      const payoutRecord = {
+        affiliate_id: affiliateId,
+        amount: totalAmount,
+        commission_count: commissions.length,
+        period_start: new Date(Math.min(...commissions.map(c => new Date(c.transaction_date)))).toISOString().split('T')[0],
+        period_end: new Date().toISOString().split('T')[0],
+        payment_method: paymentMethod,
+        payment_reference: paymentReference,
+        status: 'processing',
+        notes: notes
+      };
+
+      const { data: payout, error: payoutError } = await supabase
+        .from('payout_history')
+        .insert([payoutRecord])
+        .select()
+        .single();
+
+      if (payoutError) throw payoutError;
+
+      // Update commission records with payout ID
+      await supabase
+        .from('commission_calculations')
+        .update({ payout_id: payout.id, status: 'paid', paid_at: new Date().toISOString() })
+        .in('id', commissionIds);
+
+      // Process actual payment (integration with payment processor)
+      const paymentResult = await this.processPayment(payout);
+
+      if (paymentResult.success) {
+        // Update payout status
+        await supabase
+          .from('payout_history')
+          .update({
+            status: 'completed',
+            completed_at: new Date().toISOString(),
+            payment_reference: paymentResult.reference
+          })
+          .eq('id', payout.id);
+
+        // Notify affiliate
+        await this.createNotification(affiliateId, {
+          title: 'Payout Processed',
+          message: `Your payout of $${totalAmount.toFixed(2)} has been processed successfully.`,
+          type: 'payout',
+          priority: 'high'
+        });
+
+        return { success: true, payout: { ...payout, status: 'completed' } };
+      } else {
+        // Mark payout as failed
+        await supabase
+          .from('payout_history')
+          .update({
+            status: 'failed',
+            failure_reason: paymentResult.error
+          })
+          .eq('id', payout.id);
+
+        return { success: false, error: paymentResult.error };
+      }
+
+    } catch (error) {
+      console.error('Payout processing error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ================================================
+  // CUSTOM LINKS & QR CODES
+  // ================================================
+
+  /**
+   * Generate custom affiliate link
+   */
+  async generateCustomLink(affiliateId, linkData) {
+    try {
+      const { linkName, originalUrl, customPath, campaignName, expiresAt } = linkData;
+
+      // Generate tracking code
+      const trackingCode = this.generateTrackingCode();
+
+      // Generate QR code
+      const qrCodeData = await this.generateQRCode(`${process.env.REACT_APP_BASE_URL}/r/${customPath || trackingCode}`);
+
+      const linkRecord = {
+        affiliate_id: affiliateId,
+        link_name: linkName,
+        original_url: originalUrl,
+        custom_path: customPath || trackingCode,
+        tracking_code: trackingCode,
+        campaign_name: campaignName,
+        qr_code_data: qrCodeData,
+        expires_at: expiresAt ? new Date(expiresAt).toISOString() : null
+      };
+
+      const { data: customLink, error } = await supabase
+        .from('affiliate_custom_links')
+        .insert([linkRecord])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return {
+        success: true,
+        link: customLink,
+        url: `${process.env.REACT_APP_BASE_URL}/r/${customLink.custom_path}`,
+        qrCode: qrCodeData
+      };
+
+    } catch (error) {
+      console.error('Custom link generation error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ================================================
+  // FRAUD PREVENTION
+  // ================================================
+
+  /**
+   * Calculate fraud score based on various factors
+   */
+  async calculateFraudScore(visitorInfo, affiliateId) {
+    let score = 0;
+
+    // Check IP reputation
+    if (await this.isHighRiskIP(visitorInfo.ip)) score += 30;
+
+    // Check for bot-like behavior
+    if (this.detectBotBehavior(visitorInfo)) score += 25;
+
+    // Check click velocity for this affiliate
+    const recentClicks = await this.getRecentClicksCount(affiliateId, 60); // last 60 minutes
+    if (recentClicks > 50) score += 20;
+
+    // Check device fingerprint uniqueness
+    if (await this.isDuplicateFingerprint(visitorInfo.fingerprint)) score += 15;
+
+    // Geographic inconsistency
+    if (await this.checkGeographicInconsistency(affiliateId, visitorInfo.countryCode)) score += 10;
+
+    return Math.min(100, score);
+  }
+
+  /**
+   * Flag potential fraud
+   */
+  async flagPotentialFraud(referralId, fraudType, confidenceScore) {
+    try {
+      const fraudRecord = {
+        referral_id: referralId,
+        fraud_type: fraudType,
+        confidence_score: confidenceScore / 100,
+        risk_level: confidenceScore > 80 ? 'critical' : confidenceScore > 60 ? 'high' : 'medium',
+        detection_method: 'automated',
+        action_taken: confidenceScore > 80 ? 'block' : 'flag'
+      };
+
+      await supabase
+        .from('fraud_detection')
+        .insert([fraudRecord]);
+
+      // Block the referral if confidence is very high
+      if (confidenceScore > 80) {
+        await supabase
+          .from('referral_tracking')
+          .update({ status: 'fraud' })
+          .eq('id', referralId);
+      }
+
+      return { success: true };
+
+    } catch (error) {
+      console.error('Fraud flagging error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ================================================
+  // ANALYTICS & REPORTING
+  // ================================================
+
+  /**
+   * Get affiliate dashboard data
+   */
+  async getAffiliateDashboard(affiliateId) {
+    try {
+      // Get affiliate summary from materialized view
+      const { data: summary } = await supabase
+        .from('affiliate_dashboard_summary')
+        .select('*')
+        .eq('id', affiliateId)
+        .single();
+
+      // Get recent performance (last 30 days)
+      const { data: recentPerformance } = await supabase
+        .from('performance_analytics')
+        .select('*')
+        .eq('affiliate_id', affiliateId)
+        .eq('period_type', 'daily')
+        .gte('date', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0])
+        .order('date', { ascending: true });
+
+      // Get pending commissions
+      const { data: pendingCommissions } = await supabase
+        .from('commission_calculations')
+        .select('*')
+        .eq('affiliate_id', affiliateId)
+        .eq('status', 'confirmed')
+        .is('payout_id', null);
+
+      // Get recent notifications
+      const { data: notifications } = await supabase
+        .from('affiliate_notifications')
+        .select('*')
+        .eq('affiliate_id', affiliateId)
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      return {
+        success: true,
+        dashboard: {
+          summary,
+          recentPerformance,
+          pendingCommissions,
+          notifications
+        }
+      };
+
+    } catch (error) {
+      console.error('Dashboard data error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Generate affiliate performance report
+   */
+  async generatePerformanceReport(affiliateId, dateRange = {}) {
+    try {
+      const { startDate, endDate } = dateRange;
+      const start = startDate || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const end = endDate || new Date().toISOString().split('T')[0];
+
+      // Get detailed analytics
+      const { data: analytics } = await supabase
+        .from('performance_analytics')
+        .select('*')
+        .eq('affiliate_id', affiliateId)
+        .gte('date', start)
+        .lte('date', end)
+        .order('date', { ascending: true });
+
+      // Get top performing products
+      const { data: topProducts } = await supabase
+        .from('commission_calculations')
+        .select('product_name, product_category, COUNT(*) as conversions, SUM(commission_amount) as total_commission')
+        .eq('affiliate_id', affiliateId)
+        .gte('transaction_date', start)
+        .lte('transaction_date', end)
+        .eq('status', 'confirmed')
+        .group('product_name, product_category')
+        .order('total_commission', { ascending: false })
+        .limit(10);
+
+      // Generate PDF report
+      const reportData = {
+        affiliateId,
+        dateRange: { start, end },
+        analytics,
+        topProducts,
+        summary: this.calculateReportSummary(analytics)
+      };
+
+      const pdfUrl = await this.generatePDFReport(reportData);
+
+      return {
+        success: true,
+        report: {
+          data: reportData,
+          pdfUrl
+        }
+      };
+
+    } catch (error) {
+      console.error('Report generation error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ================================================
+  // UTILITY METHODS
+  // ================================================
+
+  /**
+   * Generate unique affiliate code
+   */
+  generateAffiliateCode(email) {
+    const prefix = 'NAT';
+    const emailHash = CryptoJS.MD5(email.toLowerCase()).toString().substring(0, 6).toUpperCase();
+    const timestamp = Date.now().toString().slice(-4);
+    return `${prefix}${emailHash}${timestamp}`;
+  }
+
+  /**
+   * Generate tracking code
+   */
+  generateTrackingCode() {
+    return `TRK${Date.now()}${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+  }
+
+  /**
+   * Generate click ID
+   */
+  generateClickId() {
+    return `CLK${Date.now()}${Math.random().toString(36).substring(2, 15)}`;
+  }
+
+  /**
+   * Get device fingerprint
+   */
+  async getDeviceFingerprint() {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    ctx.textBaseline = 'top';
+    ctx.font = '14px Arial';
+    ctx.fillText('Device fingerprint', 2, 2);
+
+    return {
+      screen: `${screen.width}x${screen.height}`,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      language: navigator.language,
+      platform: navigator.platform,
+      canvas: canvas.toDataURL(),
+      userAgent: navigator.userAgent,
+      cookieEnabled: navigator.cookieEnabled,
+      onlineStatus: navigator.onLine
+    };
+  }
+
+  /**
+   * Get visitor information
+   */
+  async getVisitorInformation() {
+    // This would integrate with a geolocation service
+    return {
+      ip: await this.getClientIP(),
+      userAgent: navigator.userAgent,
+      countryCode: 'US', // From geolocation service
+      region: 'California',
+      city: 'San Francisco',
+      deviceType: this.getDeviceType(),
+      browser: this.getBrowser(),
+      os: this.getOperatingSystem()
+    };
+  }
+
+  /**
+   * Get client IP address
+   */
+  async getClientIP() {
+    try {
+      const response = await fetch('https://api.ipify.org?format=json');
+      const data = await response.json();
+      return data.ip;
+    } catch (error) {
+      return '127.0.0.1';
+    }
+  }
+
+  /**
+   * Set tracking cookie
+   */
+  setTrackingCookie(clickId, affiliateCode) {
+    const cookieData = {
+      clickId,
+      affiliateCode,
+      timestamp: Date.now()
+    };
+
+    const cookieValue = btoa(JSON.stringify(cookieData));
+    const expires = new Date(Date.now() + (this.cookieDuration * 24 * 60 * 60 * 1000));
+
+    document.cookie = `naturinex_aff=${cookieValue}; expires=${expires.toUTCString()}; path=/; secure; samesite=strict`;
+  }
+
+  /**
+   * Get tracking information
+   */
+  getTrackingInfo() {
+    const cookie = document.cookie
+      .split('; ')
+      .find(row => row.startsWith('naturinex_aff='));
+
+    if (!cookie) return null;
+
+    try {
+      const cookieValue = cookie.split('=')[1];
+      return JSON.parse(atob(cookieValue));
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Clear tracking cookie
+   */
+  clearTrackingCookie() {
+    document.cookie = 'naturinex_aff=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/';
+  }
+
+  /**
+   * Encrypt sensitive data
+   */
+  encryptSensitiveData(data) {
+    if (!data) return null;
+    const key = process.env.REACT_APP_ENCRYPTION_KEY || 'default-key';
+    return CryptoJS.AES.encrypt(JSON.stringify(data), key).toString();
+  }
+
+  /**
+   * Decrypt sensitive data
+   */
+  decryptSensitiveData(encryptedData) {
+    if (!encryptedData) return null;
+    try {
+      const key = process.env.REACT_APP_ENCRYPTION_KEY || 'default-key';
+      const bytes = CryptoJS.AES.decrypt(encryptedData, key);
+      return JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
+    } catch (error) {
+      return null;
+    }
+  }
+
+  /**
+   * Calculate tier from performance
+   */
+  calculateTierFromPerformance(affiliate) {
+    const monthlyRevenue = affiliate.total_revenue || 0;
+    const conversionRate = affiliate.conversion_rate || 0;
+
+    if (monthlyRevenue >= 15000 && conversionRate >= 0.04) return 'platinum';
+    if (monthlyRevenue >= 5000 && conversionRate >= 0.03) return 'gold';
+    if (monthlyRevenue >= 1000 && conversionRate >= 0.02) return 'silver';
+    return 'bronze';
+  }
+
+  /**
+   * Calculate tier bonus
+   */
+  calculateTierBonus(tier, saleAmount) {
+    const bonusRates = {
+      bronze: 0,
+      silver: 0.01,
+      gold: 0.02,
+      platinum: 0.03,
+      healthcare: 0.015
+    };
+
+    return saleAmount * (bonusRates[tier] || 0);
+  }
+
+  /**
+   * Create notification
+   */
+  async createNotification(affiliateId, notificationData) {
+    try {
+      const notification = {
+        affiliate_id: affiliateId,
+        ...notificationData,
+        created_at: new Date().toISOString()
+      };
+
+      await supabase
+        .from('affiliate_notifications')
+        .insert([notification]);
+
+      return { success: true };
+    } catch (error) {
+      console.error('Notification creation error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Send verification email
+   */
+  async sendVerificationEmail(affiliate) {
+    // Integration with email service
+    console.log(`Sending verification email to ${affiliate.email}`);
+  }
+
+  /**
+   * Send approval email
+   */
+  async sendApprovalEmail(affiliate) {
+    // Integration with email service
+    console.log(`Sending approval email to ${affiliate.email}`);
+  }
+
+  /**
+   * Process payment
+   */
+  async processPayment(payout) {
+    // Integration with payment processor (Stripe, PayPal, etc.)
+    try {
+      // Simulate payment processing
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      return {
+        success: true,
+        reference: `PAY${Date.now()}`
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Generate QR code
+   */
+  async generateQRCode(url) {
+    // Integration with QR code library
+    return `data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==`;
+  }
+
+  /**
+   * Generate PDF report
+   */
+  async generatePDFReport(reportData) {
+    // Integration with PDF generation library
+    return `/reports/affiliate-${reportData.affiliateId}-${Date.now()}.pdf`;
+  }
+
+  /**
+   * Get session ID
+   */
+  getSessionId() {
+    let sessionId = sessionStorage.getItem('affiliateSessionId');
+    if (!sessionId) {
+      sessionId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      sessionStorage.setItem('affiliateSessionId', sessionId);
+    }
+    return sessionId;
+  }
+
+  /**
+   * Store click data in localStorage
+   */
+  storeClickData(clickData) {
+    const clicks = JSON.parse(localStorage.getItem('affiliateClicks') || '[]');
+    clicks.push(clickData);
+
+    // Keep only last 30 days of data
+    const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+    const recentClicks = clicks.filter(click =>
+      new Date(click.clicked_at).getTime() > thirtyDaysAgo
+    );
+
+    localStorage.setItem('affiliateClicks', JSON.stringify(recentClicks));
+  }
+
+  // Additional utility methods for fraud detection
+  getDeviceType() {
+    const ua = navigator.userAgent;
+    if (/tablet|ipad|playbook|silk/i.test(ua)) return 'tablet';
+    if (/mobile|iphone|ipod|android|blackberry|opera|mini|windows\sce|palm|smartphone|iemobile/i.test(ua)) return 'mobile';
+    return 'desktop';
+  }
+
+  getBrowser() {
+    const ua = navigator.userAgent;
+    if (ua.includes('Chrome')) return 'Chrome';
+    if (ua.includes('Firefox')) return 'Firefox';
+    if (ua.includes('Safari')) return 'Safari';
+    if (ua.includes('Edge')) return 'Edge';
+    return 'Other';
+  }
+
+  getOperatingSystem() {
+    const ua = navigator.userAgent;
+    if (ua.includes('Windows')) return 'Windows';
+    if (ua.includes('Mac')) return 'macOS';
+    if (ua.includes('Linux')) return 'Linux';
+    if (ua.includes('Android')) return 'Android';
+    if (ua.includes('iOS')) return 'iOS';
+    return 'Other';
+  }
+}
+
+// Create singleton instance
+const affiliateManagementService = new AffiliateManagementService();
+
+export default affiliateManagementService;

@@ -1,0 +1,998 @@
+/**
+ * PrescriptionManagement - Provider prescription management interface
+ * Handles creating, editing, sending, and tracking prescriptions
+ */
+
+import React, { useState, useEffect } from 'react';
+import { View, Text, ScrollView, StyleSheet, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { useMediaQuery } from 'react-responsive';
+import {
+  Pill, Plus, Search, Filter, Send, Edit, Trash2, Clock,
+  CheckCircle, AlertCircle, User, Calendar, FileText
+} from 'lucide-react';
+import { telemedicineService } from '../../../services/telemedicineService';
+
+const PrescriptionManagement = ({ route, navigation }) => {
+  const { providerId } = route.params;
+
+  const [prescriptions, setPrescriptions] = useState([]);
+  const [activeTab, setActiveTab] = useState('all'); // all, pending, sent, expired
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showNewPrescription, setShowNewPrescription] = useState(false);
+  const [selectedPrescription, setSelectedPrescription] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const [newPrescription, setNewPrescription] = useState({
+    patientId: '',
+    patientName: '',
+    medications: [{
+      name: '',
+      genericName: '',
+      strength: '',
+      dosageForm: 'tablet',
+      quantity: '',
+      directions: '',
+      refills: '0',
+      daysSupply: '',
+      substitutionAllowed: true
+    }],
+    diagnosis: '',
+    notes: '',
+    urgency: 'routine' // routine, urgent, stat
+  });
+
+  const isWeb = useMediaQuery({ query: '(min-width: 768px)' });
+
+  useEffect(() => {
+    loadPrescriptions();
+  }, [providerId, activeTab]);
+
+  const loadPrescriptions = async () => {
+    try {
+      setLoading(true);
+      // Mock data - in real implementation, this would call telemedicineService
+      const mockPrescriptions = [
+        {
+          id: 'rx_001',
+          patientId: 'pat_001',
+          patientName: 'Sarah Johnson',
+          patientAge: 32,
+          createdDate: '2024-01-15',
+          status: 'sent',
+          urgency: 'routine',
+          diagnosis: 'Type 2 Diabetes',
+          medications: [
+            {
+              name: 'Metformin',
+              genericName: 'Metformin HCl',
+              strength: '500mg',
+              dosageForm: 'tablet',
+              quantity: '60',
+              directions: 'Take one tablet twice daily with meals',
+              refills: '5',
+              daysSupply: '30',
+              substitutionAllowed: true
+            }
+          ],
+          pharmacyInfo: {
+            name: 'CVS Pharmacy',
+            phone: '(555) 123-4567',
+            address: '123 Main St'
+          },
+          notes: 'Patient tolerates medication well'
+        },
+        {
+          id: 'rx_002',
+          patientId: 'pat_002',
+          patientName: 'Michael Brown',
+          patientAge: 45,
+          createdDate: '2024-01-14',
+          status: 'pending',
+          urgency: 'urgent',
+          diagnosis: 'Acute bronchitis',
+          medications: [
+            {
+              name: 'Azithromycin',
+              genericName: 'Azithromycin',
+              strength: '250mg',
+              dosageForm: 'tablet',
+              quantity: '6',
+              directions: 'Take 2 tablets on day 1, then 1 tablet daily for 4 days',
+              refills: '0',
+              daysSupply: '5',
+              substitutionAllowed: false
+            }
+          ],
+          notes: 'Patient allergic to penicillin'
+        }
+      ];
+
+      // Filter based on active tab
+      let filteredPrescriptions = mockPrescriptions;
+      if (activeTab !== 'all') {
+        filteredPrescriptions = mockPrescriptions.filter(rx => rx.status === activeTab);
+      }
+
+      setPrescriptions(filteredPrescriptions);
+    } catch (error) {
+      console.error('Error loading prescriptions:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const createNewPrescription = async () => {
+    try {
+      // Validate prescription data
+      if (!newPrescription.patientId || newPrescription.medications.some(med => !med.name)) {
+        Alert.alert('Validation Error', 'Please fill in all required fields');
+        return;
+      }
+
+      // In real implementation, this would call telemedicineService
+      console.log('Creating prescription:', newPrescription);
+
+      Alert.alert('Success', 'Prescription created successfully');
+      setShowNewPrescription(false);
+      resetNewPrescription();
+      loadPrescriptions();
+    } catch (error) {
+      console.error('Error creating prescription:', error);
+      Alert.alert('Error', 'Failed to create prescription');
+    }
+  };
+
+  const sendPrescription = async (prescriptionId) => {
+    try {
+      Alert.alert(
+        'Send Prescription',
+        'Send this prescription to the pharmacy?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Send', onPress: () => confirmSendPrescription(prescriptionId) }
+        ]
+      );
+    } catch (error) {
+      console.error('Error sending prescription:', error);
+    }
+  };
+
+  const confirmSendPrescription = async (prescriptionId) => {
+    try {
+      // Update prescription status
+      setPrescriptions(prev =>
+        prev.map(rx =>
+          rx.id === prescriptionId
+            ? { ...rx, status: 'sent', sentDate: new Date().toISOString() }
+            : rx
+        )
+      );
+
+      Alert.alert('Success', 'Prescription sent to pharmacy');
+    } catch (error) {
+      console.error('Error confirming send prescription:', error);
+    }
+  };
+
+  const editPrescription = (prescription) => {
+    setSelectedPrescription(prescription);
+    setNewPrescription({
+      patientId: prescription.patientId,
+      patientName: prescription.patientName,
+      medications: [...prescription.medications],
+      diagnosis: prescription.diagnosis,
+      notes: prescription.notes,
+      urgency: prescription.urgency
+    });
+    setShowNewPrescription(true);
+  };
+
+  const deletePrescription = (prescriptionId) => {
+    Alert.alert(
+      'Delete Prescription',
+      'Are you sure you want to delete this prescription?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => confirmDeletePrescription(prescriptionId) }
+      ]
+    );
+  };
+
+  const confirmDeletePrescription = (prescriptionId) => {
+    setPrescriptions(prev => prev.filter(rx => rx.id !== prescriptionId));
+    Alert.alert('Success', 'Prescription deleted');
+  };
+
+  const addMedication = () => {
+    setNewPrescription(prev => ({
+      ...prev,
+      medications: [
+        ...prev.medications,
+        {
+          name: '',
+          genericName: '',
+          strength: '',
+          dosageForm: 'tablet',
+          quantity: '',
+          directions: '',
+          refills: '0',
+          daysSupply: '',
+          substitutionAllowed: true
+        }
+      ]
+    }));
+  };
+
+  const removeMedication = (index) => {
+    setNewPrescription(prev => ({
+      ...prev,
+      medications: prev.medications.filter((_, i) => i !== index)
+    }));
+  };
+
+  const updateMedication = (index, field, value) => {
+    setNewPrescription(prev => ({
+      ...prev,
+      medications: prev.medications.map((med, i) =>
+        i === index ? { ...med, [field]: value } : med
+      )
+    }));
+  };
+
+  const resetNewPrescription = () => {
+    setNewPrescription({
+      patientId: '',
+      patientName: '',
+      medications: [{
+        name: '',
+        genericName: '',
+        strength: '',
+        dosageForm: 'tablet',
+        quantity: '',
+        directions: '',
+        refills: '0',
+        daysSupply: '',
+        substitutionAllowed: true
+      }],
+      diagnosis: '',
+      notes: '',
+      urgency: 'routine'
+    });
+    setSelectedPrescription(null);
+  };
+
+  const getStatusColor = (status) => {
+    switch (status) {
+      case 'pending': return '#F59E0B';
+      case 'sent': return '#10B981';
+      case 'expired': return '#6B7280';
+      default: return '#3B82F6';
+    }
+  };
+
+  const getUrgencyColor = (urgency) => {
+    switch (urgency) {
+      case 'stat': return '#EF4444';
+      case 'urgent': return '#F59E0B';
+      case 'routine': return '#10B981';
+      default: return '#6B7280';
+    }
+  };
+
+  const TabButton = ({ tab, title, count = null }) => (
+    <TouchableOpacity
+      style={[styles.tabButton, activeTab === tab && styles.activeTab]}
+      onPress={() => setActiveTab(tab)}
+    >
+      <Text style={[styles.tabText, activeTab === tab && styles.activeTabText]}>
+        {title}
+      </Text>
+      {count !== null && (
+        <View style={styles.countBadge}>
+          <Text style={styles.countText}>{count}</Text>
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+
+  const PrescriptionCard = ({ prescription }) => (
+    <View style={styles.prescriptionCard}>
+      <View style={styles.cardHeader}>
+        <View style={styles.patientInfo}>
+          <Text style={styles.patientName}>{prescription.patientName}</Text>
+          <Text style={styles.patientAge}>{prescription.patientAge} years old</Text>
+        </View>
+        <View style={styles.statusContainer}>
+          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(prescription.status) }]}>
+            <Text style={styles.statusText}>{prescription.status}</Text>
+          </View>
+          <View style={[styles.urgencyBadge, { backgroundColor: getUrgencyColor(prescription.urgency) }]}>
+            <Text style={styles.urgencyText}>{prescription.urgency}</Text>
+          </View>
+        </View>
+      </View>
+
+      <Text style={styles.diagnosis}>Diagnosis: {prescription.diagnosis}</Text>
+      <Text style={styles.createdDate}>Created: {prescription.createdDate}</Text>
+
+      <View style={styles.medicationsSection}>
+        <Text style={styles.medicationsTitle}>Medications:</Text>
+        {prescription.medications.map((medication, index) => (
+          <View key={index} style={styles.medicationItem}>
+            <Text style={styles.medicationName}>
+              {medication.name} {medication.strength}
+            </Text>
+            <Text style={styles.medicationDirections}>{medication.directions}</Text>
+            <Text style={styles.medicationDetails}>
+              Qty: {medication.quantity} | Refills: {medication.refills} | Days: {medication.daysSupply}
+            </Text>
+          </View>
+        ))}
+      </View>
+
+      {prescription.notes && (
+        <View style={styles.notesSection}>
+          <Text style={styles.notesTitle}>Notes:</Text>
+          <Text style={styles.notesText}>{prescription.notes}</Text>
+        </View>
+      )}
+
+      <View style={styles.cardActions}>
+        {prescription.status === 'pending' && (
+          <TouchableOpacity
+            style={[styles.actionButton, styles.sendButton]}
+            onPress={() => sendPrescription(prescription.id)}
+          >
+            <Send size={16} color="#fff" />
+            <Text style={styles.buttonText}>Send</Text>
+          </TouchableOpacity>
+        )}
+
+        <TouchableOpacity
+          style={[styles.actionButton, styles.editButton]}
+          onPress={() => editPrescription(prescription)}
+        >
+          <Edit size={16} color="#4F46E5" />
+          <Text style={[styles.buttonText, { color: '#4F46E5' }]}>Edit</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionButton, styles.deleteButton]}
+          onPress={() => deletePrescription(prescription.id)}
+        >
+          <Trash2 size={16} color="#EF4444" />
+          <Text style={[styles.buttonText, { color: '#EF4444' }]}>Delete</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  const NewPrescriptionForm = () => (
+    <ScrollView style={styles.formContainer}>
+      <View style={styles.formHeader}>
+        <Text style={styles.formTitle}>
+          {selectedPrescription ? 'Edit Prescription' : 'New Prescription'}
+        </Text>
+        <TouchableOpacity
+          onPress={() => {
+            setShowNewPrescription(false);
+            resetNewPrescription();
+          }}
+        >
+          <Text style={styles.closeButton}>✕</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Patient Selection */}
+      <View style={styles.formSection}>
+        <Text style={styles.sectionTitle}>Patient Information</Text>
+        <TextInput
+          style={styles.textInput}
+          placeholder="Patient Name"
+          value={newPrescription.patientName}
+          onChangeText={(text) => setNewPrescription(prev => ({ ...prev, patientName: text }))}
+        />
+        <TextInput
+          style={styles.textInput}
+          placeholder="Patient ID"
+          value={newPrescription.patientId}
+          onChangeText={(text) => setNewPrescription(prev => ({ ...prev, patientId: text }))}
+        />
+      </View>
+
+      {/* Diagnosis */}
+      <View style={styles.formSection}>
+        <Text style={styles.sectionTitle}>Diagnosis</Text>
+        <TextInput
+          style={[styles.textInput, styles.multilineInput]}
+          placeholder="Enter diagnosis..."
+          value={newPrescription.diagnosis}
+          onChangeText={(text) => setNewPrescription(prev => ({ ...prev, diagnosis: text }))}
+          multiline
+          numberOfLines={2}
+        />
+      </View>
+
+      {/* Medications */}
+      <View style={styles.formSection}>
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Medications</Text>
+          <TouchableOpacity style={styles.addMedicationButton} onPress={addMedication}>
+            <Plus size={16} color="#4F46E5" />
+            <Text style={styles.addMedicationText}>Add Medication</Text>
+          </TouchableOpacity>
+        </View>
+
+        {newPrescription.medications.map((medication, index) => (
+          <View key={index} style={styles.medicationForm}>
+            <View style={styles.medicationHeader}>
+              <Text style={styles.medicationNumber}>Medication {index + 1}</Text>
+              {newPrescription.medications.length > 1 && (
+                <TouchableOpacity onPress={() => removeMedication(index)}>
+                  <Trash2 size={16} color="#EF4444" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <TextInput
+              style={styles.textInput}
+              placeholder="Medication Name"
+              value={medication.name}
+              onChangeText={(text) => updateMedication(index, 'name', text)}
+            />
+
+            <TextInput
+              style={styles.textInput}
+              placeholder="Generic Name"
+              value={medication.genericName}
+              onChangeText={(text) => updateMedication(index, 'genericName', text)}
+            />
+
+            <View style={styles.formRow}>
+              <TextInput
+                style={[styles.textInput, styles.halfWidth]}
+                placeholder="Strength"
+                value={medication.strength}
+                onChangeText={(text) => updateMedication(index, 'strength', text)}
+              />
+              <TextInput
+                style={[styles.textInput, styles.halfWidth]}
+                placeholder="Quantity"
+                value={medication.quantity}
+                onChangeText={(text) => updateMedication(index, 'quantity', text)}
+              />
+            </View>
+
+            <TextInput
+              style={[styles.textInput, styles.multilineInput]}
+              placeholder="Directions for use..."
+              value={medication.directions}
+              onChangeText={(text) => updateMedication(index, 'directions', text)}
+              multiline
+              numberOfLines={2}
+            />
+
+            <View style={styles.formRow}>
+              <TextInput
+                style={[styles.textInput, styles.halfWidth]}
+                placeholder="Refills"
+                value={medication.refills}
+                onChangeText={(text) => updateMedication(index, 'refills', text)}
+                keyboardType="numeric"
+              />
+              <TextInput
+                style={[styles.textInput, styles.halfWidth]}
+                placeholder="Days Supply"
+                value={medication.daysSupply}
+                onChangeText={(text) => updateMedication(index, 'daysSupply', text)}
+                keyboardType="numeric"
+              />
+            </View>
+          </View>
+        ))}
+      </View>
+
+      {/* Notes */}
+      <View style={styles.formSection}>
+        <Text style={styles.sectionTitle}>Notes</Text>
+        <TextInput
+          style={[styles.textInput, styles.multilineInput]}
+          placeholder="Additional notes..."
+          value={newPrescription.notes}
+          onChangeText={(text) => setNewPrescription(prev => ({ ...prev, notes: text }))}
+          multiline
+          numberOfLines={3}
+        />
+      </View>
+
+      {/* Form Actions */}
+      <View style={styles.formActions}>
+        <TouchableOpacity
+          style={[styles.formButton, styles.saveButton]}
+          onPress={createNewPrescription}
+        >
+          <Text style={styles.saveButtonText}>
+            {selectedPrescription ? 'Update Prescription' : 'Create Prescription'}
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.formButton, styles.cancelButton]}
+          onPress={() => {
+            setShowNewPrescription(false);
+            resetNewPrescription();
+          }}
+        >
+          <Text style={styles.cancelButtonText}>Cancel</Text>
+        </TouchableOpacity>
+      </View>
+    </ScrollView>
+  );
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text>Loading prescriptions...</Text>
+      </View>
+    );
+  }
+
+  if (showNewPrescription) {
+    return <NewPrescriptionForm />;
+  }
+
+  return (
+    <View style={styles.container}>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Prescription Management</Text>
+        <TouchableOpacity
+          style={styles.newPrescriptionButton}
+          onPress={() => setShowNewPrescription(true)}
+        >
+          <Plus size={20} color="#fff" />
+          <Text style={styles.newPrescriptionText}>New Prescription</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Search and Filter */}
+      <View style={styles.searchContainer}>
+        <View style={styles.searchInputContainer}>
+          <Search size={20} color="#6B7280" />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search prescriptions..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+        </View>
+        <TouchableOpacity style={styles.filterButton}>
+          <Filter size={20} color="#4F46E5" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Tabs */}
+      <View style={styles.tabContainer}>
+        <TabButton tab="all" title="All" count={prescriptions.length} />
+        <TabButton tab="pending" title="Pending" />
+        <TabButton tab="sent" title="Sent" />
+        <TabButton tab="expired" title="Expired" />
+      </View>
+
+      {/* Prescriptions List */}
+      <ScrollView style={styles.prescriptionsList}>
+        {prescriptions.length > 0 ? (
+          prescriptions.map((prescription) => (
+            <PrescriptionCard key={prescription.id} prescription={prescription} />
+          ))
+        ) : (
+          <View style={styles.emptyState}>
+            <Pill size={48} color="#9CA3AF" />
+            <Text style={styles.emptyText}>No prescriptions found</Text>
+            <TouchableOpacity
+              style={styles.emptyAction}
+              onPress={() => setShowNewPrescription(true)}
+            >
+              <Text style={styles.emptyActionText}>Create your first prescription</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      </ScrollView>
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  newPrescriptionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#4F46E5',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  newPrescriptionText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+    marginLeft: 6,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    padding: 20,
+    gap: 12,
+  },
+  searchInputContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+  },
+  searchInput: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    fontSize: 14,
+  },
+  filterButton: {
+    backgroundColor: '#fff',
+    padding: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  tabButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+  },
+  activeTab: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#4F46E5',
+  },
+  tabText: {
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  activeTabText: {
+    color: '#4F46E5',
+    fontWeight: '500',
+  },
+  countBadge: {
+    backgroundColor: '#EF4444',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 6,
+  },
+  countText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+  },
+  prescriptionsList: {
+    flex: 1,
+    padding: 20,
+  },
+  prescriptionCard: {
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  patientInfo: {
+    flex: 1,
+  },
+  patientName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  patientAge: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  statusContainer: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  statusText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+  },
+  urgencyBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  urgencyText: {
+    color: '#fff',
+    fontSize: 8,
+    fontWeight: 'bold',
+    textTransform: 'uppercase',
+  },
+  diagnosis: {
+    fontSize: 14,
+    color: '#374151',
+    marginBottom: 4,
+  },
+  createdDate: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginBottom: 12,
+  },
+  medicationsSection: {
+    marginBottom: 12,
+  },
+  medicationsTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 6,
+  },
+  medicationItem: {
+    backgroundColor: '#F9FAFB',
+    padding: 8,
+    borderRadius: 6,
+    marginBottom: 6,
+  },
+  medicationName: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  medicationDirections: {
+    fontSize: 12,
+    color: '#374151',
+    marginTop: 2,
+  },
+  medicationDetails: {
+    fontSize: 10,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  notesSection: {
+    marginBottom: 12,
+  },
+  notesTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  notesText: {
+    fontSize: 12,
+    color: '#374151',
+  },
+  cardActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    gap: 4,
+  },
+  sendButton: {
+    backgroundColor: '#10B981',
+  },
+  editButton: {
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#4F46E5',
+  },
+  deleteButton: {
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#EF4444',
+  },
+  buttonText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#fff',
+  },
+  emptyState: {
+    alignItems: 'center',
+    padding: 40,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#9CA3AF',
+    marginTop: 12,
+    marginBottom: 16,
+  },
+  emptyAction: {
+    backgroundColor: '#4F46E5',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  emptyActionText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  // Form styles
+  formContainer: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  formHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  formTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  closeButton: {
+    fontSize: 24,
+    color: '#6B7280',
+  },
+  formSection: {
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 12,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  addMedicationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  addMedicationText: {
+    color: '#4F46E5',
+    fontSize: 12,
+    fontWeight: '500',
+    marginLeft: 4,
+  },
+  textInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
+    backgroundColor: '#fff',
+    marginBottom: 12,
+  },
+  multilineInput: {
+    height: 80,
+    textAlignVertical: 'top',
+  },
+  formRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  halfWidth: {
+    flex: 1,
+  },
+  medicationForm: {
+    backgroundColor: '#F9FAFB',
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  medicationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  medicationNumber: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#4F46E5',
+  },
+  formActions: {
+    flexDirection: 'row',
+    padding: 20,
+    gap: 12,
+  },
+  formButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  saveButton: {
+    backgroundColor: '#4F46E5',
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  cancelButton: {
+    backgroundColor: '#F3F4F6',
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+  },
+  cancelButtonText: {
+    color: '#6B7280',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+});
+
+export default PrescriptionManagement;

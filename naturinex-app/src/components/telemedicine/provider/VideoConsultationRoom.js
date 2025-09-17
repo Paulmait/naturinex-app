@@ -1,0 +1,867 @@
+/**
+ * VideoConsultationRoom - Provider video consultation interface
+ * Handles video calling, patient interaction, note-taking, and consultation controls
+ */
+
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, ScrollView, Alert } from 'react-native';
+import { useMediaQuery } from 'react-responsive';
+import {
+  Video, VideoOff, Mic, MicOff, Phone, Camera, Monitor,
+  FileText, Clock, User, Heart, Stethoscope, Pill
+} from 'lucide-react';
+import { telemedicineService } from '../../../services/telemedicineService';
+
+const VideoConsultationRoom = ({ route, navigation }) => {
+  const { appointmentId, userId, userType } = route.params;
+
+  const [callState, setCallState] = useState({
+    isConnected: false,
+    isConnecting: true,
+    startTime: null,
+    duration: 0
+  });
+
+  const [mediaState, setMediaState] = useState({
+    videoEnabled: true,
+    audioEnabled: true,
+    screenSharing: false
+  });
+
+  const [consultation, setConsultation] = useState({
+    id: null,
+    patientInfo: null,
+    notes: '',
+    vitalSigns: {
+      bloodPressure: '',
+      heartRate: '',
+      temperature: '',
+      weight: ''
+    },
+    symptoms: [],
+    diagnosis: '',
+    prescriptions: [],
+    followUpRequired: false,
+    followUpDate: null
+  });
+
+  const [activeTab, setActiveTab] = useState('video'); // video, notes, history, prescriptions
+  const [isRecording, setIsRecording] = useState(false);
+
+  const localVideoRef = useRef(null);
+  const remoteVideoRef = useRef(null);
+  const timerRef = useRef(null);
+
+  const isWeb = useMediaQuery({ query: '(min-width: 768px)' });
+
+  useEffect(() => {
+    initializeConsultation();
+    return () => cleanup();
+  }, []);
+
+  useEffect(() => {
+    if (callState.isConnected && callState.startTime) {
+      timerRef.current = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - callState.startTime) / 1000);
+        setCallState(prev => ({ ...prev, duration: elapsed }));
+      }, 1000);
+    }
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    };
+  }, [callState.isConnected, callState.startTime]);
+
+  const initializeConsultation = async () => {
+    try {
+      setCallState(prev => ({ ...prev, isConnecting: true }));
+
+      // Initialize video call
+      const result = await telemedicineService.initiateVideoCall(
+        appointmentId,
+        userId,
+        userType
+      );
+
+      if (result.success) {
+        setConsultation(prev => ({
+          ...prev,
+          id: result.consultationId
+        }));
+
+        // Set up local video stream
+        if (localVideoRef.current && result.localStream) {
+          localVideoRef.current.srcObject = result.localStream;
+        }
+
+        // Load patient information
+        await loadPatientInfo();
+
+        setCallState({
+          isConnected: true,
+          isConnecting: false,
+          startTime: Date.now(),
+          duration: 0
+        });
+
+        setIsRecording(true);
+      }
+    } catch (error) {
+      console.error('Failed to initialize consultation:', error);
+      Alert.alert('Connection Error', 'Failed to start video consultation');
+      navigation.goBack();
+    }
+  };
+
+  const loadPatientInfo = async () => {
+    try {
+      // Load patient information from appointment
+      // This would be implemented to fetch patient data
+      setConsultation(prev => ({
+        ...prev,
+        patientInfo: {
+          name: 'John Doe',
+          age: 35,
+          gender: 'Male',
+          allergies: ['Penicillin'],
+          currentMedications: ['Lisinopril 10mg'],
+          medicalHistory: ['Hypertension', 'Type 2 Diabetes']
+        }
+      }));
+    } catch (error) {
+      console.error('Error loading patient info:', error);
+    }
+  };
+
+  const toggleVideo = async () => {
+    try {
+      const newState = !mediaState.videoEnabled;
+      setMediaState(prev => ({ ...prev, videoEnabled: newState }));
+
+      if (localVideoRef.current && localVideoRef.current.srcObject) {
+        const videoTracks = localVideoRef.current.srcObject.getVideoTracks();
+        videoTracks.forEach(track => {
+          track.enabled = newState;
+        });
+      }
+    } catch (error) {
+      console.error('Error toggling video:', error);
+    }
+  };
+
+  const toggleAudio = async () => {
+    try {
+      const newState = !mediaState.audioEnabled;
+      setMediaState(prev => ({ ...prev, audioEnabled: newState }));
+
+      if (localVideoRef.current && localVideoRef.current.srcObject) {
+        const audioTracks = localVideoRef.current.srcObject.getAudioTracks();
+        audioTracks.forEach(track => {
+          track.enabled = newState;
+        });
+      }
+    } catch (error) {
+      console.error('Error toggling audio:', error);
+    }
+  };
+
+  const toggleScreenShare = async () => {
+    try {
+      const newState = !mediaState.screenSharing;
+      setMediaState(prev => ({ ...prev, screenSharing: newState }));
+
+      if (newState) {
+        // Start screen sharing
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: true,
+          audio: true
+        });
+
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = screenStream;
+        }
+      } else {
+        // Return to camera
+        const cameraStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: true
+        });
+
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = cameraStream;
+        }
+      }
+    } catch (error) {
+      console.error('Error toggling screen share:', error);
+    }
+  };
+
+  const endConsultation = async () => {
+    Alert.alert(
+      'End Consultation',
+      'Are you sure you want to end this consultation?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'End', style: 'destructive', onPress: confirmEndConsultation }
+      ]
+    );
+  };
+
+  const confirmEndConsultation = async () => {
+    try {
+      await telemedicineService.endVideoCall(consultation.id);
+      await saveConsultationNotes();
+      navigation.goBack();
+    } catch (error) {
+      console.error('Error ending consultation:', error);
+      Alert.alert('Error', 'Failed to end consultation properly');
+    }
+  };
+
+  const saveConsultationNotes = async () => {
+    try {
+      // Save consultation notes, diagnosis, prescriptions, etc.
+      console.log('Saving consultation notes:', consultation);
+    } catch (error) {
+      console.error('Error saving consultation notes:', error);
+    }
+  };
+
+  const addPrescription = () => {
+    setConsultation(prev => ({
+      ...prev,
+      prescriptions: [
+        ...prev.prescriptions,
+        {
+          id: Date.now(),
+          medication: '',
+          dosage: '',
+          frequency: '',
+          duration: '',
+          instructions: ''
+        }
+      ]
+    }));
+  };
+
+  const updatePrescription = (id, field, value) => {
+    setConsultation(prev => ({
+      ...prev,
+      prescriptions: prev.prescriptions.map(prescription =>
+        prescription.id === id
+          ? { ...prescription, [field]: value }
+          : prescription
+      )
+    }));
+  };
+
+  const removePrescription = (id) => {
+    setConsultation(prev => ({
+      ...prev,
+      prescriptions: prev.prescriptions.filter(p => p.id !== id)
+    }));
+  };
+
+  const formatDuration = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const cleanup = () => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+  };
+
+  const VideoSection = () => (
+    <View style={styles.videoSection}>
+      {/* Remote Video (Patient) */}
+      <View style={styles.remoteVideoContainer}>
+        <video
+          ref={remoteVideoRef}
+          style={styles.remoteVideo}
+          autoPlay
+          playsInline
+          muted={false}
+        />
+        <View style={styles.videoOverlay}>
+          <Text style={styles.participantName}>
+            {consultation.patientInfo?.name || 'Patient'}
+          </Text>
+          {isRecording && (
+            <View style={styles.recordingIndicator}>
+              <View style={styles.recordingDot} />
+              <Text style={styles.recordingText}>REC</Text>
+            </View>
+          )}
+        </View>
+      </View>
+
+      {/* Local Video (Provider) */}
+      <View style={styles.localVideoContainer}>
+        <video
+          ref={localVideoRef}
+          style={styles.localVideo}
+          autoPlay
+          playsInline
+          muted
+        />
+        <Text style={styles.localVideoLabel}>You</Text>
+      </View>
+
+      {/* Call Controls */}
+      <View style={styles.callControls}>
+        <TouchableOpacity
+          style={[styles.controlButton, !mediaState.audioEnabled && styles.controlButtonDisabled]}
+          onPress={toggleAudio}
+        >
+          {mediaState.audioEnabled ? <Mic size={20} color="#fff" /> : <MicOff size={20} color="#fff" />}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.controlButton, !mediaState.videoEnabled && styles.controlButtonDisabled]}
+          onPress={toggleVideo}
+        >
+          {mediaState.videoEnabled ? <Video size={20} color="#fff" /> : <VideoOff size={20} color="#fff" />}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.controlButton, mediaState.screenSharing && styles.controlButtonActive]}
+          onPress={toggleScreenShare}
+        >
+          <Monitor size={20} color="#fff" />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.controlButton, styles.endCallButton]}
+          onPress={endConsultation}
+        >
+          <Phone size={20} color="#fff" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Call Timer */}
+      <View style={styles.callTimer}>
+        <Clock size={16} color="#10B981" />
+        <Text style={styles.timerText}>{formatDuration(callState.duration)}</Text>
+      </View>
+    </View>
+  );
+
+  const NotesSection = () => (
+    <ScrollView style={styles.notesSection}>
+      <Text style={styles.sectionTitle}>Consultation Notes</Text>
+
+      {/* Patient Info Summary */}
+      <View style={styles.patientSummary}>
+        <Text style={styles.patientName}>{consultation.patientInfo?.name}</Text>
+        <Text style={styles.patientDetails}>
+          {consultation.patientInfo?.age} years old, {consultation.patientInfo?.gender}
+        </Text>
+      </View>
+
+      {/* Vital Signs */}
+      <View style={styles.subsection}>
+        <Text style={styles.subsectionTitle}>Vital Signs</Text>
+        <View style={styles.vitalsGrid}>
+          <View style={styles.vitalInput}>
+            <Text style={styles.inputLabel}>Blood Pressure</Text>
+            <TextInput
+              style={styles.textInput}
+              value={consultation.vitalSigns.bloodPressure}
+              onChangeText={(text) =>
+                setConsultation(prev => ({
+                  ...prev,
+                  vitalSigns: { ...prev.vitalSigns, bloodPressure: text }
+                }))
+              }
+              placeholder="120/80"
+            />
+          </View>
+          <View style={styles.vitalInput}>
+            <Text style={styles.inputLabel}>Heart Rate</Text>
+            <TextInput
+              style={styles.textInput}
+              value={consultation.vitalSigns.heartRate}
+              onChangeText={(text) =>
+                setConsultation(prev => ({
+                  ...prev,
+                  vitalSigns: { ...prev.vitalSigns, heartRate: text }
+                }))
+              }
+              placeholder="72 bpm"
+            />
+          </View>
+        </View>
+      </View>
+
+      {/* Symptoms */}
+      <View style={styles.subsection}>
+        <Text style={styles.subsectionTitle}>Chief Complaint & Symptoms</Text>
+        <TextInput
+          style={[styles.textInput, styles.multilineInput]}
+          value={consultation.notes}
+          onChangeText={(text) => setConsultation(prev => ({ ...prev, notes: text }))}
+          placeholder="Describe the patient's symptoms and concerns..."
+          multiline
+          numberOfLines={4}
+        />
+      </View>
+
+      {/* Diagnosis */}
+      <View style={styles.subsection}>
+        <Text style={styles.subsectionTitle}>Assessment & Diagnosis</Text>
+        <TextInput
+          style={[styles.textInput, styles.multilineInput]}
+          value={consultation.diagnosis}
+          onChangeText={(text) => setConsultation(prev => ({ ...prev, diagnosis: text }))}
+          placeholder="Enter assessment and diagnosis..."
+          multiline
+          numberOfLines={3}
+        />
+      </View>
+    </ScrollView>
+  );
+
+  const PrescriptionsSection = () => (
+    <ScrollView style={styles.prescriptionsSection}>
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>Prescriptions</Text>
+        <TouchableOpacity style={styles.addButton} onPress={addPrescription}>
+          <Text style={styles.addButtonText}>+ Add Prescription</Text>
+        </TouchableOpacity>
+      </View>
+
+      {consultation.prescriptions.map((prescription) => (
+        <View key={prescription.id} style={styles.prescriptionCard}>
+          <View style={styles.prescriptionHeader}>
+            <Pill size={20} color="#4F46E5" />
+            <TouchableOpacity
+              onPress={() => removePrescription(prescription.id)}
+              style={styles.removeButton}
+            >
+              <Text style={styles.removeButtonText}>Remove</Text>
+            </TouchableOpacity>
+          </View>
+
+          <TextInput
+            style={styles.textInput}
+            value={prescription.medication}
+            onChangeText={(text) => updatePrescription(prescription.id, 'medication', text)}
+            placeholder="Medication name"
+          />
+
+          <View style={styles.prescriptionRow}>
+            <TextInput
+              style={[styles.textInput, styles.halfWidth]}
+              value={prescription.dosage}
+              onChangeText={(text) => updatePrescription(prescription.id, 'dosage', text)}
+              placeholder="Dosage"
+            />
+            <TextInput
+              style={[styles.textInput, styles.halfWidth]}
+              value={prescription.frequency}
+              onChangeText={(text) => updatePrescription(prescription.id, 'frequency', text)}
+              placeholder="Frequency"
+            />
+          </View>
+
+          <TextInput
+            style={styles.textInput}
+            value={prescription.duration}
+            onChangeText={(text) => updatePrescription(prescription.id, 'duration', text)}
+            placeholder="Duration"
+          />
+
+          <TextInput
+            style={[styles.textInput, styles.multilineInput]}
+            value={prescription.instructions}
+            onChangeText={(text) => updatePrescription(prescription.id, 'instructions', text)}
+            placeholder="Special instructions..."
+            multiline
+            numberOfLines={2}
+          />
+        </View>
+      ))}
+    </ScrollView>
+  );
+
+  const TabButton = ({ tab, icon: Icon, title, isActive, onPress }) => (
+    <TouchableOpacity
+      style={[styles.tabButton, isActive && styles.activeTab]}
+      onPress={onPress}
+    >
+      <Icon size={20} color={isActive ? '#4F46E5' : '#6B7280'} />
+      <Text style={[styles.tabText, isActive && styles.activeTabText]}>
+        {title}
+      </Text>
+    </TouchableOpacity>
+  );
+
+  if (callState.isConnecting) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.loadingText}>Connecting to patient...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      {isWeb ? (
+        <View style={styles.desktopLayout}>
+          <View style={styles.videoColumn}>
+            <VideoSection />
+          </View>
+          <View style={styles.sidePanel}>
+            <View style={styles.tabContainer}>
+              <TabButton
+                tab="notes"
+                icon={FileText}
+                title="Notes"
+                isActive={activeTab === 'notes'}
+                onPress={() => setActiveTab('notes')}
+              />
+              <TabButton
+                tab="prescriptions"
+                icon={Pill}
+                title="Prescriptions"
+                isActive={activeTab === 'prescriptions'}
+                onPress={() => setActiveTab('prescriptions')}
+              />
+            </View>
+            {activeTab === 'notes' && <NotesSection />}
+            {activeTab === 'prescriptions' && <PrescriptionsSection />}
+          </View>
+        </View>
+      ) : (
+        <View style={styles.mobileLayout}>
+          <VideoSection />
+          <View style={styles.tabContainer}>
+            <TabButton
+              tab="video"
+              icon={Video}
+              title="Video"
+              isActive={activeTab === 'video'}
+              onPress={() => setActiveTab('video')}
+            />
+            <TabButton
+              tab="notes"
+              icon={FileText}
+              title="Notes"
+              isActive={activeTab === 'notes'}
+              onPress={() => setActiveTab('notes')}
+            />
+            <TabButton
+              tab="prescriptions"
+              icon={Pill}
+              title="Rx"
+              isActive={activeTab === 'prescriptions'}
+              onPress={() => setActiveTab('prescriptions')}
+            />
+          </View>
+          {activeTab === 'notes' && <NotesSection />}
+          {activeTab === 'prescriptions' && <PrescriptionsSection />}
+        </View>
+      )}
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000',
+  },
+  loadingText: {
+    color: '#fff',
+    fontSize: 18,
+  },
+  desktopLayout: {
+    flexDirection: 'row',
+    flex: 1,
+  },
+  mobileLayout: {
+    flex: 1,
+  },
+  videoColumn: {
+    flex: 2,
+    backgroundColor: '#000',
+  },
+  sidePanel: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+    borderLeftWidth: 1,
+    borderLeftColor: '#E5E7EB',
+  },
+  videoSection: {
+    flex: 1,
+    position: 'relative',
+  },
+  remoteVideoContainer: {
+    flex: 1,
+    position: 'relative',
+  },
+  remoteVideo: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  videoOverlay: {
+    position: 'absolute',
+    top: 20,
+    left: 20,
+    right: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  participantName: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  recordingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  recordingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#fff',
+    marginRight: 6,
+  },
+  recordingText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  localVideoContainer: {
+    position: 'absolute',
+    top: 80,
+    right: 20,
+    width: 120,
+    height: 160,
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  localVideo: {
+    width: '100%',
+    height: '100%',
+    objectFit: 'cover',
+  },
+  localVideoLabel: {
+    position: 'absolute',
+    bottom: 4,
+    left: 4,
+    color: '#fff',
+    fontSize: 10,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  callControls: {
+    position: 'absolute',
+    bottom: 30,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 16,
+  },
+  controlButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  controlButtonDisabled: {
+    backgroundColor: '#EF4444',
+  },
+  controlButtonActive: {
+    backgroundColor: '#4F46E5',
+  },
+  endCallButton: {
+    backgroundColor: '#EF4444',
+  },
+  callTimer: {
+    position: 'absolute',
+    bottom: 100,
+    left: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  timerText: {
+    color: '#10B981',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginLeft: 6,
+  },
+  tabContainer: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  tabButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+  },
+  activeTab: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#4F46E5',
+  },
+  tabText: {
+    marginLeft: 6,
+    fontSize: 14,
+    color: '#6B7280',
+  },
+  activeTabText: {
+    color: '#4F46E5',
+    fontWeight: '500',
+  },
+  notesSection: {
+    flex: 1,
+    padding: 20,
+  },
+  prescriptionsSection: {
+    flex: 1,
+    padding: 20,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#111827',
+    marginBottom: 16,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  addButton: {
+    backgroundColor: '#4F46E5',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  addButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  patientSummary: {
+    backgroundColor: '#F3F4F6',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 20,
+  },
+  patientName: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  patientDetails: {
+    fontSize: 14,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  subsection: {
+    marginBottom: 24,
+  },
+  subsectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 12,
+  },
+  vitalsGrid: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  vitalInput: {
+    flex: 1,
+  },
+  inputLabel: {
+    fontSize: 14,
+    color: '#374151',
+    marginBottom: 4,
+  },
+  textInput: {
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
+    backgroundColor: '#fff',
+    marginBottom: 12,
+  },
+  multilineInput: {
+    height: 80,
+    textAlignVertical: 'top',
+  },
+  prescriptionCard: {
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  prescriptionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  removeButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  removeButtonText: {
+    color: '#EF4444',
+    fontSize: 12,
+  },
+  prescriptionRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  halfWidth: {
+    flex: 1,
+  },
+});
+
+export default VideoConsultationRoom;

@@ -1,0 +1,695 @@
+/**
+ * White Label Service for NaturineX Enterprise
+ * Handles custom branding, theming, and white-label configurations
+ */
+
+import { supabase } from '../config/supabase';
+import CryptoJS from 'crypto-js';
+
+class WhiteLabelService {
+  constructor() {
+    this.supabase = supabase;
+    this.defaultTheme = {
+      primary_color: '#8641f4',
+      secondary_color: '#6c5ce7',
+      accent_color: '#00cec9',
+      background_color: '#ffffff',
+      text_color: '#2d3436',
+      success_color: '#00b894',
+      warning_color: '#fdcb6e',
+      error_color: '#e17055'
+    };
+  }
+
+  // =============================================================================
+  // WHITE LABEL CONFIGURATION
+  // =============================================================================
+
+  /**
+   * Get white label configuration for organization
+   */
+  async getWhiteLabelConfig(organizationId) {
+    try {
+      const { data, error } = await this.supabase
+        .from('enterprise_white_label')
+        .select('*')
+        .eq('organization_id', organizationId)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        throw error;
+      }
+
+      // Return default configuration if no custom config exists
+      if (!data) {
+        return {
+          success: true,
+          data: this.getDefaultWhiteLabelConfig(organizationId)
+        };
+      }
+
+      return { success: true, data };
+    } catch (error) {
+      console.error('Error fetching white label config:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Update white label configuration
+   */
+  async updateWhiteLabelConfig(organizationId, config, updatedBy) {
+    try {
+      const {
+        companyName,
+        logoUrl,
+        faviconUrl,
+        primaryColor,
+        secondaryColor,
+        accentColor,
+        backgroundColor,
+        textColor,
+        customDomain,
+        appName,
+        appTagline,
+        appDescription,
+        welcomeMessage,
+        supportEmail,
+        supportUrl,
+        termsUrl,
+        privacyUrl,
+        hideNaturinexBranding,
+        customFooter,
+        customCss,
+        iosBundleId,
+        androidPackageName,
+        appStoreUrl,
+        playStoreUrl
+      } = config;
+
+      const updateData = {
+        organization_id: organizationId,
+        company_name: companyName,
+        logo_url: logoUrl,
+        favicon_url: faviconUrl,
+        primary_color: primaryColor,
+        secondary_color: secondaryColor,
+        accent_color: accentColor,
+        background_color: backgroundColor,
+        text_color: textColor,
+        custom_domain: customDomain,
+        app_name: appName,
+        app_tagline: appTagline,
+        app_description: appDescription,
+        welcome_message: welcomeMessage,
+        support_email: supportEmail,
+        support_url: supportUrl,
+        terms_url: termsUrl,
+        privacy_url: privacyUrl,
+        hide_naturinex_branding: hideNaturinexBranding,
+        custom_footer: customFooter,
+        custom_css: customCss,
+        ios_bundle_id: iosBundleId,
+        android_package_name: androidPackageName,
+        app_store_url: appStoreUrl,
+        play_store_url: playStoreUrl,
+        status: 'draft'
+      };
+
+      const { data, error } = await this.supabase
+        .from('enterprise_white_label')
+        .upsert([updateData])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Generate and cache theme CSS
+      await this.generateCustomCSS(organizationId, updateData);
+
+      return { success: true, data };
+    } catch (error) {
+      console.error('Error updating white label config:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Deploy white label configuration
+   */
+  async deployWhiteLabelConfig(organizationId, deployedBy) {
+    try {
+      // Validate configuration before deployment
+      const validation = await this.validateWhiteLabelConfig(organizationId);
+      if (!validation.success) {
+        throw new Error(`Configuration validation failed: ${validation.errors.join(', ')}`);
+      }
+
+      // Update status to active
+      const { data, error } = await this.supabase
+        .from('enterprise_white_label')
+        .update({
+          status: 'active',
+          deployed_at: new Date().toISOString()
+        })
+        .eq('organization_id', organizationId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Deploy to CDN/hosting service
+      await this.deployToHosting(organizationId, data);
+
+      // Clear cache
+      await this.clearThemeCache(organizationId);
+
+      return { success: true, data };
+    } catch (error) {
+      console.error('Error deploying white label config:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Preview white label configuration
+   */
+  async previewWhiteLabelConfig(organizationId) {
+    try {
+      const config = await this.getWhiteLabelConfig(organizationId);
+      if (!config.success) return config;
+
+      const previewData = {
+        ...config.data,
+        preview_url: await this.generatePreviewUrl(organizationId, config.data),
+        preview_token: this.generatePreviewToken(organizationId)
+      };
+
+      return { success: true, data: previewData };
+    } catch (error) {
+      console.error('Error generating preview:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // =============================================================================
+  // THEME MANAGEMENT
+  // =============================================================================
+
+  /**
+   * Generate custom CSS theme
+   */
+  async generateCustomCSS(organizationId, config) {
+    try {
+      const css = this.buildThemeCSS(config);
+
+      // Store in cache for quick access
+      await this.supabase
+        .from('white_label_cache')
+        .upsert([{
+          organization_id: organizationId,
+          cache_type: 'custom_css',
+          cache_data: css,
+          expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() // 24 hours
+        }]);
+
+      return css;
+    } catch (error) {
+      console.error('Error generating custom CSS:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Build CSS from theme configuration
+   */
+  buildThemeCSS(config) {
+    return `
+      /* Custom Theme for ${config.company_name || 'Organization'} */
+
+      :root {
+        --primary-color: ${config.primary_color || this.defaultTheme.primary_color};
+        --secondary-color: ${config.secondary_color || this.defaultTheme.secondary_color};
+        --accent-color: ${config.accent_color || this.defaultTheme.accent_color};
+        --background-color: ${config.background_color || this.defaultTheme.background_color};
+        --text-color: ${config.text_color || this.defaultTheme.text_color};
+        --success-color: ${this.defaultTheme.success_color};
+        --warning-color: ${this.defaultTheme.warning_color};
+        --error-color: ${this.defaultTheme.error_color};
+      }
+
+      /* Primary branding */
+      .brand-primary {
+        background-color: var(--primary-color) !important;
+        color: white !important;
+      }
+
+      .text-brand-primary {
+        color: var(--primary-color) !important;
+      }
+
+      .border-brand-primary {
+        border-color: var(--primary-color) !important;
+      }
+
+      /* Secondary branding */
+      .brand-secondary {
+        background-color: var(--secondary-color) !important;
+        color: white !important;
+      }
+
+      .text-brand-secondary {
+        color: var(--secondary-color) !important;
+      }
+
+      /* Accent colors */
+      .brand-accent {
+        background-color: var(--accent-color) !important;
+        color: white !important;
+      }
+
+      .text-brand-accent {
+        color: var(--accent-color) !important;
+      }
+
+      /* Navigation customization */
+      .navbar-brand {
+        color: var(--primary-color) !important;
+      }
+
+      .navbar-nav .nav-link:hover {
+        color: var(--primary-color) !important;
+      }
+
+      /* Button customization */
+      .btn-primary {
+        background-color: var(--primary-color) !important;
+        border-color: var(--primary-color) !important;
+      }
+
+      .btn-primary:hover {
+        background-color: var(--secondary-color) !important;
+        border-color: var(--secondary-color) !important;
+      }
+
+      .btn-secondary {
+        background-color: var(--secondary-color) !important;
+        border-color: var(--secondary-color) !important;
+      }
+
+      /* Form customization */
+      .form-control:focus {
+        border-color: var(--primary-color) !important;
+        box-shadow: 0 0 0 0.2rem rgba(134, 65, 244, 0.25) !important;
+      }
+
+      /* Link customization */
+      a {
+        color: var(--primary-color) !important;
+      }
+
+      a:hover {
+        color: var(--secondary-color) !important;
+      }
+
+      /* Custom footer */
+      ${config.hide_naturinex_branding ? `
+        .naturinex-branding {
+          display: none !important;
+        }
+      ` : ''}
+
+      /* Custom CSS additions */
+      ${config.custom_css || ''}
+    `;
+  }
+
+  /**
+   * Get cached theme CSS
+   */
+  async getCachedThemeCSS(organizationId) {
+    try {
+      const { data, error } = await this.supabase
+        .from('white_label_cache')
+        .select('cache_data')
+        .eq('organization_id', organizationId)
+        .eq('cache_type', 'custom_css')
+        .gt('expires_at', new Date().toISOString())
+        .single();
+
+      if (error) throw error;
+      return data.cache_data;
+    } catch (error) {
+      // Generate fresh CSS if cache miss
+      const config = await this.getWhiteLabelConfig(organizationId);
+      if (config.success) {
+        return await this.generateCustomCSS(organizationId, config.data);
+      }
+      return this.buildThemeCSS(this.defaultTheme);
+    }
+  }
+
+  // =============================================================================
+  // DOMAIN & HOSTING MANAGEMENT
+  // =============================================================================
+
+  /**
+   * Configure custom domain
+   */
+  async configureCustomDomain(organizationId, domain, sslConfig) {
+    try {
+      // Validate domain
+      const isValid = await this.validateDomain(domain);
+      if (!isValid) {
+        throw new Error('Invalid domain or domain not properly configured');
+      }
+
+      // Configure SSL certificate
+      const sslResult = await this.setupSSLCertificate(domain, sslConfig);
+      if (!sslResult.success) {
+        throw new Error('SSL certificate setup failed');
+      }
+
+      // Update white label configuration
+      const { data, error } = await this.supabase
+        .from('enterprise_white_label')
+        .update({
+          custom_domain: domain,
+          ssl_certificate_id: sslResult.certificateId
+        })
+        .eq('organization_id', organizationId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return { success: true, data };
+    } catch (error) {
+      console.error('Error configuring custom domain:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Deploy to hosting service
+   */
+  async deployToHosting(organizationId, config) {
+    try {
+      // Generate deployment package
+      const deploymentPackage = await this.generateDeploymentPackage(organizationId, config);
+
+      // Deploy to hosting service (implement based on your hosting provider)
+      const deploymentResult = await this.deployToProvider(config.custom_domain, deploymentPackage);
+
+      return deploymentResult;
+    } catch (error) {
+      console.error('Error deploying to hosting:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate deployment package
+   */
+  async generateDeploymentPackage(organizationId, config) {
+    const customCSS = await this.generateCustomCSS(organizationId, config);
+
+    return {
+      html: this.generateCustomHTML(config),
+      css: customCSS,
+      assets: {
+        logo: config.logo_url,
+        favicon: config.favicon_url
+      },
+      manifest: this.generateManifest(config),
+      serviceWorker: this.generateServiceWorker(config)
+    };
+  }
+
+  /**
+   * Generate custom HTML template
+   */
+  generateCustomHTML(config) {
+    return `
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${config.app_name || 'NaturineX'}</title>
+        <meta name="description" content="${config.app_description || 'Medical scanning and analysis platform'}">
+        <link rel="icon" type="image/x-icon" href="${config.favicon_url || '/favicon.ico'}">
+        <link rel="manifest" href="/manifest.json">
+        <link rel="stylesheet" href="/custom-theme.css">
+      </head>
+      <body>
+        <div id="root"></div>
+        <script src="/app.js"></script>
+      </body>
+      </html>
+    `;
+  }
+
+  /**
+   * Generate web app manifest
+   */
+  generateManifest(config) {
+    return {
+      name: config.app_name || 'NaturineX',
+      short_name: config.app_name || 'NaturineX',
+      description: config.app_description || 'Medical scanning and analysis platform',
+      start_url: '/',
+      display: 'standalone',
+      theme_color: config.primary_color || this.defaultTheme.primary_color,
+      background_color: config.background_color || this.defaultTheme.background_color,
+      icons: [
+        {
+          src: config.logo_url || '/icon-192x192.png',
+          sizes: '192x192',
+          type: 'image/png'
+        },
+        {
+          src: config.logo_url || '/icon-512x512.png',
+          sizes: '512x512',
+          type: 'image/png'
+        }
+      ]
+    };
+  }
+
+  // =============================================================================
+  // MOBILE APP CUSTOMIZATION
+  // =============================================================================
+
+  /**
+   * Generate mobile app configuration
+   */
+  async generateMobileConfig(organizationId) {
+    try {
+      const config = await this.getWhiteLabelConfig(organizationId);
+      if (!config.success) return config;
+
+      const mobileConfig = {
+        expo: {
+          name: config.data.app_name || 'NaturineX',
+          slug: config.data.organization?.domain || 'naturinex',
+          version: '1.0.0',
+          orientation: 'portrait',
+          icon: config.data.logo_url || './assets/icon.png',
+          splash: {
+            image: config.data.logo_url || './assets/splash.png',
+            resizeMode: 'contain',
+            backgroundColor: config.data.primary_color || this.defaultTheme.primary_color
+          },
+          updates: {
+            fallbackToCacheTimeout: 0
+          },
+          assetBundlePatterns: ['**/*'],
+          ios: {
+            supportsTablet: true,
+            bundleIdentifier: config.data.ios_bundle_id || 'com.naturinex.app'
+          },
+          android: {
+            adaptiveIcon: {
+              foregroundImage: config.data.logo_url || './assets/adaptive-icon.png',
+              backgroundColor: config.data.background_color || this.defaultTheme.background_color
+            },
+            package: config.data.android_package_name || 'com.naturinex.app'
+          },
+          web: {
+            favicon: config.data.favicon_url || './assets/favicon.png'
+          }
+        }
+      };
+
+      return { success: true, data: mobileConfig };
+    } catch (error) {
+      console.error('Error generating mobile config:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // =============================================================================
+  // VALIDATION & UTILITIES
+  // =============================================================================
+
+  /**
+   * Validate white label configuration
+   */
+  async validateWhiteLabelConfig(organizationId) {
+    try {
+      const config = await this.getWhiteLabelConfig(organizationId);
+      if (!config.success) return config;
+
+      const errors = [];
+
+      // Validate required fields for deployment
+      if (!config.data.company_name) {
+        errors.push('Company name is required');
+      }
+
+      if (!config.data.app_name) {
+        errors.push('App name is required');
+      }
+
+      // Validate colors
+      if (config.data.primary_color && !this.isValidHexColor(config.data.primary_color)) {
+        errors.push('Invalid primary color format');
+      }
+
+      // Validate URLs
+      if (config.data.logo_url && !this.isValidUrl(config.data.logo_url)) {
+        errors.push('Invalid logo URL');
+      }
+
+      if (config.data.custom_domain && !this.isValidDomain(config.data.custom_domain)) {
+        errors.push('Invalid custom domain');
+      }
+
+      return {
+        success: errors.length === 0,
+        errors
+      };
+    } catch (error) {
+      console.error('Error validating white label config:', error);
+      return { success: false, errors: [error.message] };
+    }
+  }
+
+  /**
+   * Get default white label configuration
+   */
+  getDefaultWhiteLabelConfig(organizationId) {
+    return {
+      organization_id: organizationId,
+      company_name: null,
+      logo_url: null,
+      favicon_url: null,
+      primary_color: this.defaultTheme.primary_color,
+      secondary_color: this.defaultTheme.secondary_color,
+      accent_color: this.defaultTheme.accent_color,
+      background_color: this.defaultTheme.background_color,
+      text_color: this.defaultTheme.text_color,
+      custom_domain: null,
+      app_name: 'NaturineX',
+      app_tagline: 'Advanced Medical Scanning Platform',
+      app_description: 'Scan, analyze, and understand your medications and supplements',
+      welcome_message: 'Welcome to NaturineX',
+      support_email: 'support@naturinex.com',
+      support_url: 'https://support.naturinex.com',
+      terms_url: 'https://naturinex.com/terms',
+      privacy_url: 'https://naturinex.com/privacy',
+      hide_naturinex_branding: false,
+      custom_footer: null,
+      custom_css: null,
+      ios_bundle_id: 'com.naturinex.app',
+      android_package_name: 'com.naturinex.app',
+      app_store_url: null,
+      play_store_url: null,
+      status: 'draft',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    };
+  }
+
+  // =============================================================================
+  // HELPER METHODS
+  // =============================================================================
+
+  isValidHexColor(color) {
+    return /^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$/.test(color);
+  }
+
+  isValidUrl(url) {
+    try {
+      new URL(url);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  isValidDomain(domain) {
+    const domainRegex = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
+    return domainRegex.test(domain);
+  }
+
+  async validateDomain(domain) {
+    // Implement domain validation logic (DNS checks, etc.)
+    return true; // Placeholder
+  }
+
+  async setupSSLCertificate(domain, sslConfig) {
+    // Implement SSL certificate setup
+    return { success: true, certificateId: 'ssl_cert_' + Date.now() };
+  }
+
+  async deployToProvider(domain, deploymentPackage) {
+    // Implement deployment to hosting provider
+    return { success: true, deploymentId: 'deploy_' + Date.now() };
+  }
+
+  generatePreviewToken(organizationId) {
+    return CryptoJS.SHA256(organizationId + Date.now()).toString();
+  }
+
+  async generatePreviewUrl(organizationId, config) {
+    const token = this.generatePreviewToken(organizationId);
+    return `https://preview.naturinex.com/${organizationId}?token=${token}`;
+  }
+
+  async clearThemeCache(organizationId) {
+    await this.supabase
+      .from('white_label_cache')
+      .delete()
+      .eq('organization_id', organizationId);
+  }
+
+  generateServiceWorker(config) {
+    return `
+      const CACHE_NAME = '${config.app_name || 'naturinex'}-v1';
+      const urlsToCache = [
+        '/',
+        '/static/js/bundle.js',
+        '/static/css/main.css',
+        '/custom-theme.css'
+      ];
+
+      self.addEventListener('install', event => {
+        event.waitUntil(
+          caches.open(CACHE_NAME)
+            .then(cache => cache.addAll(urlsToCache))
+        );
+      });
+
+      self.addEventListener('fetch', event => {
+        event.respondWith(
+          caches.match(event.request)
+            .then(response => response || fetch(event.request))
+        );
+      });
+    `;
+  }
+}
+
+export default new WhiteLabelService();

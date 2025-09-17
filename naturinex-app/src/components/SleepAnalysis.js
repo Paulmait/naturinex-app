@@ -1,0 +1,780 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  RefreshControl,
+  TouchableOpacity,
+  Dimensions,
+  Alert
+} from 'react-native';
+import { LineChart, BarChart } from 'react-native-chart-kit';
+import { MaterialIcons } from '@expo/vector-icons';
+import HealthIntegrationService from '../services/HealthIntegrationService';
+import HealthDataModel from '../models/HealthDataModel';
+
+const { width: screenWidth } = Dimensions.get('window');
+
+/**
+ * Sleep Analysis Component
+ * Analyzes and displays sleep patterns and quality
+ */
+const SleepAnalysis = ({ navigation }) => {
+  const [sleepData, setSleepData] = useState([]);
+  const [sleepMetrics, setSleepMetrics] = useState({
+    averageDuration: 0,
+    sleepEfficiency: 0,
+    averageBedtime: null,
+    averageWakeTime: null,
+    deepSleepPercentage: 0,
+    remSleepPercentage: 0
+  });
+  const [sleepGoals, setSleepGoals] = useState({
+    targetDuration: 8, // hours
+    targetBedtime: '22:30',
+    targetWakeTime: '06:30'
+  });
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [selectedPeriod, setSelectedPeriod] = useState('week');
+  const [sleepInsights, setSleepInsights] = useState([]);
+
+  const healthDataModel = new HealthDataModel();
+
+  useEffect(() => {
+    initializeSleepAnalysis();
+  }, []);
+
+  useEffect(() => {
+    loadSleepData();
+  }, [selectedPeriod]);
+
+  const initializeSleepAnalysis = async () => {
+    try {
+      setIsLoading(true);
+      await loadSleepData();
+      await loadSleepGoals();
+    } catch (error) {
+      console.error('Sleep analysis initialization failed:', error);
+      Alert.alert('Error', 'Failed to initialize sleep analysis');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadSleepData = async () => {
+    try {
+      const endDate = new Date();
+      const startDate = new Date();
+
+      switch (selectedPeriod) {
+        case 'week':
+          startDate.setDate(startDate.getDate() - 7);
+          break;
+        case 'month':
+          startDate.setMonth(startDate.getMonth() - 1);
+          break;
+        case 'year':
+          startDate.setFullYear(startDate.getFullYear() - 1);
+          break;
+        default:
+          startDate.setDate(startDate.getDate() - 7);
+      }
+
+      // Load sleep data from health integration service
+      const result = await HealthIntegrationService.readHealthData('sleep', {
+        startDate,
+        endDate
+      });
+
+      if (result.success) {
+        setSleepData(result.data);
+        calculateSleepMetrics(result.data);
+        generateSleepInsights(result.data);
+      } else {
+        // Generate mock data for demonstration
+        const mockData = generateMockSleepData(startDate, endDate);
+        setSleepData(mockData);
+        calculateSleepMetrics(mockData);
+        generateSleepInsights(mockData);
+      }
+    } catch (error) {
+      console.error('Failed to load sleep data:', error);
+    }
+  };
+
+  const generateMockSleepData = (startDate, endDate) => {
+    const data = [];
+    const current = new Date(startDate);
+
+    while (current <= endDate) {
+      // Generate realistic sleep data
+      const sleepDuration = 6.5 + Math.random() * 2.5; // 6.5-9 hours
+      const bedtime = new Date(current);
+      bedtime.setHours(22, 0 + Math.random() * 120, 0, 0); // 22:00-24:00
+
+      const wakeTime = new Date(bedtime);
+      wakeTime.setHours(bedtime.getHours() + sleepDuration);
+
+      const sleepEntry = healthDataModel.createHealthDataEntry('sleep', {
+        duration: sleepDuration,
+        bedtime: bedtime.toISOString(),
+        wakeTime: wakeTime.toISOString(),
+        efficiency: 0.8 + Math.random() * 0.15, // 80-95%
+        deepSleep: sleepDuration * (0.15 + Math.random() * 0.1), // 15-25%
+        remSleep: sleepDuration * (0.2 + Math.random() * 0.1), // 20-30%
+        lightSleep: sleepDuration * (0.45 + Math.random() * 0.1), // 45-55%
+        awakenings: Math.floor(Math.random() * 4) // 0-3 awakenings
+      }, {
+        timestamp: current.toISOString(),
+        source: 'mock',
+        device: 'Sleep Tracker'
+      });
+
+      data.push(sleepEntry);
+      current.setDate(current.getDate() + 1);
+    }
+
+    return data;
+  };
+
+  const calculateSleepMetrics = (data) => {
+    if (data.length === 0) {
+      setSleepMetrics({
+        averageDuration: 0,
+        sleepEfficiency: 0,
+        averageBedtime: null,
+        averageWakeTime: null,
+        deepSleepPercentage: 0,
+        remSleepPercentage: 0
+      });
+      return;
+    }
+
+    const totalDuration = data.reduce((sum, entry) => sum + entry.value.duration, 0);
+    const averageDuration = totalDuration / data.length;
+
+    const totalEfficiency = data.reduce((sum, entry) => sum + entry.value.efficiency, 0);
+    const sleepEfficiency = (totalEfficiency / data.length) * 100;
+
+    // Calculate average bedtime and wake time
+    const bedtimes = data.map(entry => new Date(entry.value.bedtime));
+    const wakeTimes = data.map(entry => new Date(entry.value.wakeTime));
+
+    const averageBedtimeMinutes = bedtimes.reduce((sum, time) => {
+      return sum + (time.getHours() * 60 + time.getMinutes());
+    }, 0) / bedtimes.length;
+
+    const averageWakeTimeMinutes = wakeTimes.reduce((sum, time) => {
+      return sum + (time.getHours() * 60 + time.getMinutes());
+    }, 0) / wakeTimes.length;
+
+    const formatTime = (minutes) => {
+      const hours = Math.floor(minutes / 60);
+      const mins = Math.round(minutes % 60);
+      return `${hours.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+    };
+
+    const totalDeepSleep = data.reduce((sum, entry) => sum + entry.value.deepSleep, 0);
+    const totalRemSleep = data.reduce((sum, entry) => sum + entry.value.remSleep, 0);
+
+    const deepSleepPercentage = (totalDeepSleep / totalDuration) * 100;
+    const remSleepPercentage = (totalRemSleep / totalDuration) * 100;
+
+    setSleepMetrics({
+      averageDuration: averageDuration,
+      sleepEfficiency: sleepEfficiency,
+      averageBedtime: formatTime(averageBedtimeMinutes),
+      averageWakeTime: formatTime(averageWakeTimeMinutes),
+      deepSleepPercentage: deepSleepPercentage,
+      remSleepPercentage: remSleepPercentage
+    });
+  };
+
+  const generateSleepInsights = (data) => {
+    const insights = [];
+
+    if (data.length >= 7) {
+      const recentWeek = data.slice(-7);
+      const averageDuration = recentWeek.reduce((sum, entry) => sum + entry.value.duration, 0) / 7;
+
+      if (averageDuration < sleepGoals.targetDuration) {
+        insights.push({
+          type: 'warning',
+          icon: 'bedtime-off',
+          title: 'Sleep Duration Below Target',
+          message: `You're averaging ${averageDuration.toFixed(1)} hours of sleep, which is ${(sleepGoals.targetDuration - averageDuration).toFixed(1)} hours below your goal.`,
+          severity: 'medium'
+        });
+      }
+
+      const avgEfficiency = recentWeek.reduce((sum, entry) => sum + entry.value.efficiency, 0) / 7;
+      if (avgEfficiency < 0.85) {
+        insights.push({
+          type: 'warning',
+          icon: 'schedule',
+          title: 'Low Sleep Efficiency',
+          message: `Your sleep efficiency is ${(avgEfficiency * 100).toFixed(0)}%. Try maintaining a consistent sleep schedule.`,
+          severity: 'medium'
+        });
+      }
+
+      // Check for irregular bedtimes
+      const bedtimes = recentWeek.map(entry => new Date(entry.value.bedtime).getHours());
+      const bedtimeVariation = Math.max(...bedtimes) - Math.min(...bedtimes);
+      if (bedtimeVariation > 2) {
+        insights.push({
+          type: 'tip',
+          icon: 'access-time',
+          title: 'Inconsistent Bedtime',
+          message: 'Your bedtime varies by more than 2 hours. Try going to bed at the same time each night.',
+          severity: 'low'
+        });
+      }
+
+      // Positive feedback for good sleep
+      if (averageDuration >= sleepGoals.targetDuration && avgEfficiency >= 0.9) {
+        insights.push({
+          type: 'success',
+          icon: 'bedtime',
+          title: 'Excellent Sleep Quality',
+          message: 'You\'re maintaining great sleep habits! Keep up the good work.',
+          severity: 'low'
+        });
+      }
+    }
+
+    setSleepInsights(insights);
+  };
+
+  const loadSleepGoals = async () => {
+    try {
+      // In a real app, this would load user-specific goals from storage
+      // For now, using default goals
+    } catch (error) {
+      console.error('Failed to load sleep goals:', error);
+    }
+  };
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await HealthIntegrationService.syncAllData();
+      await loadSleepData();
+    } catch (error) {
+      console.error('Refresh failed:', error);
+      Alert.alert('Error', 'Failed to refresh sleep data');
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
+
+  const renderSleepMetricCard = (title, value, unit, icon, color) => (
+    <View style={[styles.metricCard, { borderLeftColor: color }]}>
+      <View style={styles.metricHeader}>
+        <MaterialIcons name={icon} size={20} color={color} />
+        <Text style={styles.metricTitle}>{title}</Text>
+      </View>
+      <View style={styles.metricContent}>
+        <Text style={styles.metricValue}>{value}</Text>
+        <Text style={styles.metricUnit}>{unit}</Text>
+      </View>
+    </View>
+  );
+
+  const renderSleepChart = () => {
+    if (sleepData.length === 0) {
+      return (
+        <View style={styles.chartContainer}>
+          <Text style={styles.chartTitle}>Sleep Duration Trend</Text>
+          <View style={styles.noDataContainer}>
+            <MaterialIcons name="info" size={48} color="#ccc" />
+            <Text style={styles.noDataText}>No sleep data available</Text>
+          </View>
+        </View>
+      );
+    }
+
+    const chartData = {
+      labels: sleepData.slice(-7).map((_, index) => {
+        const date = new Date();
+        date.setDate(date.getDate() - (6 - index));
+        return date.toLocaleDateString('en-US', { weekday: 'short' });
+      }),
+      datasets: [{
+        data: sleepData.slice(-7).map(entry => Number(entry.value.duration.toFixed(1))),
+        color: (opacity = 1) => `rgba(155, 89, 182, ${opacity})`,
+        strokeWidth: 2
+      }]
+    };
+
+    const chartConfig = {
+      backgroundGradientFrom: '#fff',
+      backgroundGradientTo: '#fff',
+      color: (opacity = 1) => `rgba(155, 89, 182, ${opacity})`,
+      strokeWidth: 2,
+      barPercentage: 0.5,
+      useShadowColorFromDataset: false,
+      decimalPlaces: 1
+    };
+
+    return (
+      <View style={styles.chartContainer}>
+        <Text style={styles.chartTitle}>Sleep Duration Trend</Text>
+        <LineChart
+          data={chartData}
+          width={screenWidth - 60}
+          height={220}
+          chartConfig={chartConfig}
+          bezier
+        />
+        <View style={styles.goalLine}>
+          <Text style={styles.goalLineText}>Goal: {sleepGoals.targetDuration} hours</Text>
+        </View>
+      </View>
+    );
+  };
+
+  const renderSleepStagesChart = () => {
+    if (sleepData.length === 0) return null;
+
+    const recentSleep = sleepData[sleepData.length - 1];
+    if (!recentSleep) return null;
+
+    const stages = [
+      { name: 'Deep', value: recentSleep.value.deepSleep, color: '#2c3e50' },
+      { name: 'REM', value: recentSleep.value.remSleep, color: '#9b59b6' },
+      { name: 'Light', value: recentSleep.value.lightSleep, color: '#3498db' }
+    ];
+
+    const total = stages.reduce((sum, stage) => sum + stage.value, 0);
+
+    return (
+      <View style={styles.chartContainer}>
+        <Text style={styles.chartTitle}>Last Night's Sleep Stages</Text>
+        <View style={styles.sleepStagesContainer}>
+          {stages.map((stage, index) => {
+            const percentage = (stage.value / total) * 100;
+            return (
+              <View key={index} style={styles.sleepStageItem}>
+                <View style={styles.sleepStageInfo}>
+                  <View style={[styles.sleepStageColor, { backgroundColor: stage.color }]} />
+                  <Text style={styles.sleepStageName}>{stage.name}</Text>
+                </View>
+                <View style={styles.sleepStageStats}>
+                  <Text style={styles.sleepStageTime}>{stage.value.toFixed(1)}h</Text>
+                  <Text style={styles.sleepStagePercentage}>({percentage.toFixed(0)}%)</Text>
+                </View>
+              </View>
+            );
+          })}
+        </View>
+      </View>
+    );
+  };
+
+  const renderSleepInsights = () => {
+    if (sleepInsights.length === 0) return null;
+
+    return (
+      <View style={styles.insightsContainer}>
+        <Text style={styles.sectionTitle}>Sleep Insights</Text>
+        {sleepInsights.map((insight, index) => (
+          <View key={index} style={[styles.insightCard, { borderLeftColor: getInsightColor(insight.type) }]}>
+            <View style={styles.insightHeader}>
+              <MaterialIcons name={insight.icon} size={20} color={getInsightColor(insight.type)} />
+              <Text style={styles.insightTitle}>{insight.title}</Text>
+            </View>
+            <Text style={styles.insightMessage}>{insight.message}</Text>
+          </View>
+        ))}
+      </View>
+    );
+  };
+
+  const getInsightColor = (type) => {
+    const colors = {
+      warning: '#e74c3c',
+      tip: '#f39c12',
+      success: '#2ecc71'
+    };
+    return colors[type] || '#95a5a6';
+  };
+
+  const renderPeriodSelector = () => (
+    <View style={styles.periodSelector}>
+      {['week', 'month', 'year'].map(period => (
+        <TouchableOpacity
+          key={period}
+          style={[
+            styles.periodButton,
+            selectedPeriod === period && styles.periodButtonActive
+          ]}
+          onPress={() => setSelectedPeriod(period)}
+        >
+          <Text style={[
+            styles.periodButtonText,
+            selectedPeriod === period && styles.periodButtonTextActive
+          ]}>
+            {period.charAt(0).toUpperCase() + period.slice(1)}
+          </Text>
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+
+  const renderQuickActions = () => (
+    <View style={styles.quickActionsContainer}>
+      <Text style={styles.sectionTitle}>Sleep Tools</Text>
+      <View style={styles.quickActionsGrid}>
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={() => navigation.navigate('SleepGoals')}
+        >
+          <MaterialIcons name="flag" size={24} color="#9b59b6" />
+          <Text style={styles.quickActionText}>Set Goals</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={() => navigation.navigate('SleepTimer')}
+        >
+          <MaterialIcons name="bedtime" size={24} color="#9b59b6" />
+          <Text style={styles.quickActionText}>Sleep Timer</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={() => navigation.navigate('SleepHistory')}
+        >
+          <MaterialIcons name="history" size={24} color="#9b59b6" />
+          <Text style={styles.quickActionText}>History</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.quickActionButton}
+          onPress={() => navigation.navigate('SleepTips')}
+        >
+          <MaterialIcons name="lightbulb" size={24} color="#9b59b6" />
+          <Text style={styles.quickActionText}>Tips</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <MaterialIcons name="bedtime" size={48} color="#9b59b6" />
+        <Text style={styles.loadingText}>Loading sleep analysis...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView
+      style={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      }
+    >
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Sleep Analysis</Text>
+        <TouchableOpacity onPress={onRefresh}>
+          <MaterialIcons name="refresh" size={24} color="#9b59b6" />
+        </TouchableOpacity>
+      </View>
+
+      {/* Period Selector */}
+      {renderPeriodSelector()}
+
+      {/* Sleep Metrics */}
+      <View style={styles.metricsContainer}>
+        {renderSleepMetricCard(
+          'Avg Duration',
+          sleepMetrics.averageDuration.toFixed(1),
+          'hours',
+          'bedtime',
+          '#9b59b6'
+        )}
+        {renderSleepMetricCard(
+          'Sleep Efficiency',
+          sleepMetrics.sleepEfficiency.toFixed(0),
+          '%',
+          'schedule',
+          '#2ecc71'
+        )}
+        {renderSleepMetricCard(
+          'Avg Bedtime',
+          sleepMetrics.averageBedtime || '--:--',
+          '',
+          'bedtime-off',
+          '#34495e'
+        )}
+        {renderSleepMetricCard(
+          'Avg Wake Time',
+          sleepMetrics.averageWakeTime || '--:--',
+          '',
+          'wb-sunny',
+          '#f39c12'
+        )}
+      </View>
+
+      {/* Sleep Duration Chart */}
+      {renderSleepChart()}
+
+      {/* Sleep Stages Chart */}
+      {renderSleepStagesChart()}
+
+      {/* Sleep Insights */}
+      {renderSleepInsights()}
+
+      {/* Quick Actions */}
+      {renderQuickActions()}
+    </ScrollView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f8f9fa'
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#f8f9fa'
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#666'
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e9ecef'
+  },
+  headerTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#2c3e50'
+  },
+  periodSelector: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    marginHorizontal: 20,
+    marginTop: 10,
+    borderRadius: 8,
+    padding: 4
+  },
+  periodButton: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    borderRadius: 6
+  },
+  periodButtonActive: {
+    backgroundColor: '#9b59b6'
+  },
+  periodButtonText: {
+    fontSize: 14,
+    color: '#666'
+  },
+  periodButtonTextActive: {
+    color: '#fff',
+    fontWeight: '500'
+  },
+  metricsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    padding: 20,
+    paddingBottom: 10
+  },
+  metricCard: {
+    width: '48%',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 10,
+    marginRight: '2%',
+    borderLeftWidth: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  metricHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8
+  },
+  metricTitle: {
+    fontSize: 14,
+    color: '#666',
+    marginLeft: 8,
+    fontWeight: '500'
+  },
+  metricContent: {
+    flexDirection: 'row',
+    alignItems: 'baseline'
+  },
+  metricValue: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#2c3e50'
+  },
+  metricUnit: {
+    fontSize: 12,
+    color: '#999',
+    marginLeft: 4
+  },
+  chartContainer: {
+    backgroundColor: '#fff',
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  chartTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    marginBottom: 10
+  },
+  goalLine: {
+    marginTop: 8,
+    alignItems: 'center'
+  },
+  goalLineText: {
+    fontSize: 12,
+    color: '#9b59b6',
+    fontWeight: '500'
+  },
+  noDataContainer: {
+    alignItems: 'center',
+    padding: 40
+  },
+  noDataText: {
+    fontSize: 14,
+    color: '#999',
+    marginTop: 8
+  },
+  sleepStagesContainer: {
+    paddingVertical: 10
+  },
+  sleepStageItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8
+  },
+  sleepStageInfo: {
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  sleepStageColor: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 8
+  },
+  sleepStageName: {
+    fontSize: 14,
+    color: '#2c3e50',
+    fontWeight: '500'
+  },
+  sleepStageStats: {
+    alignItems: 'flex-end'
+  },
+  sleepStageTime: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#2c3e50'
+  },
+  sleepStagePercentage: {
+    fontSize: 12,
+    color: '#666'
+  },
+  insightsContainer: {
+    marginHorizontal: 20,
+    marginBottom: 20
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    marginBottom: 12
+  },
+  insightCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 8,
+    borderLeftWidth: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  insightHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8
+  },
+  insightTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2c3e50',
+    marginLeft: 8
+  },
+  insightMessage: {
+    fontSize: 14,
+    color: '#555',
+    lineHeight: 20
+  },
+  quickActionsContainer: {
+    marginHorizontal: 20,
+    marginBottom: 30
+  },
+  quickActionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between'
+  },
+  quickActionButton: {
+    width: '48%',
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3
+  },
+  quickActionText: {
+    fontSize: 12,
+    color: '#9b59b6',
+    marginTop: 4,
+    fontWeight: '500'
+  }
+});
+
+export default SleepAnalysis;
