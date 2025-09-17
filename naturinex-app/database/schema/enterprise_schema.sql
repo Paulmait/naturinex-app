@@ -124,7 +124,7 @@ CREATE TABLE enterprise_usage_analytics (
     ip_address INET,
     user_agent TEXT,
     timestamp TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    date DATE GENERATED ALWAYS AS (timestamp::DATE) STORED -- For efficient daily aggregation
+    date DATE GENERATED ALWAYS AS ((timestamp AT TIME ZONE 'UTC')::DATE) STORED -- For efficient daily aggregation
 );
 
 -- Usage Summaries (Aggregated data for faster reporting)

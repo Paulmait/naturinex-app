@@ -1,55 +1,61 @@
 -- Performance Optimization for NaturineX Medical Database
 -- Advanced indexing, query optimization, and performance monitoring
 
+-- Enable UUID extension if not already enabled
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
 -- ============================================================================
 -- ADVANCED INDEXING STRATEGIES
 -- ============================================================================
 
 -- Composite indexes for common query patterns
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_medication_alternatives_compound
+CREATE INDEX IF NOT EXISTS idx_medication_alternatives_compound
     ON medication_alternatives (medication_id, effectiveness_rating DESC, confidence_level, is_active)
     WHERE is_active = TRUE AND approved_at IS NOT NULL;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_natural_alternatives_compound
+CREATE INDEX IF NOT EXISTS idx_natural_alternatives_compound
     ON natural_alternatives (evidence_level, is_active, approved_at DESC)
     WHERE is_active = TRUE;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_user_feedback_compound
+CREATE INDEX IF NOT EXISTS idx_user_feedback_compound
     ON user_feedback (medication_alternative_id, moderation_status, overall_satisfaction DESC)
     WHERE is_active = TRUE AND moderation_status = 'approved';
 
 -- Partial indexes for specific use cases
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_medications_otc
+CREATE INDEX IF NOT EXISTS idx_medications_otc
     ON medications (name, drug_class)
     WHERE is_otc = TRUE AND is_active = TRUE;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_alternatives_high_evidence
+CREATE INDEX IF NOT EXISTS idx_alternatives_high_evidence
     ON natural_alternatives (name, evidence_level, updated_at DESC)
     WHERE evidence_level IN ('strong', 'moderate') AND is_active = TRUE;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_studies_recent_high_quality
+CREATE INDEX IF NOT EXISTS idx_studies_recent_high_quality
     ON clinical_studies (publication_date DESC, evidence_level, study_type)
     WHERE publication_date >= '2015-01-01' AND peer_reviewed = TRUE AND retracted = FALSE;
 
 -- Text search optimization indexes
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_medications_fulltext
-    ON medications USING gin(to_tsvector('english', name || ' ' || COALESCE(generic_name, '') || ' ' || array_to_string(brand_names, ' ')))
+-- Note: These indexes require the search_vector columns to be pre-computed
+-- They cannot be created directly on expressions due to immutability requirements
+-- Assuming search_vector columns exist on these tables (if not, they should be added)
+CREATE INDEX IF NOT EXISTS idx_medications_search_vector
+    ON medications USING gin(search_vector)
     WHERE is_active = TRUE;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_alternatives_fulltext
-    ON natural_alternatives USING gin(to_tsvector('english', name || ' ' || COALESCE(scientific_name, '') || ' ' || COALESCE(description, '')))
+CREATE INDEX IF NOT EXISTS idx_alternatives_search_vector
+    ON natural_alternatives USING gin(search_vector)
     WHERE is_active = TRUE;
 
 -- GIN indexes for JSONB fields
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_medications_uses_gin
+CREATE INDEX IF NOT EXISTS idx_medications_uses_gin
     ON medications USING gin(common_uses)
     WHERE is_active = TRUE;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_alternatives_uses_gin
+CREATE INDEX IF NOT EXISTS idx_alternatives_uses_gin
     ON natural_alternatives USING gin(therapeutic_uses)
     WHERE is_active = TRUE;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_alternatives_safety_gin
+CREATE INDEX IF NOT EXISTS idx_alternatives_safety_gin
     ON natural_alternatives USING gin(safety_profile)
     WHERE is_active = TRUE;
 
@@ -244,12 +250,10 @@ SELECT
     m.drug_class,
     COUNT(DISTINCT ma.alternative_id) as alternative_count,
     AVG(ma.effectiveness_rating) as avg_alternative_effectiveness,
-    COUNT(DISTINCT sh.id) as search_count,
     COUNT(DISTINCT uf.id) as feedback_count,
     m.updated_at
 FROM medications m
 LEFT JOIN medication_alternatives ma ON m.id = ma.medication_id AND ma.is_active = TRUE
-LEFT JOIN search_history sh ON m.name = sh.medication
 LEFT JOIN user_feedback uf ON ma.id = uf.medication_alternative_id AND uf.moderation_status = 'approved'
 WHERE m.is_active = TRUE
 GROUP BY m.id, m.name, m.drug_class, m.updated_at;
@@ -512,8 +516,8 @@ SELECT refresh_performance_views();
 
 -- Weekly maintenance (run Sundays at 3 AM)
 SELECT cleanup_old_data();
-REINDEX INDEX CONCURRENTLY idx_medications_search;
-REINDEX INDEX CONCURRENTLY idx_alternatives_search;
+-- REINDEX INDEX idx_medications_search;  -- Run separately outside transaction
+-- REINDEX INDEX idx_alternatives_search;  -- Run separately outside transaction
 
 -- Monthly maintenance (run first of month at 4 AM)
 VACUUM ANALYZE;

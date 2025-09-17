@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS drug_interactions (
     evidence_level VARCHAR(20) DEFAULT 'clinical' CHECK (evidence_level IN ('clinical', 'theoretical', 'case_report')),
     mechanism TEXT,
     onset VARCHAR(50), -- rapid, delayed, variable
-    documentation VARCHAR(20) DEFAULT 'documented' CHECK (documentation IN ('established', 'probable', 'suspected', 'possible', 'unlikely')),
+    documentation VARCHAR(20) DEFAULT 'established' CHECK (documentation IN ('established', 'probable', 'suspected', 'possible', 'unlikely', 'documented')),
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
@@ -421,6 +421,7 @@ CREATE OR REPLACE FUNCTION cleanup_old_audit_logs()
 RETURNS INTEGER AS $$
 DECLARE
     deleted_count INTEGER := 0;
+    temp_count INTEGER := 0;
 BEGIN
     -- Delete audit logs older than 7 years
     DELETE FROM disclaimer_audit_logs
@@ -431,7 +432,8 @@ BEGIN
     DELETE FROM interaction_audit_logs
     WHERE created_at < NOW() - INTERVAL '7 years';
 
-    GET DIAGNOSTICS deleted_count = deleted_count + ROW_COUNT;
+    GET DIAGNOSTICS temp_count = ROW_COUNT;
+    deleted_count := deleted_count + temp_count;
 
     RETURN deleted_count;
 END;
