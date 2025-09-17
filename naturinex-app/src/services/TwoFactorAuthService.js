@@ -8,11 +8,9 @@ import {
   RecaptchaVerifier,
   signInWithPhoneNumber,
   PhoneAuthProvider,
-  linkWithCredential,
-  multiFactor,
-  PhoneMultiFactorGenerator
+  linkWithCredential
 } from 'firebase/auth';
-import { doc, updateDoc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, updateDoc, getDoc } from 'firebase/firestore';
 
 class TwoFactorAuthService {
   constructor() {
