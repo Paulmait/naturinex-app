@@ -19,7 +19,12 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebase.web';
 import { useNavigate } from 'react-router-dom';
 import webConfig from '../../config/webConfig';
-const stripePromise = loadStripe(webConfig.STRIPE_PUBLISHABLE_KEY);
+
+// Only load Stripe if properly configured
+const stripePromise = webConfig.STRIPE_PUBLISHABLE_KEY &&
+  webConfig.STRIPE_PUBLISHABLE_KEY !== 'your_stripe_publishable_key_here'
+  ? loadStripe(webConfig.STRIPE_PUBLISHABLE_KEY)
+  : null;
 function CheckoutForm({ priceId, onSuccess }) {
   const stripe = useStripe();
   const elements = useElements();
@@ -57,8 +62,14 @@ function CheckoutForm({ priceId, onSuccess }) {
           email,
           name,
         }),
+      }).catch(err => {
+        console.error('Network error:', err);
+        throw new Error('Payment service is temporarily unavailable. Please try again later or contact support.');
       });
-      const data = await response.json();
+
+      const data = await response.json().catch(() => {
+        throw new Error('Invalid response from payment service');
+      });
       if (!response.ok) {
         throw new Error(data.error || 'Payment failed');
       }
@@ -177,6 +188,7 @@ function CheckoutForm({ priceId, onSuccess }) {
   );
 }
 function WebPayment() {
+  const navigate = useNavigate();
   const [selectedPlan, setSelectedPlan] = useState('monthly');
   const plans = {
     monthly: {
@@ -275,9 +287,42 @@ function WebPayment() {
           <Typography variant="h6" gutterBottom>
             Payment Details
           </Typography>
-          <Elements stripe={stripePromise}>
-            <CheckoutForm priceId={plans[selectedPlan].priceId} />
-          </Elements>
+          {!webConfig.STRIPE_PUBLISHABLE_KEY || webConfig.STRIPE_PUBLISHABLE_KEY === 'your_stripe_publishable_key_here' ? (
+            <Box sx={{ p: 3, textAlign: 'center', bgcolor: 'warning.light', borderRadius: 1 }}>
+              <Typography variant="h6" color="warning.dark" gutterBottom>
+                Demo Mode - Payment Not Available
+              </Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Payment processing is not configured yet. For testing, users are automatically upgraded to premium.
+              </Typography>
+              <Button
+                variant="contained"
+                onClick={async () => {
+                  try {
+                    const user = auth.currentUser;
+                    if (user) {
+                      await updateDoc(doc(db, 'users', user.uid), {
+                        subscriptionType: 'premium',
+                        subscriptionStartDate: new Date().toISOString(),
+                        isDemoSubscription: true
+                      });
+                      alert('Demo subscription activated! You now have premium access.');
+                      navigate('/dashboard');
+                    }
+                  } catch (err) {
+                    console.error('Demo activation error:', err);
+                    alert('Error activating demo subscription');
+                  }
+                }}
+              >
+                Activate Demo Premium (Free)
+              </Button>
+            </Box>
+          ) : (
+            <Elements stripe={stripePromise}>
+              <CheckoutForm priceId={plans[selectedPlan].priceId} />
+            </Elements>
+          )}
         </CardContent>
       </Card>
       <Box sx={{ mt: 4, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>

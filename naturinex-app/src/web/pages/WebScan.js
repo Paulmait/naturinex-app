@@ -150,17 +150,36 @@ function WebScan() {
   };
   const startCamera = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
+      // Check if we're on HTTPS or localhost
+      const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost';
+      if (!isSecure) {
+        setError('Camera access requires HTTPS. Please use file upload instead or access the site via HTTPS.');
+        return;
+      }
+
+      // Check if mediaDevices is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setError('Camera API not supported in this browser. Please use file upload.');
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
           facingMode: 'environment' // Use back camera on mobile
-        } 
+        }
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
       setScanMode('camera');
     } catch (err) {
-      setError('Unable to access camera. Please check permissions or use file upload.');
+      if (err.name === 'NotAllowedError') {
+        setError('Camera permission denied. Please allow camera access in your browser settings.');
+      } else if (err.name === 'NotFoundError') {
+        setError('No camera found. Please use file upload instead.');
+      } else {
+        setError('Unable to access camera. Please use file upload instead.');
+      }
       console.error('Camera error:', err);
     }
   };
@@ -195,13 +214,16 @@ function WebScan() {
       let analysisData;
       // Use the text input (which may be from OCR or manual entry)
       if (textInput.trim()) {
-        // Use the medication name endpoint
-        const endpoint = API_URL.includes('supabase.co') ? `${API_URL}/analyze` : `${API_URL}/api/analyze/name`;
+        // Use the correct medication name endpoint
+        const endpoint = `${API_URL}/api/analyze/name`;
+        console.log('Calling API endpoint:', endpoint, 'with medication:', textInput.trim());
         const response = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'Accept': 'application/json',
           },
+          mode: 'cors',
           body: JSON.stringify({ medication: textInput.trim() }),
         });
         // Check rate limit headers
