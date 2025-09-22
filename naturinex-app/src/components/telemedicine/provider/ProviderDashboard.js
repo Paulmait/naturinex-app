@@ -1,596 +1,1 @@
-/**
- * ProviderDashboard - Main dashboard for healthcare providers
- * Displays appointments, patient queue, earnings, and quick actions
- */
-
-import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl } from 'react-native';
-import { useMediaQuery } from 'react-responsive';
-import { Calendar, Clock, Users, DollarSign, Video, MessageSquare, Bell, Settings } from 'lucide-react';
-import { telemedicineService } from '../../../services/telemedicineService';
-
-const ProviderDashboard = ({ providerId, navigation }) => {
-  const [dashboardData, setDashboardData] = useState({
-    todayAppointments: [],
-    upcomingAppointments: [],
-    waitingPatients: [],
-    earnings: { today: 0, thisWeek: 0, thisMonth: 0 },
-    notifications: [],
-    stats: {
-      totalPatients: 0,
-      consultationsToday: 0,
-      avgRating: 0,
-      responseTime: 0
-    }
-  });
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [selectedDate, setSelectedDate] = useState(new Date());
-
-  const isWeb = useMediaQuery({ query: '(min-width: 768px)' });
-
-  useEffect(() => {
-    loadDashboardData();
-  }, [providerId, selectedDate]);
-
-  const loadDashboardData = async () => {
-    try {
-      setLoading(true);
-      const [
-        appointmentsData,
-        earningsData,
-        notificationsData,
-        statsData
-      ] = await Promise.all([
-        fetchTodayAppointments(),
-        fetchEarningsData(),
-        fetchNotifications(),
-        fetchProviderStats()
-      ]);
-
-      setDashboardData({
-        todayAppointments: appointmentsData.today,
-        upcomingAppointments: appointmentsData.upcoming,
-        waitingPatients: appointmentsData.waiting,
-        earnings: earningsData,
-        notifications: notificationsData,
-        stats: statsData
-      });
-    } catch (error) {
-      console.error('Error loading dashboard data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchTodayAppointments = async () => {
-    // Fetch today's appointments and categorize them
-    const today = new Date().toISOString().split('T')[0];
-    // Implementation would call telemedicineService
-    return {
-      today: [],
-      upcoming: [],
-      waiting: []
-    };
-  };
-
-  const fetchEarningsData = async () => {
-    // Fetch earnings data
-    return {
-      today: 450,
-      thisWeek: 2100,
-      thisMonth: 8500
-    };
-  };
-
-  const fetchNotifications = async () => {
-    // Fetch recent notifications
-    return [];
-  };
-
-  const fetchProviderStats = async () => {
-    // Fetch provider statistics
-    return {
-      totalPatients: 156,
-      consultationsToday: 8,
-      avgRating: 4.8,
-      responseTime: 2.3
-    };
-  };
-
-  const onRefresh = async () => {
-    setRefreshing(true);
-    await loadDashboardData();
-    setRefreshing(false);
-  };
-
-  const startVideoConsultation = async (appointmentId) => {
-    try {
-      navigation.navigate('VideoConsultation', {
-        appointmentId,
-        userType: 'provider',
-        userId: providerId
-      });
-    } catch (error) {
-      console.error('Error starting video consultation:', error);
-    }
-  };
-
-  const openPatientHistory = (patientId) => {
-    navigation.navigate('PatientHistory', { patientId, providerId });
-  };
-
-  const openMessaging = (patientId, appointmentId = null) => {
-    navigation.navigate('ProviderMessaging', {
-      patientId,
-      providerId,
-      appointmentId
-    });
-  };
-
-  const QuickStatsCard = ({ icon: Icon, title, value, subtitle, color = '#4F46E5' }) => (
-    <View style={[styles.statsCard, { borderLeftColor: color }]}>
-      <View style={styles.statsHeader}>
-        <Icon size={20} color={color} />
-        <Text style={styles.statsTitle}>{title}</Text>
-      </View>
-      <Text style={styles.statsValue}>{value}</Text>
-      {subtitle && <Text style={styles.statsSubtitle}>{subtitle}</Text>}
-    </View>
-  );
-
-  const AppointmentCard = ({ appointment, showActions = true }) => (
-    <View style={styles.appointmentCard}>
-      <View style={styles.appointmentHeader}>
-        <View style={styles.patientInfo}>
-          <Text style={styles.patientName}>{appointment.patient_name}</Text>
-          <Text style={styles.appointmentTime}>
-            {new Date(appointment.scheduled_datetime).toLocaleTimeString([], {
-              hour: '2-digit',
-              minute: '2-digit'
-            })}
-          </Text>
-        </View>
-        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(appointment.status) }]}>
-          <Text style={styles.statusText}>{appointment.status}</Text>
-        </View>
-      </View>
-
-      <Text style={styles.appointmentType}>{appointment.consultation_type}</Text>
-      <Text style={styles.appointmentReason}>{appointment.reason}</Text>
-
-      {showActions && (
-        <View style={styles.appointmentActions}>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.videoButton]}
-            onPress={() => startVideoConsultation(appointment.id)}
-          >
-            <Video size={16} color="#fff" />
-            <Text style={styles.buttonText}>Start Call</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionButton, styles.historyButton]}
-            onPress={() => openPatientHistory(appointment.patient_id)}
-          >
-            <Users size={16} color="#4F46E5" />
-            <Text style={[styles.buttonText, { color: '#4F46E5' }]}>History</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.actionButton, styles.messageButton]}
-            onPress={() => openMessaging(appointment.patient_id, appointment.id)}
-          >
-            <MessageSquare size={16} color="#10B981" />
-            <Text style={[styles.buttonText, { color: '#10B981' }]}>Message</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-    </View>
-  );
-
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'scheduled': return '#3B82F6';
-      case 'in_progress': return '#F59E0B';
-      case 'waiting': return '#EF4444';
-      case 'completed': return '#10B981';
-      default: return '#6B7280';
-    }
-  };
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text>Loading dashboard...</Text>
-      </View>
-    );
-  }
-
-  return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.welcomeText}>Good {getTimeOfDay()}, Dr. Smith</Text>
-          <Text style={styles.dateText}>{new Date().toLocaleDateString()}</Text>
-        </View>
-        <TouchableOpacity style={styles.notificationButton}>
-          <Bell size={24} color="#4F46E5" />
-          {dashboardData.notifications.length > 0 && (
-            <View style={styles.notificationBadge}>
-              <Text style={styles.notificationCount}>
-                {dashboardData.notifications.length}
-              </Text>
-            </View>
-          )}
-        </TouchableOpacity>
-      </View>
-
-      {/* Quick Stats */}
-      <View style={styles.statsGrid}>
-        <QuickStatsCard
-          icon={Calendar}
-          title="Today's Appointments"
-          value={dashboardData.todayAppointments.length}
-          subtitle={`${dashboardData.stats.consultationsToday} completed`}
-          color="#3B82F6"
-        />
-        <QuickStatsCard
-          icon={Users}
-          title="Total Patients"
-          value={dashboardData.stats.totalPatients}
-          subtitle="This month"
-          color="#10B981"
-        />
-        <QuickStatsCard
-          icon={DollarSign}
-          title="Earnings Today"
-          value={`$${dashboardData.earnings.today}`}
-          subtitle={`$${dashboardData.earnings.thisMonth} this month`}
-          color="#F59E0B"
-        />
-        <QuickStatsCard
-          icon={Clock}
-          title="Avg Response"
-          value={`${dashboardData.stats.responseTime}min`}
-          subtitle={`${dashboardData.stats.avgRating}/5.0 rating`}
-          color="#8B5CF6"
-        />
-      </View>
-
-      {/* Waiting Patients Alert */}
-      {dashboardData.waitingPatients.length > 0 && (
-        <View style={styles.urgentSection}>
-          <Text style={styles.urgentTitle}>Patients Waiting ({dashboardData.waitingPatients.length})</Text>
-          {dashboardData.waitingPatients.map((appointment) => (
-            <AppointmentCard key={appointment.id} appointment={appointment} />
-          ))}
-        </View>
-      )}
-
-      {/* Today's Schedule */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Today's Schedule</Text>
-        {dashboardData.todayAppointments.length > 0 ? (
-          dashboardData.todayAppointments.map((appointment) => (
-            <AppointmentCard key={appointment.id} appointment={appointment} />
-          ))
-        ) : (
-          <View style={styles.emptyState}>
-            <Calendar size={48} color="#9CA3AF" />
-            <Text style={styles.emptyText}>No appointments scheduled for today</Text>
-          </View>
-        )}
-      </View>
-
-      {/* Upcoming Appointments */}
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Upcoming This Week</Text>
-        {dashboardData.upcomingAppointments.slice(0, 3).map((appointment) => (
-          <AppointmentCard
-            key={appointment.id}
-            appointment={appointment}
-            showActions={false}
-          />
-        ))}
-        {dashboardData.upcomingAppointments.length > 3 && (
-          <TouchableOpacity style={styles.viewAllButton}>
-            <Text style={styles.viewAllText}>
-              View All ({dashboardData.upcomingAppointments.length} total)
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {/* Quick Actions */}
-      <View style={styles.quickActions}>
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-        <View style={styles.actionsGrid}>
-          <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={() => navigation.navigate('ProviderSchedule')}
-          >
-            <Calendar size={24} color="#4F46E5" />
-            <Text style={styles.quickActionText}>Schedule</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={() => navigation.navigate('PatientList')}
-          >
-            <Users size={24} color="#4F46E5" />
-            <Text style={styles.quickActionText}>Patients</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={() => navigation.navigate('PrescriptionManagement')}
-          >
-            <MessageSquare size={24} color="#4F46E5" />
-            <Text style={styles.quickActionText}>Prescriptions</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={() => navigation.navigate('ProviderSettings')}
-          >
-            <Settings size={24} color="#4F46E5" />
-            <Text style={styles.quickActionText}>Settings</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </ScrollView>
-  );
-};
-
-const getTimeOfDay = () => {
-  const hour = new Date().getHours();
-  if (hour < 12) return 'morning';
-  if (hour < 17) return 'afternoon';
-  return 'evening';
-};
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  welcomeText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#111827',
-  },
-  dateText: {
-    fontSize: 16,
-    color: '#6B7280',
-    marginTop: 4,
-  },
-  notificationButton: {
-    position: 'relative',
-    padding: 8,
-  },
-  notificationBadge: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    backgroundColor: '#EF4444',
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  notificationCount: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    padding: 20,
-    gap: 16,
-  },
-  statsCard: {
-    flex: 1,
-    minWidth: 150,
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
-    borderLeftWidth: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  statsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  statsTitle: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginLeft: 8,
-  },
-  statsValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#111827',
-    marginBottom: 4,
-  },
-  statsSubtitle: {
-    fontSize: 12,
-    color: '#9CA3AF',
-  },
-  urgentSection: {
-    margin: 20,
-    marginTop: 0,
-  },
-  urgentTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#EF4444',
-    marginBottom: 12,
-  },
-  section: {
-    margin: 20,
-    marginTop: 0,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#111827',
-    marginBottom: 12,
-  },
-  appointmentCard: {
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  appointmentHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 8,
-  },
-  patientInfo: {
-    flex: 1,
-  },
-  patientName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#111827',
-  },
-  appointmentTime: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginTop: 2,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 16,
-  },
-  statusText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: 'bold',
-    textTransform: 'capitalize',
-  },
-  appointmentType: {
-    fontSize: 14,
-    color: '#4F46E5',
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  appointmentReason: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 12,
-  },
-  appointmentActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    gap: 4,
-  },
-  videoButton: {
-    backgroundColor: '#4F46E5',
-  },
-  historyButton: {
-    backgroundColor: '#F3F4F6',
-    borderWidth: 1,
-    borderColor: '#4F46E5',
-  },
-  messageButton: {
-    backgroundColor: '#F3F4F6',
-    borderWidth: 1,
-    borderColor: '#10B981',
-  },
-  buttonText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: '#fff',
-  },
-  emptyState: {
-    alignItems: 'center',
-    padding: 40,
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#9CA3AF',
-    marginTop: 12,
-  },
-  viewAllButton: {
-    alignItems: 'center',
-    padding: 12,
-  },
-  viewAllText: {
-    color: '#4F46E5',
-    fontWeight: '500',
-  },
-  quickActions: {
-    margin: 20,
-    marginTop: 0,
-  },
-  actionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 16,
-  },
-  quickActionButton: {
-    flex: 1,
-    minWidth: 80,
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  quickActionText: {
-    fontSize: 12,
-    color: '#4F46E5',
-    fontWeight: '500',
-    marginTop: 8,
-  },
-});
-
-export default ProviderDashboard;
+/** * ProviderDashboard - Main dashboard for healthcare providers * Displays appointments, patient queue, earnings, and quick actions */import React, { useState, useEffect } from 'react';import { View, Text, ScrollView, StyleSheet, TouchableOpacity, RefreshControl } from 'react-native';import { useMediaQuery } from 'react-responsive';import { Calendar, Clock, Users, DollarSign, Video, MessageSquare, Bell, Settings } from 'lucide-react';import { telemedicineService } from '../../../services/telemedicineService';const ProviderDashboard = ({ providerId, navigation }) => {  const [dashboardData, setDashboardData] = useState({    todayAppointments: [],    upcomingAppointments: [],    waitingPatients: [],    earnings: { today: 0, thisWeek: 0, thisMonth: 0 },    notifications: [],    stats: {      totalPatients: 0,      consultationsToday: 0,      avgRating: 0,      responseTime: 0    }  });  const [loading, setLoading] = useState(true);  const [refreshing, setRefreshing] = useState(false);  const [selectedDate, setSelectedDate] = useState(new Date());  const isWeb = useMediaQuery({ query: '(min-width: 768px)' });  useEffect(() => {    loadDashboardData();  }, [providerId, selectedDate]);  const loadDashboardData = async () => {    try {      setLoading(true);      const [        appointmentsData,        earningsData,        notificationsData,        statsData      ] = await Promise.all([        fetchTodayAppointments(),        fetchEarningsData(),        fetchNotifications(),        fetchProviderStats()      ]);      setDashboardData({        todayAppointments: appointmentsData.today,        upcomingAppointments: appointmentsData.upcoming,        waitingPatients: appointmentsData.waiting,        earnings: earningsData,        notifications: notificationsData,        stats: statsData      });    } catch (error) {      console.error('Error loading dashboard data:', error);    } finally {      setLoading(false);    }  };  const fetchTodayAppointments = async () => {    // Fetch today's appointments and categorize them    const today = new Date().toISOString().split('T')[0];    // Implementation would call telemedicineService    return {      today: [],      upcoming: [],      waiting: []    };  };  const fetchEarningsData = async () => {    // Fetch earnings data    return {      today: 450,      thisWeek: 2100,      thisMonth: 8500    };  };  const fetchNotifications = async () => {    // Fetch recent notifications    return [];  };  const fetchProviderStats = async () => {    // Fetch provider statistics    return {      totalPatients: 156,      consultationsToday: 8,      avgRating: 4.8,      responseTime: 2.3    };  };  const onRefresh = async () => {    setRefreshing(true);    await loadDashboardData();    setRefreshing(false);  };  const startVideoConsultation = async (appointmentId) => {    try {      navigation.navigate('VideoConsultation', {        appointmentId,        userType: 'provider',        userId: providerId      });    } catch (error) {      console.error('Error starting video consultation:', error);    }  };  const openPatientHistory = (patientId) => {    navigation.navigate('PatientHistory', { patientId, providerId });  };  const openMessaging = (patientId, appointmentId = null) => {    navigation.navigate('ProviderMessaging', {      patientId,      providerId,      appointmentId    });  };  const QuickStatsCard = ({ icon: Icon, title, value, subtitle, color = '#4F46E5' }) => (    <View style={[styles.statsCard, { borderLeftColor: color }]}>      <View style={styles.statsHeader}>        <Icon size={20} color={color} />        <Text style={styles.statsTitle}>{title}</Text>      </View>      <Text style={styles.statsValue}>{value}</Text>      {subtitle && <Text style={styles.statsSubtitle}>{subtitle}</Text>}    </View>  );  const AppointmentCard = ({ appointment, showActions = true }) => (    <View style={styles.appointmentCard}>      <View style={styles.appointmentHeader}>        <View style={styles.patientInfo}>          <Text style={styles.patientName}>{appointment.patient_name}</Text>          <Text style={styles.appointmentTime}>            {new Date(appointment.scheduled_datetime).toLocaleTimeString([], {              hour: '2-digit',              minute: '2-digit'            })}          </Text>        </View>        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(appointment.status) }]}>          <Text style={styles.statusText}>{appointment.status}</Text>        </View>      </View>      <Text style={styles.appointmentType}>{appointment.consultation_type}</Text>      <Text style={styles.appointmentReason}>{appointment.reason}</Text>      {showActions && (        <View style={styles.appointmentActions}>          <TouchableOpacity            style={[styles.actionButton, styles.videoButton]}            onPress={() => startVideoConsultation(appointment.id)}          >            <Video size={16} color="#fff" />            <Text style={styles.buttonText}>Start Call</Text>          </TouchableOpacity>          <TouchableOpacity            style={[styles.actionButton, styles.historyButton]}            onPress={() => openPatientHistory(appointment.patient_id)}          >            <Users size={16} color="#4F46E5" />            <Text style={[styles.buttonText, { color: '#4F46E5' }]}>History</Text>          </TouchableOpacity>          <TouchableOpacity            style={[styles.actionButton, styles.messageButton]}            onPress={() => openMessaging(appointment.patient_id, appointment.id)}          >            <MessageSquare size={16} color="#10B981" />            <Text style={[styles.buttonText, { color: '#10B981' }]}>Message</Text>          </TouchableOpacity>        </View>      )}    </View>  );  const getStatusColor = (status) => {    switch (status) {      case 'scheduled': return '#3B82F6';      case 'in_progress': return '#F59E0B';      case 'waiting': return '#EF4444';      case 'completed': return '#10B981';      default: return '#6B7280';    }  };  if (loading) {    return (      <View style={styles.loadingContainer}>        <Text>Loading dashboard...</Text>      </View>    );  }  return (    <ScrollView      style={styles.container}      refreshControl={        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />      }    >      {/* Header */}      <View style={styles.header}>        <View>          <Text style={styles.welcomeText}>Good {getTimeOfDay()}, Dr. Smith</Text>          <Text style={styles.dateText}>{new Date().toLocaleDateString()}</Text>        </View>        <TouchableOpacity style={styles.notificationButton}>          <Bell size={24} color="#4F46E5" />          {dashboardData.notifications.length > 0 && (            <View style={styles.notificationBadge}>              <Text style={styles.notificationCount}>                {dashboardData.notifications.length}              </Text>            </View>          )}        </TouchableOpacity>      </View>      {/* Quick Stats */}      <View style={styles.statsGrid}>        <QuickStatsCard          icon={Calendar}          title="Today's Appointments"          value={dashboardData.todayAppointments.length}          subtitle={`${dashboardData.stats.consultationsToday} completed`}          color="#3B82F6"        />        <QuickStatsCard          icon={Users}          title="Total Patients"          value={dashboardData.stats.totalPatients}          subtitle="This month"          color="#10B981"        />        <QuickStatsCard          icon={DollarSign}          title="Earnings Today"          value={`$${dashboardData.earnings.today}`}          subtitle={`$${dashboardData.earnings.thisMonth} this month`}          color="#F59E0B"        />        <QuickStatsCard          icon={Clock}          title="Avg Response"          value={`${dashboardData.stats.responseTime}min`}          subtitle={`${dashboardData.stats.avgRating}/5.0 rating`}          color="#8B5CF6"        />      </View>      {/* Waiting Patients Alert */}      {dashboardData.waitingPatients.length > 0 && (        <View style={styles.urgentSection}>          <Text style={styles.urgentTitle}>Patients Waiting ({dashboardData.waitingPatients.length})</Text>          {dashboardData.waitingPatients.map((appointment) => (            <AppointmentCard key={appointment.id} appointment={appointment} />          ))}        </View>      )}      {/* Today's Schedule */}      <View style={styles.section}>        <Text style={styles.sectionTitle}>Today's Schedule</Text>        {dashboardData.todayAppointments.length > 0 ? (          dashboardData.todayAppointments.map((appointment) => (            <AppointmentCard key={appointment.id} appointment={appointment} />          ))        ) : (          <View style={styles.emptyState}>            <Calendar size={48} color="#9CA3AF" />            <Text style={styles.emptyText}>No appointments scheduled for today</Text>          </View>        )}      </View>      {/* Upcoming Appointments */}      <View style={styles.section}>        <Text style={styles.sectionTitle}>Upcoming This Week</Text>        {dashboardData.upcomingAppointments.slice(0, 3).map((appointment) => (          <AppointmentCard            key={appointment.id}            appointment={appointment}            showActions={false}          />        ))}        {dashboardData.upcomingAppointments.length > 3 && (          <TouchableOpacity style={styles.viewAllButton}>            <Text style={styles.viewAllText}>              View All ({dashboardData.upcomingAppointments.length} total)            </Text>          </TouchableOpacity>        )}      </View>      {/* Quick Actions */}      <View style={styles.quickActions}>        <Text style={styles.sectionTitle}>Quick Actions</Text>        <View style={styles.actionsGrid}>          <TouchableOpacity            style={styles.quickActionButton}            onPress={() => navigation.navigate('ProviderSchedule')}          >            <Calendar size={24} color="#4F46E5" />            <Text style={styles.quickActionText}>Schedule</Text>          </TouchableOpacity>          <TouchableOpacity            style={styles.quickActionButton}            onPress={() => navigation.navigate('PatientList')}          >            <Users size={24} color="#4F46E5" />            <Text style={styles.quickActionText}>Patients</Text>          </TouchableOpacity>          <TouchableOpacity            style={styles.quickActionButton}            onPress={() => navigation.navigate('PrescriptionManagement')}          >            <MessageSquare size={24} color="#4F46E5" />            <Text style={styles.quickActionText}>Prescriptions</Text>          </TouchableOpacity>          <TouchableOpacity            style={styles.quickActionButton}            onPress={() => navigation.navigate('ProviderSettings')}          >            <Settings size={24} color="#4F46E5" />            <Text style={styles.quickActionText}>Settings</Text>          </TouchableOpacity>        </View>      </View>    </ScrollView>  );};const getTimeOfDay = () => {  const hour = new Date().getHours();  if (hour < 12) return 'morning';  if (hour < 17) return 'afternoon';  return 'evening';};const styles = StyleSheet.create({  container: {    flex: 1,    backgroundColor: '#F9FAFB',  },  loadingContainer: {    flex: 1,    justifyContent: 'center',    alignItems: 'center',  },  header: {    flexDirection: 'row',    justifyContent: 'space-between',    alignItems: 'center',    padding: 20,    backgroundColor: '#fff',    borderBottomWidth: 1,    borderBottomColor: '#E5E7EB',  },  welcomeText: {    fontSize: 24,    fontWeight: 'bold',    color: '#111827',  },  dateText: {    fontSize: 16,    color: '#6B7280',    marginTop: 4,  },  notificationButton: {    position: 'relative',    padding: 8,  },  notificationBadge: {    position: 'absolute',    top: 0,    right: 0,    backgroundColor: '#EF4444',    borderRadius: 10,    minWidth: 20,    height: 20,    justifyContent: 'center',    alignItems: 'center',  },  notificationCount: {    color: '#fff',    fontSize: 12,    fontWeight: 'bold',  },  statsGrid: {    flexDirection: 'row',    flexWrap: 'wrap',    padding: 20,    gap: 16,  },  statsCard: {    flex: 1,    minWidth: 150,    backgroundColor: '#fff',    padding: 16,    borderRadius: 12,    borderLeftWidth: 4,    shadowColor: '#000',    shadowOffset: { width: 0, height: 2 },    shadowOpacity: 0.1,    shadowRadius: 4,    elevation: 3,  },  statsHeader: {    flexDirection: 'row',    alignItems: 'center',    marginBottom: 8,  },  statsTitle: {    fontSize: 14,    color: '#6B7280',    marginLeft: 8,  },  statsValue: {    fontSize: 24,    fontWeight: 'bold',    color: '#111827',    marginBottom: 4,  },  statsSubtitle: {    fontSize: 12,    color: '#9CA3AF',  },  urgentSection: {    margin: 20,    marginTop: 0,  },  urgentTitle: {    fontSize: 18,    fontWeight: 'bold',    color: '#EF4444',    marginBottom: 12,  },  section: {    margin: 20,    marginTop: 0,  },  sectionTitle: {    fontSize: 18,    fontWeight: 'bold',    color: '#111827',    marginBottom: 12,  },  appointmentCard: {    backgroundColor: '#fff',    padding: 16,    borderRadius: 12,    marginBottom: 12,    shadowColor: '#000',    shadowOffset: { width: 0, height: 2 },    shadowOpacity: 0.1,    shadowRadius: 4,    elevation: 3,  },  appointmentHeader: {    flexDirection: 'row',    justifyContent: 'space-between',    alignItems: 'flex-start',    marginBottom: 8,  },  patientInfo: {    flex: 1,  },  patientName: {    fontSize: 16,    fontWeight: 'bold',    color: '#111827',  },  appointmentTime: {    fontSize: 14,    color: '#6B7280',    marginTop: 2,  },  statusBadge: {    paddingHorizontal: 8,    paddingVertical: 4,    borderRadius: 16,  },  statusText: {    color: '#fff',    fontSize: 12,    fontWeight: 'bold',    textTransform: 'capitalize',  },  appointmentType: {    fontSize: 14,    color: '#4F46E5',    fontWeight: '500',    marginBottom: 4,  },  appointmentReason: {    fontSize: 14,    color: '#6B7280',    marginBottom: 12,  },  appointmentActions: {    flexDirection: 'row',    gap: 8,  },  actionButton: {    flexDirection: 'row',    alignItems: 'center',    paddingHorizontal: 12,    paddingVertical: 8,    borderRadius: 8,    gap: 4,  },  videoButton: {    backgroundColor: '#4F46E5',  },  historyButton: {    backgroundColor: '#F3F4F6',    borderWidth: 1,    borderColor: '#4F46E5',  },  messageButton: {    backgroundColor: '#F3F4F6',    borderWidth: 1,    borderColor: '#10B981',  },  buttonText: {    fontSize: 12,    fontWeight: '500',    color: '#fff',  },  emptyState: {    alignItems: 'center',    padding: 40,  },  emptyText: {    fontSize: 16,    color: '#9CA3AF',    marginTop: 12,  },  viewAllButton: {    alignItems: 'center',    padding: 12,  },  viewAllText: {    color: '#4F46E5',    fontWeight: '500',  },  quickActions: {    margin: 20,    marginTop: 0,  },  actionsGrid: {    flexDirection: 'row',    flexWrap: 'wrap',    gap: 16,  },  quickActionButton: {    flex: 1,    minWidth: 80,    backgroundColor: '#fff',    padding: 16,    borderRadius: 12,    alignItems: 'center',    shadowColor: '#000',    shadowOffset: { width: 0, height: 2 },    shadowOpacity: 0.1,    shadowRadius: 4,    elevation: 3,  },  quickActionText: {    fontSize: 12,    color: '#4F46E5',    fontWeight: '500',    marginTop: 8,  },});export default ProviderDashboard;

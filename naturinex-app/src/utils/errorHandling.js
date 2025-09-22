@@ -1,457 +1,1 @@
-/**
- * Comprehensive Error Handling and Logging Module for Naturinex
- * Implements robust error tracking, logging, and recovery mechanisms
- */
-
-import { db } from '../firebase';
-import { doc, setDoc } from 'firebase/firestore';
-
-// Error severity levels
-export const ErrorSeverity = {
-  LOW: 'low',
-  MEDIUM: 'medium',
-  HIGH: 'high',
-  CRITICAL: 'critical'
-};
-
-// Error categories
-export const ErrorCategory = {
-  NETWORK: 'network',
-  AUTH: 'authentication',
-  API: 'api',
-  VALIDATION: 'validation',
-  PERMISSION: 'permission',
-  STORAGE: 'storage',
-  PAYMENT: 'payment',
-  SECURITY: 'security',
-  SYSTEM: 'system',
-  UNKNOWN: 'unknown'
-};
-
-// Error codes for standardization
-export const ErrorCodes = {
-  // Network errors
-  NETWORK_OFFLINE: 'E001',
-  NETWORK_TIMEOUT: 'E002',
-  NETWORK_SERVER_ERROR: 'E003',
-  
-  // Authentication errors
-  AUTH_INVALID_CREDENTIALS: 'E101',
-  AUTH_SESSION_EXPIRED: 'E102',
-  AUTH_INSUFFICIENT_PERMISSIONS: 'E103',
-  
-  // API errors
-  API_RATE_LIMIT: 'E201',
-  API_INVALID_REQUEST: 'E202',
-  API_SERVICE_UNAVAILABLE: 'E203',
-  
-  // Validation errors
-  VALIDATION_INVALID_INPUT: 'E301',
-  VALIDATION_MISSING_REQUIRED: 'E302',
-  
-  // Payment errors
-  PAYMENT_FAILED: 'E401',
-  PAYMENT_CARD_DECLINED: 'E402',
-  PAYMENT_SUBSCRIPTION_EXPIRED: 'E403',
-  
-  // Security errors
-  SECURITY_SUSPICIOUS_ACTIVITY: 'E501',
-  SECURITY_INVALID_TOKEN: 'E502',
-  
-  // System errors
-  SYSTEM_STORAGE_FULL: 'E601',
-  SYSTEM_MEMORY_ERROR: 'E602',
-  SYSTEM_UNKNOWN: 'E999'
-};
-
-// Main Error Handler Class
-class ErrorHandler {
-  constructor() {
-    this.errorQueue = [];
-    this.maxQueueSize = 100;
-    this.isOnline = navigator.onLine;
-    
-    // Listen for online/offline events
-    window.addEventListener('online', () => {
-      this.isOnline = true;
-      this.flushErrorQueue();
-    });
-    
-    window.addEventListener('offline', () => {
-      this.isOnline = false;
-    });
-    
-    // Set up global error handlers
-    this.setupGlobalHandlers();
-  }
-
-  setupGlobalHandlers() {
-    // Handle unhandled errors
-    window.addEventListener('error', (event) => {
-      this.handleError(new Error(event.message), {
-        category: ErrorCategory.SYSTEM,
-        severity: ErrorSeverity.HIGH,
-        context: {
-          filename: event.filename,
-          lineno: event.lineno,
-          colno: event.colno
-        }
-      });
-      event.preventDefault();
-    });
-
-    // Handle unhandled promise rejections
-    window.addEventListener('unhandledrejection', (event) => {
-      this.handleError(new Error(event.reason), {
-        category: ErrorCategory.SYSTEM,
-        severity: ErrorSeverity.HIGH,
-        context: {
-          promise: true,
-          reason: event.reason
-        }
-      });
-      event.preventDefault();
-    });
-  }
-
-  // Main error handling method
-  async handleError(error, options = {}) {
-    const errorInfo = this.buildErrorInfo(error, options);
-    
-    // Log to console in development
-    if (process.env.NODE_ENV === 'development') {
-      console.error('🚨 Error:', errorInfo);
-    }
-    
-    // Add to queue
-    this.addToQueue(errorInfo);
-    
-    // Try to send immediately if online
-    if (this.isOnline) {
-      await this.sendErrorToServer(errorInfo);
-    }
-    
-    // Handle specific error types
-    this.handleSpecificError(errorInfo);
-    
-    return errorInfo;
-  }
-
-  buildErrorInfo(error, options) {
-    const {
-      category = this.categorizeError(error),
-      severity = this.determineSeverity(error),
-      context = {},
-      userId = this.getCurrentUserId(),
-      sessionId = this.getSessionId()
-    } = options;
-
-    return {
-      id: this.generateErrorId(),
-      timestamp: new Date().toISOString(),
-      message: error.message,
-      stack: error.stack,
-      code: this.getErrorCode(error),
-      category,
-      severity,
-      context: {
-        ...context,
-        userAgent: navigator.userAgent,
-        url: window.location.href,
-        viewport: {
-          width: window.innerWidth,
-          height: window.innerHeight
-        },
-        memory: this.getMemoryInfo(),
-        connection: this.getConnectionInfo()
-      },
-      userId,
-      sessionId,
-      handled: true
-    };
-  }
-
-  categorizeError(error) {
-    const message = error.message.toLowerCase();
-    
-    if (message.includes('network') || message.includes('fetch')) {
-      return ErrorCategory.NETWORK;
-    } else if (message.includes('auth') || message.includes('permission')) {
-      return ErrorCategory.AUTH;
-    } else if (message.includes('api') || message.includes('rate limit')) {
-      return ErrorCategory.API;
-    } else if (message.includes('validation') || message.includes('invalid')) {
-      return ErrorCategory.VALIDATION;
-    } else if (message.includes('payment') || message.includes('stripe')) {
-      return ErrorCategory.PAYMENT;
-    } else if (message.includes('security') || message.includes('csrf')) {
-      return ErrorCategory.SECURITY;
-    } else if (message.includes('storage') || message.includes('quota')) {
-      return ErrorCategory.STORAGE;
-    } else {
-      return ErrorCategory.UNKNOWN;
-    }
-  }
-
-  determineSeverity(error) {
-    const message = error.message.toLowerCase();
-    
-    if (message.includes('critical') || message.includes('fatal')) {
-      return ErrorSeverity.CRITICAL;
-    } else if (message.includes('error') || message.includes('fail')) {
-      return ErrorSeverity.HIGH;
-    } else if (message.includes('warning') || message.includes('retry')) {
-      return ErrorSeverity.MEDIUM;
-    } else {
-      return ErrorSeverity.LOW;
-    }
-  }
-
-  getErrorCode(error) {
-    if (error.code) return error.code;
-    
-    const message = error.message.toLowerCase();
-    
-    if (message.includes('network')) return ErrorCodes.NETWORK_OFFLINE;
-    if (message.includes('timeout')) return ErrorCodes.NETWORK_TIMEOUT;
-    if (message.includes('rate limit')) return ErrorCodes.API_RATE_LIMIT;
-    if (message.includes('invalid')) return ErrorCodes.VALIDATION_INVALID_INPUT;
-    if (message.includes('permission')) return ErrorCodes.AUTH_INSUFFICIENT_PERMISSIONS;
-    if (message.includes('payment')) return ErrorCodes.PAYMENT_FAILED;
-    
-    return ErrorCodes.SYSTEM_UNKNOWN;
-  }
-
-  generateErrorId() {
-    return `err_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-  }
-
-  getCurrentUserId() {
-    // Get from auth context or local storage
-    return localStorage.getItem('userId') || 'anonymous';
-  }
-
-  getSessionId() {
-    let sessionId = sessionStorage.getItem('sessionId');
-    if (!sessionId) {
-      sessionId = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-      sessionStorage.setItem('sessionId', sessionId);
-    }
-    return sessionId;
-  }
-
-  getMemoryInfo() {
-    if (performance.memory) {
-      return {
-        usedJSHeapSize: Math.round(performance.memory.usedJSHeapSize / 1048576) + 'MB',
-        totalJSHeapSize: Math.round(performance.memory.totalJSHeapSize / 1048576) + 'MB',
-        jsHeapSizeLimit: Math.round(performance.memory.jsHeapSizeLimit / 1048576) + 'MB'
-      };
-    }
-    return null;
-  }
-
-  getConnectionInfo() {
-    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
-    if (connection) {
-      return {
-        effectiveType: connection.effectiveType,
-        downlink: connection.downlink,
-        rtt: connection.rtt,
-        saveData: connection.saveData
-      };
-    }
-    return null;
-  }
-
-  addToQueue(errorInfo) {
-    this.errorQueue.push(errorInfo);
-    
-    // Maintain queue size limit
-    if (this.errorQueue.length > this.maxQueueSize) {
-      this.errorQueue = this.errorQueue.slice(-this.maxQueueSize);
-    }
-    
-    // Store in local storage for persistence
-    try {
-      localStorage.setItem('errorQueue', JSON.stringify(this.errorQueue));
-    } catch (e) {
-      console.warn('Failed to store error queue:', e);
-    }
-  }
-
-  async sendErrorToServer(errorInfo) {
-    try {
-      // Send to Firestore error logs
-      await setDoc(doc(db, 'error_logs', errorInfo.id), {
-        ...errorInfo,
-        sent: true,
-        sentAt: new Date()
-      });
-      
-      // Remove from queue if successful
-      this.errorQueue = this.errorQueue.filter(e => e.id !== errorInfo.id);
-      localStorage.setItem('errorQueue', JSON.stringify(this.errorQueue));
-      
-      return true;
-    } catch (error) {
-      console.warn('Failed to send error to server:', error);
-      return false;
-    }
-  }
-
-  async flushErrorQueue() {
-    const errors = [...this.errorQueue];
-    
-    for (const errorInfo of errors) {
-      await this.sendErrorToServer(errorInfo);
-    }
-  }
-
-  handleSpecificError(errorInfo) {
-    switch (errorInfo.category) {
-      case ErrorCategory.NETWORK:
-        this.handleNetworkError(errorInfo);
-        break;
-      case ErrorCategory.AUTH:
-        this.handleAuthError(errorInfo);
-        break;
-      case ErrorCategory.API:
-        this.handleAPIError(errorInfo);
-        break;
-      case ErrorCategory.PAYMENT:
-        this.handlePaymentError(errorInfo);
-        break;
-      case ErrorCategory.SECURITY:
-        this.handleSecurityError(errorInfo);
-        break;
-      default:
-        // Generic handling
-        break;
-    }
-  }
-
-  handleNetworkError(errorInfo) {
-    // Show offline indicator
-    if (errorInfo.code === ErrorCodes.NETWORK_OFFLINE) {
-      this.showOfflineNotification();
-    }
-  }
-
-  handleAuthError(errorInfo) {
-    // Redirect to login if session expired
-    if (errorInfo.code === ErrorCodes.AUTH_SESSION_EXPIRED) {
-      window.location.href = '/login';
-    }
-  }
-
-  handleAPIError(errorInfo) {
-    // Show rate limit message
-    if (errorInfo.code === ErrorCodes.API_RATE_LIMIT) {
-      this.showRateLimitNotification();
-    }
-  }
-
-  handlePaymentError(errorInfo) {
-    // Show payment failure message
-    if (errorInfo.code === ErrorCodes.PAYMENT_FAILED) {
-      this.showPaymentFailureNotification();
-    }
-  }
-
-  handleSecurityError(errorInfo) {
-    // Log security event and potentially lock account
-    if (errorInfo.code === ErrorCodes.SECURITY_SUSPICIOUS_ACTIVITY) {
-      this.reportSecurityIncident(errorInfo);
-    }
-  }
-
-  showOfflineNotification() {
-    // Implementation depends on notification system
-    console.warn('You are currently offline. Some features may be limited.');
-  }
-
-  showRateLimitNotification() {
-    console.warn('Too many requests. Please slow down.');
-  }
-
-  showPaymentFailureNotification() {
-    console.warn('Payment failed. Please check your payment method.');
-  }
-
-  reportSecurityIncident(errorInfo) {
-    // Send high-priority security alert
-    console.error('Security incident detected:', errorInfo);
-  }
-
-  // Utility methods for common error scenarios
-  static handleAPIError(error, context = {}) {
-    const instance = new ErrorHandler();
-    return instance.handleError(error, {
-      category: ErrorCategory.API,
-      context
-    });
-  }
-
-  static handleAuthError(error, context = {}) {
-    const instance = new ErrorHandler();
-    return instance.handleError(error, {
-      category: ErrorCategory.AUTH,
-      context
-    });
-  }
-
-  static handlePaymentError(error, context = {}) {
-    const instance = new ErrorHandler();
-    return instance.handleError(error, {
-      category: ErrorCategory.PAYMENT,
-      context
-    });
-  }
-}
-
-// Create singleton instance
-const errorHandler = new ErrorHandler();
-
-// Export functions
-export const handleError = (error, options) => errorHandler.handleError(error, options);
-export const handleAPIError = ErrorHandler.handleAPIError;
-export const handleAuthError = ErrorHandler.handleAuthError;
-export const handlePaymentError = ErrorHandler.handlePaymentError;
-
-// React Error Boundary Helper
-export const logErrorToService = (error, errorInfo) => {
-  errorHandler.handleError(error, {
-    category: ErrorCategory.SYSTEM,
-    severity: ErrorSeverity.HIGH,
-    context: {
-      componentStack: errorInfo.componentStack,
-      errorBoundary: true
-    }
-  });
-};
-
-// Performance monitoring
-export const monitorPerformance = () => {
-  if ('PerformanceObserver' in window) {
-    const observer = new PerformanceObserver((list) => {
-      list.getEntries().forEach((entry) => {
-        if (entry.duration > 3000) {
-          errorHandler.handleError(new Error('Slow performance detected'), {
-            category: ErrorCategory.SYSTEM,
-            severity: ErrorSeverity.MEDIUM,
-            context: {
-              entryType: entry.entryType,
-              name: entry.name,
-              duration: entry.duration
-            }
-          });
-        }
-      });
-    });
-    
-    observer.observe({ entryTypes: ['navigation', 'resource'] });
-  }
-};
-
-export default errorHandler;
+/** * Comprehensive Error Handling and Logging Module for Naturinex * Implements robust error tracking, logging, and recovery mechanisms */import { db } from '../firebase';import { doc, setDoc } from 'firebase/firestore';// Error severity levelsexport const ErrorSeverity = {  LOW: 'low',  MEDIUM: 'medium',  HIGH: 'high',  CRITICAL: 'critical'};// Error categoriesexport const ErrorCategory = {  NETWORK: 'network',  AUTH: 'authentication',  API: 'api',  VALIDATION: 'validation',  PERMISSION: 'permission',  STORAGE: 'storage',  PAYMENT: 'payment',  SECURITY: 'security',  SYSTEM: 'system',  UNKNOWN: 'unknown'};// Error codes for standardizationexport const ErrorCodes = {  // Network errors  NETWORK_OFFLINE: 'E001',  NETWORK_TIMEOUT: 'E002',  NETWORK_SERVER_ERROR: 'E003',  // Authentication errors  AUTH_INVALID_CREDENTIALS: 'E101',  AUTH_SESSION_EXPIRED: 'E102',  AUTH_INSUFFICIENT_PERMISSIONS: 'E103',  // API errors  API_RATE_LIMIT: 'E201',  API_INVALID_REQUEST: 'E202',  API_SERVICE_UNAVAILABLE: 'E203',  // Validation errors  VALIDATION_INVALID_INPUT: 'E301',  VALIDATION_MISSING_REQUIRED: 'E302',  // Payment errors  PAYMENT_FAILED: 'E401',  PAYMENT_CARD_DECLINED: 'E402',  PAYMENT_SUBSCRIPTION_EXPIRED: 'E403',  // Security errors  SECURITY_SUSPICIOUS_ACTIVITY: 'E501',  SECURITY_INVALID_TOKEN: 'E502',  // System errors  SYSTEM_STORAGE_FULL: 'E601',  SYSTEM_MEMORY_ERROR: 'E602',  SYSTEM_UNKNOWN: 'E999'};// Main Error Handler Classclass ErrorHandler {  constructor() {    this.errorQueue = [];    this.maxQueueSize = 100;    this.isOnline = navigator.onLine;    // Listen for online/offline events    window.addEventListener('online', () => {      this.isOnline = true;      this.flushErrorQueue();    });    window.addEventListener('offline', () => {      this.isOnline = false;    });    // Set up global error handlers    this.setupGlobalHandlers();  }  setupGlobalHandlers() {    // Handle unhandled errors    window.addEventListener('error', (event) => {      this.handleError(new Error(event.message), {        category: ErrorCategory.SYSTEM,        severity: ErrorSeverity.HIGH,        context: {          filename: event.filename,          lineno: event.lineno,          colno: event.colno        }      });      event.preventDefault();    });    // Handle unhandled promise rejections    window.addEventListener('unhandledrejection', (event) => {      this.handleError(new Error(event.reason), {        category: ErrorCategory.SYSTEM,        severity: ErrorSeverity.HIGH,        context: {          promise: true,          reason: event.reason        }      });      event.preventDefault();    });  }  // Main error handling method  async handleError(error, options = {}) {    const errorInfo = this.buildErrorInfo(error, options);    // Log to console in development    if (process.env.NODE_ENV === 'development') {      console.error('🚨 Error:', errorInfo);    }    // Add to queue    this.addToQueue(errorInfo);    // Try to send immediately if online    if (this.isOnline) {      await this.sendErrorToServer(errorInfo);    }    // Handle specific error types    this.handleSpecificError(errorInfo);    return errorInfo;  }  buildErrorInfo(error, options) {    const {      category = this.categorizeError(error),      severity = this.determineSeverity(error),      context = {},      userId = this.getCurrentUserId(),      sessionId = this.getSessionId()    } = options;    return {      id: this.generateErrorId(),      timestamp: new Date().toISOString(),      message: error.message,      stack: error.stack,      code: this.getErrorCode(error),      category,      severity,      context: {        ...context,        userAgent: navigator.userAgent,        url: window.location.href,        viewport: {          width: window.innerWidth,          height: window.innerHeight        },        memory: this.getMemoryInfo(),        connection: this.getConnectionInfo()      },      userId,      sessionId,      handled: true    };  }  categorizeError(error) {    const message = error.message.toLowerCase();    if (message.includes('network') || message.includes('fetch')) {      return ErrorCategory.NETWORK;    } else if (message.includes('auth') || message.includes('permission')) {      return ErrorCategory.AUTH;    } else if (message.includes('api') || message.includes('rate limit')) {      return ErrorCategory.API;    } else if (message.includes('validation') || message.includes('invalid')) {      return ErrorCategory.VALIDATION;    } else if (message.includes('payment') || message.includes('stripe')) {      return ErrorCategory.PAYMENT;    } else if (message.includes('security') || message.includes('csrf')) {      return ErrorCategory.SECURITY;    } else if (message.includes('storage') || message.includes('quota')) {      return ErrorCategory.STORAGE;    } else {      return ErrorCategory.UNKNOWN;    }  }  determineSeverity(error) {    const message = error.message.toLowerCase();    if (message.includes('critical') || message.includes('fatal')) {      return ErrorSeverity.CRITICAL;    } else if (message.includes('error') || message.includes('fail')) {      return ErrorSeverity.HIGH;    } else if (message.includes('warning') || message.includes('retry')) {      return ErrorSeverity.MEDIUM;    } else {      return ErrorSeverity.LOW;    }  }  getErrorCode(error) {    if (error.code) return error.code;    const message = error.message.toLowerCase();    if (message.includes('network')) return ErrorCodes.NETWORK_OFFLINE;    if (message.includes('timeout')) return ErrorCodes.NETWORK_TIMEOUT;    if (message.includes('rate limit')) return ErrorCodes.API_RATE_LIMIT;    if (message.includes('invalid')) return ErrorCodes.VALIDATION_INVALID_INPUT;    if (message.includes('permission')) return ErrorCodes.AUTH_INSUFFICIENT_PERMISSIONS;    if (message.includes('payment')) return ErrorCodes.PAYMENT_FAILED;    return ErrorCodes.SYSTEM_UNKNOWN;  }  generateErrorId() {    return `err_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;  }  getCurrentUserId() {    // Get from auth context or local storage    return localStorage.getItem('userId') || 'anonymous';  }  getSessionId() {    let sessionId = sessionStorage.getItem('sessionId');    if (!sessionId) {      sessionId = `sess_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;      sessionStorage.setItem('sessionId', sessionId);    }    return sessionId;  }  getMemoryInfo() {    if (performance.memory) {      return {        usedJSHeapSize: Math.round(performance.memory.usedJSHeapSize / 1048576) + 'MB',        totalJSHeapSize: Math.round(performance.memory.totalJSHeapSize / 1048576) + 'MB',        jsHeapSizeLimit: Math.round(performance.memory.jsHeapSizeLimit / 1048576) + 'MB'      };    }    return null;  }  getConnectionInfo() {    const connection = navigator.connection || navigator.mozConnection || navigator.webkitConnection;    if (connection) {      return {        effectiveType: connection.effectiveType,        downlink: connection.downlink,        rtt: connection.rtt,        saveData: connection.saveData      };    }    return null;  }  addToQueue(errorInfo) {    this.errorQueue.push(errorInfo);    // Maintain queue size limit    if (this.errorQueue.length > this.maxQueueSize) {      this.errorQueue = this.errorQueue.slice(-this.maxQueueSize);    }    // Store in local storage for persistence    try {      localStorage.setItem('errorQueue', JSON.stringify(this.errorQueue));    } catch (e) {    }  }  async sendErrorToServer(errorInfo) {    try {      // Send to Firestore error logs      await setDoc(doc(db, 'error_logs', errorInfo.id), {        ...errorInfo,        sent: true,        sentAt: new Date()      });      // Remove from queue if successful      this.errorQueue = this.errorQueue.filter(e => e.id !== errorInfo.id);      localStorage.setItem('errorQueue', JSON.stringify(this.errorQueue));      return true;    } catch (error) {      return false;    }  }  async flushErrorQueue() {    const errors = [...this.errorQueue];    for (const errorInfo of errors) {      await this.sendErrorToServer(errorInfo);    }  }  handleSpecificError(errorInfo) {    switch (errorInfo.category) {      case ErrorCategory.NETWORK:        this.handleNetworkError(errorInfo);        break;      case ErrorCategory.AUTH:        this.handleAuthError(errorInfo);        break;      case ErrorCategory.API:        this.handleAPIError(errorInfo);        break;      case ErrorCategory.PAYMENT:        this.handlePaymentError(errorInfo);        break;      case ErrorCategory.SECURITY:        this.handleSecurityError(errorInfo);        break;      default:        // Generic handling        break;    }  }  handleNetworkError(errorInfo) {    // Show offline indicator    if (errorInfo.code === ErrorCodes.NETWORK_OFFLINE) {      this.showOfflineNotification();    }  }  handleAuthError(errorInfo) {    // Redirect to login if session expired    if (errorInfo.code === ErrorCodes.AUTH_SESSION_EXPIRED) {      window.location.href = '/login';    }  }  handleAPIError(errorInfo) {    // Show rate limit message    if (errorInfo.code === ErrorCodes.API_RATE_LIMIT) {      this.showRateLimitNotification();    }  }  handlePaymentError(errorInfo) {    // Show payment failure message    if (errorInfo.code === ErrorCodes.PAYMENT_FAILED) {      this.showPaymentFailureNotification();    }  }  handleSecurityError(errorInfo) {    // Log security event and potentially lock account    if (errorInfo.code === ErrorCodes.SECURITY_SUSPICIOUS_ACTIVITY) {      this.reportSecurityIncident(errorInfo);    }  }  showOfflineNotification() {    // Implementation depends on notification system  }  showRateLimitNotification() {  }  showPaymentFailureNotification() {  }  reportSecurityIncident(errorInfo) {    // Send high-priority security alert    console.error('Security incident detected:', errorInfo);  }  // Utility methods for common error scenarios  static handleAPIError(error, context = {}) {    const instance = new ErrorHandler();    return instance.handleError(error, {      category: ErrorCategory.API,      context    });  }  static handleAuthError(error, context = {}) {    const instance = new ErrorHandler();    return instance.handleError(error, {      category: ErrorCategory.AUTH,      context    });  }  static handlePaymentError(error, context = {}) {    const instance = new ErrorHandler();    return instance.handleError(error, {      category: ErrorCategory.PAYMENT,      context    });  }}// Create singleton instanceconst errorHandler = new ErrorHandler();// Export functionsexport const handleError = (error, options) => errorHandler.handleError(error, options);export const handleAPIError = ErrorHandler.handleAPIError;export const handleAuthError = ErrorHandler.handleAuthError;export const handlePaymentError = ErrorHandler.handlePaymentError;// React Error Boundary Helperexport const logErrorToService = (error, errorInfo) => {  errorHandler.handleError(error, {    category: ErrorCategory.SYSTEM,    severity: ErrorSeverity.HIGH,    context: {      componentStack: errorInfo.componentStack,      errorBoundary: true    }  });};// Performance monitoringexport const monitorPerformance = () => {  if ('PerformanceObserver' in window) {    const observer = new PerformanceObserver((list) => {      list.getEntries().forEach((entry) => {        if (entry.duration > 3000) {          errorHandler.handleError(new Error('Slow performance detected'), {            category: ErrorCategory.SYSTEM,            severity: ErrorSeverity.MEDIUM,            context: {              entryType: entry.entryType,              name: entry.name,              duration: entry.duration            }          });        }      });    });    observer.observe({ entryTypes: ['navigation', 'resource'] });  }};export default errorHandler;

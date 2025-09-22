@@ -1,788 +1,1 @@
-/**
- * Enterprise API for NaturineX B2B Platform
- * RESTful API endpoints for external integrations, batch operations, and webhooks
- */
-
-import express from 'express';
-import rateLimit from 'express-rate-limit';
-import helmet from 'helmet';
-import cors from 'cors';
-import crypto from 'crypto';
-import { body, param, query, validationResult } from 'express-validator';
-import EnterpriseService from '../services/EnterpriseService.js';
-
-const router = express.Router();
-
-// =============================================================================
-// MIDDLEWARE & SECURITY
-// =============================================================================
-
-// Security middleware
-router.use(helmet());
-router.use(cors({
-  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
-  credentials: true
-}));
-
-// API Key authentication middleware
-const authenticateAPIKey = async (req, res, next) => {
-  try {
-    const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');
-
-    if (!apiKey) {
-      return res.status(401).json({
-        error: 'API key required',
-        code: 'MISSING_API_KEY'
-      });
-    }
-
-    const validation = await EnterpriseService.validateAPIKey(apiKey);
-
-    if (!validation.success) {
-      return res.status(401).json({
-        error: 'Invalid API key',
-        code: 'INVALID_API_KEY'
-      });
-    }
-
-    req.apiKey = validation.data;
-    req.organization = validation.data.organizations;
-    next();
-  } catch (error) {
-    console.error('API authentication error:', error);
-    res.status(500).json({
-      error: 'Authentication error',
-      code: 'AUTH_ERROR'
-    });
-  }
-};
-
-// Rate limiting based on API key tier
-const createRateLimit = (requests, windowMs, message) => {
-  return rateLimit({
-    windowMs,
-    max: requests,
-    message: { error: message, code: 'RATE_LIMIT_EXCEEDED' },
-    standardHeaders: true,
-    legacyHeaders: false,
-    keyGenerator: (req) => req.apiKey?.id || req.ip
-  });
-};
-
-// Dynamic rate limiting based on API key settings
-const dynamicRateLimit = (req, res, next) => {
-  if (!req.apiKey) return next();
-
-  const limiter = createRateLimit(
-    req.apiKey.rate_limit_per_minute,
-    60 * 1000,
-    'Rate limit exceeded'
-  );
-
-  limiter(req, res, next);
-};
-
-// Validation error handler
-const handleValidationErrors = (req, res, next) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({
-      error: 'Validation failed',
-      code: 'VALIDATION_ERROR',
-      details: errors.array()
-    });
-  }
-  next();
-};
-
-// Usage tracking middleware
-const trackUsage = async (req, res, next) => {
-  const start = Date.now();
-
-  res.on('finish', async () => {
-    try {
-      const responseTime = Date.now() - start;
-      const dataSize = parseInt(res.get('content-length') || '0') / (1024 * 1024); // MB
-
-      await EnterpriseService.recordUsage(req.organization.id, {
-        apiKeyId: req.apiKey.id,
-        metricType: 'api_call',
-        metricCategory: req.route?.path || req.path,
-        endpoint: req.originalUrl,
-        method: req.method,
-        responseStatus: res.statusCode,
-        responseTimeMs: responseTime,
-        dataProcessedMb: dataSize,
-        costCredits: calculateCostCredits(req, dataSize),
-        ipAddress: req.ip,
-        userAgent: req.get('User-Agent')
-      });
-    } catch (error) {
-      console.error('Usage tracking error:', error);
-    }
-  });
-
-  next();
-};
-
-const calculateCostCredits = (req, dataSizeMb) => {
-  // Implement cost calculation based on API endpoint and data processed
-  const baseCost = 0.001;
-  const dataCost = dataSizeMb * 0.01;
-  return baseCost + dataCost;
-};
-
-// =============================================================================
-// ORGANIZATION MANAGEMENT ENDPOINTS
-// =============================================================================
-
-/**
- * GET /api/enterprise/organization
- * Get organization information
- */
-router.get('/organization',
-  authenticateAPIKey,
-  dynamicRateLimit,
-  trackUsage,
-  async (req, res) => {
-    try {
-      res.json({
-        success: true,
-        data: {
-          id: req.organization.id,
-          name: req.organization.name,
-          domain: req.organization.domain,
-          subscription_tier: req.organization.subscription_tier,
-          features: req.organization.features,
-          api_quota_monthly: req.organization.api_quota_monthly,
-          max_users: req.organization.max_users
-        }
-      });
-    } catch (error) {
-      console.error('Error fetching organization:', error);
-      res.status(500).json({
-        error: 'Internal server error',
-        code: 'INTERNAL_ERROR'
-      });
-    }
-  }
-);
-
-/**
- * PUT /api/enterprise/organization
- * Update organization settings
- */
-router.put('/organization',
-  authenticateAPIKey,
-  dynamicRateLimit,
-  trackUsage,
-  [
-    body('name').optional().isLength({ min: 1, max: 255 }),
-    body('features').optional().isObject()
-  ],
-  handleValidationErrors,
-  async (req, res) => {
-    try {
-      const { name, features } = req.body;
-      const updates = {};
-
-      if (name) updates.name = name;
-      if (features) updates.features = features;
-
-      const result = await EnterpriseService.updateOrganization(
-        req.organization.id,
-        updates,
-        req.apiKey.id
-      );
-
-      if (result.success) {
-        res.json({
-          success: true,
-          data: result.data
-        });
-      } else {
-        res.status(400).json({
-          error: result.error,
-          code: 'UPDATE_FAILED'
-        });
-      }
-    } catch (error) {
-      console.error('Error updating organization:', error);
-      res.status(500).json({
-        error: 'Internal server error',
-        code: 'INTERNAL_ERROR'
-      });
-    }
-  }
-);
-
-// =============================================================================
-// USER MANAGEMENT ENDPOINTS
-// =============================================================================
-
-/**
- * GET /api/enterprise/users
- * List organization users with pagination and filtering
- */
-router.get('/users',
-  authenticateAPIKey,
-  dynamicRateLimit,
-  trackUsage,
-  [
-    query('page').optional().isInt({ min: 1 }),
-    query('limit').optional().isInt({ min: 1, max: 100 }),
-    query('role').optional().isIn(['admin', 'manager', 'member', 'viewer']),
-    query('status').optional().isIn(['active', 'invited', 'suspended'])
-  ],
-  handleValidationErrors,
-  async (req, res) => {
-    try {
-      const options = {
-        page: parseInt(req.query.page) || 1,
-        limit: parseInt(req.query.limit) || 20,
-        role: req.query.role,
-        status: req.query.status,
-        search: req.query.search
-      };
-
-      const result = await EnterpriseService.getOrganizationUsers(
-        req.organization.id,
-        options
-      );
-
-      if (result.success) {
-        res.json({
-          success: true,
-          data: result.data
-        });
-      } else {
-        res.status(400).json({
-          error: result.error,
-          code: 'FETCH_FAILED'
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching users:', error);
-      res.status(500).json({
-        error: 'Internal server error',
-        code: 'INTERNAL_ERROR'
-      });
-    }
-  }
-);
-
-/**
- * POST /api/enterprise/users/invite
- * Invite a new user to the organization
- */
-router.post('/users/invite',
-  authenticateAPIKey,
-  dynamicRateLimit,
-  trackUsage,
-  [
-    body('email').isEmail().normalizeEmail(),
-    body('role').isIn(['admin', 'manager', 'member', 'viewer']),
-    body('permissions').optional().isObject()
-  ],
-  handleValidationErrors,
-  async (req, res) => {
-    try {
-      const { email, role, permissions } = req.body;
-
-      const result = await EnterpriseService.inviteUser(
-        req.organization.id,
-        { email, role, permissions },
-        req.apiKey.id
-      );
-
-      if (result.success) {
-        res.status(201).json({
-          success: true,
-          data: result.data
-        });
-      } else {
-        res.status(400).json({
-          error: result.error,
-          code: 'INVITE_FAILED'
-        });
-      }
-    } catch (error) {
-      console.error('Error inviting user:', error);
-      res.status(500).json({
-        error: 'Internal server error',
-        code: 'INTERNAL_ERROR'
-      });
-    }
-  }
-);
-
-/**
- * POST /api/enterprise/users/bulk-invite
- * Bulk invite multiple users
- */
-router.post('/users/bulk-invite',
-  authenticateAPIKey,
-  createRateLimit(10, 60 * 1000, 'Bulk operations rate limit exceeded'),
-  trackUsage,
-  [
-    body('users').isArray({ min: 1, max: 100 }),
-    body('users.*.email').isEmail().normalizeEmail(),
-    body('users.*.role').isIn(['admin', 'manager', 'member', 'viewer'])
-  ],
-  handleValidationErrors,
-  async (req, res) => {
-    try {
-      const { users } = req.body;
-
-      const result = await EnterpriseService.bulkProvisionUsers(
-        req.organization.id,
-        users,
-        req.apiKey.id
-      );
-
-      if (result.success) {
-        res.status(201).json({
-          success: true,
-          data: result.data
-        });
-      } else {
-        res.status(400).json({
-          error: result.error,
-          code: 'BULK_INVITE_FAILED'
-        });
-      }
-    } catch (error) {
-      console.error('Error in bulk invite:', error);
-      res.status(500).json({
-        error: 'Internal server error',
-        code: 'INTERNAL_ERROR'
-      });
-    }
-  }
-);
-
-/**
- * PUT /api/enterprise/users/:userId/role
- * Update user role and permissions
- */
-router.put('/users/:userId/role',
-  authenticateAPIKey,
-  dynamicRateLimit,
-  trackUsage,
-  [
-    param('userId').notEmpty(),
-    body('role').isIn(['admin', 'manager', 'member', 'viewer']),
-    body('permissions').optional().isObject()
-  ],
-  handleValidationErrors,
-  async (req, res) => {
-    try {
-      const { userId } = req.params;
-      const { role, permissions } = req.body;
-
-      const result = await EnterpriseService.updateUserRole(
-        req.organization.id,
-        userId,
-        role,
-        permissions || {},
-        req.apiKey.id
-      );
-
-      if (result.success) {
-        res.json({
-          success: true,
-          data: result.data
-        });
-      } else {
-        res.status(400).json({
-          error: result.error,
-          code: 'UPDATE_FAILED'
-        });
-      }
-    } catch (error) {
-      console.error('Error updating user role:', error);
-      res.status(500).json({
-        error: 'Internal server error',
-        code: 'INTERNAL_ERROR'
-      });
-    }
-  }
-);
-
-/**
- * PUT /api/enterprise/users/:userId/status
- * Update user status (suspend/activate)
- */
-router.put('/users/:userId/status',
-  authenticateAPIKey,
-  dynamicRateLimit,
-  trackUsage,
-  [
-    param('userId').notEmpty(),
-    body('status').isIn(['active', 'suspended'])
-  ],
-  handleValidationErrors,
-  async (req, res) => {
-    try {
-      const { userId } = req.params;
-      const { status } = req.body;
-
-      const result = await EnterpriseService.updateUserStatus(
-        req.organization.id,
-        userId,
-        status,
-        req.apiKey.id
-      );
-
-      if (result.success) {
-        res.json({
-          success: true,
-          data: result.data
-        });
-      } else {
-        res.status(400).json({
-          error: result.error,
-          code: 'UPDATE_FAILED'
-        });
-      }
-    } catch (error) {
-      console.error('Error updating user status:', error);
-      res.status(500).json({
-        error: 'Internal server error',
-        code: 'INTERNAL_ERROR'
-      });
-    }
-  }
-);
-
-// =============================================================================
-// ANALYTICS & REPORTING ENDPOINTS
-// =============================================================================
-
-/**
- * GET /api/enterprise/analytics/usage
- * Get usage analytics and reports
- */
-router.get('/analytics/usage',
-  authenticateAPIKey,
-  dynamicRateLimit,
-  trackUsage,
-  [
-    query('period').optional().isIn(['daily', 'weekly', 'monthly']),
-    query('start_date').optional().isISO8601(),
-    query('end_date').optional().isISO8601(),
-    query('metric_type').optional().isString(),
-    query('group_by').optional().isIn(['user', 'endpoint', 'date'])
-  ],
-  handleValidationErrors,
-  async (req, res) => {
-    try {
-      const options = {
-        period: req.query.period || 'daily',
-        startDate: req.query.start_date,
-        endDate: req.query.end_date,
-        metricType: req.query.metric_type,
-        groupBy: req.query.group_by
-      };
-
-      const result = await EnterpriseService.getUsageAnalytics(
-        req.organization.id,
-        options
-      );
-
-      if (result.success) {
-        res.json({
-          success: true,
-          data: result.data
-        });
-      } else {
-        res.status(400).json({
-          error: result.error,
-          code: 'ANALYTICS_FAILED'
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching analytics:', error);
-      res.status(500).json({
-        error: 'Internal server error',
-        code: 'INTERNAL_ERROR'
-      });
-    }
-  }
-);
-
-/**
- * GET /api/enterprise/analytics/dashboard
- * Get dashboard summary data
- */
-router.get('/analytics/dashboard',
-  authenticateAPIKey,
-  dynamicRateLimit,
-  trackUsage,
-  async (req, res) => {
-    try {
-      const result = await EnterpriseService.getBillingDashboard(req.organization.id);
-
-      if (result.success) {
-        res.json({
-          success: true,
-          data: result.data
-        });
-      } else {
-        res.status(400).json({
-          error: result.error,
-          code: 'DASHBOARD_FAILED'
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching dashboard:', error);
-      res.status(500).json({
-        error: 'Internal server error',
-        code: 'INTERNAL_ERROR'
-      });
-    }
-  }
-);
-
-// =============================================================================
-// INTEGRATION ENDPOINTS
-// =============================================================================
-
-/**
- * POST /api/enterprise/medical-scan
- * Process medical scan via API
- */
-router.post('/medical-scan',
-  authenticateAPIKey,
-  createRateLimit(1000, 60 * 60 * 1000, 'Medical scan rate limit exceeded'),
-  trackUsage,
-  [
-    body('image_data').notEmpty().isBase64(),
-    body('scan_type').optional().isIn(['medication', 'supplement', 'label']),
-    body('patient_id').optional().isString(),
-    body('metadata').optional().isObject()
-  ],
-  handleValidationErrors,
-  async (req, res) => {
-    try {
-      const { image_data, scan_type, patient_id, metadata } = req.body;
-
-      // Implement medical scan processing logic
-      // This would integrate with your existing AI/OCR services
-
-      const scanResult = await processMedicalScan({
-        imageData: image_data,
-        scanType: scan_type || 'medication',
-        patientId: patient_id,
-        organizationId: req.organization.id,
-        metadata: metadata || {}
-      });
-
-      res.json({
-        success: true,
-        data: scanResult
-      });
-    } catch (error) {
-      console.error('Error processing medical scan:', error);
-      res.status(500).json({
-        error: 'Scan processing failed',
-        code: 'SCAN_ERROR'
-      });
-    }
-  }
-);
-
-/**
- * POST /api/enterprise/batch-scan
- * Process multiple scans in batch
- */
-router.post('/batch-scan',
-  authenticateAPIKey,
-  createRateLimit(100, 60 * 60 * 1000, 'Batch scan rate limit exceeded'),
-  trackUsage,
-  [
-    body('scans').isArray({ min: 1, max: 50 }),
-    body('scans.*.image_data').isBase64(),
-    body('scans.*.scan_type').optional().isIn(['medication', 'supplement', 'label'])
-  ],
-  handleValidationErrors,
-  async (req, res) => {
-    try {
-      const { scans } = req.body;
-
-      const batchResults = await Promise.all(
-        scans.map(async (scan, index) => {
-          try {
-            const result = await processMedicalScan({
-              imageData: scan.image_data,
-              scanType: scan.scan_type || 'medication',
-              organizationId: req.organization.id,
-              batchId: `batch-${Date.now()}-${index}`
-            });
-            return { index, success: true, data: result };
-          } catch (error) {
-            return { index, success: false, error: error.message };
-          }
-        })
-      );
-
-      const successful = batchResults.filter(r => r.success).length;
-      const failed = batchResults.filter(r => !r.success).length;
-
-      res.json({
-        success: true,
-        data: {
-          total: scans.length,
-          successful,
-          failed,
-          results: batchResults
-        }
-      });
-    } catch (error) {
-      console.error('Error processing batch scan:', error);
-      res.status(500).json({
-        error: 'Batch processing failed',
-        code: 'BATCH_ERROR'
-      });
-    }
-  }
-);
-
-// =============================================================================
-// WEBHOOK ENDPOINTS
-// =============================================================================
-
-/**
- * POST /api/enterprise/webhooks/register
- * Register a webhook endpoint
- */
-router.post('/webhooks/register',
-  authenticateAPIKey,
-  dynamicRateLimit,
-  trackUsage,
-  [
-    body('url').isURL(),
-    body('events').isArray({ min: 1 }),
-    body('secret').optional().isLength({ min: 10 })
-  ],
-  handleValidationErrors,
-  async (req, res) => {
-    try {
-      const { url, events, secret } = req.body;
-
-      const webhook = await registerWebhook({
-        organizationId: req.organization.id,
-        url,
-        events,
-        secret: secret || generateWebhookSecret()
-      });
-
-      res.status(201).json({
-        success: true,
-        data: webhook
-      });
-    } catch (error) {
-      console.error('Error registering webhook:', error);
-      res.status(500).json({
-        error: 'Webhook registration failed',
-        code: 'WEBHOOK_ERROR'
-      });
-    }
-  }
-);
-
-/**
- * GET /api/enterprise/webhooks
- * List registered webhooks
- */
-router.get('/webhooks',
-  authenticateAPIKey,
-  dynamicRateLimit,
-  trackUsage,
-  async (req, res) => {
-    try {
-      const webhooks = await getOrganizationWebhooks(req.organization.id);
-
-      res.json({
-        success: true,
-        data: webhooks
-      });
-    } catch (error) {
-      console.error('Error fetching webhooks:', error);
-      res.status(500).json({
-        error: 'Failed to fetch webhooks',
-        code: 'WEBHOOK_ERROR'
-      });
-    }
-  }
-);
-
-// =============================================================================
-// HELPER FUNCTIONS
-// =============================================================================
-
-async function processMedicalScan(scanData) {
-  // Implement medical scan processing logic
-  // This would integrate with your existing AI/OCR services
-  return {
-    scan_id: `scan_${Date.now()}`,
-    results: {
-      detected_items: [],
-      confidence: 0.95,
-      warnings: [],
-      alternatives: []
-    },
-    processed_at: new Date().toISOString()
-  };
-}
-
-async function registerWebhook(webhookData) {
-  // Implement webhook registration logic
-  return {
-    id: `webhook_${Date.now()}`,
-    ...webhookData,
-    created_at: new Date().toISOString()
-  };
-}
-
-async function getOrganizationWebhooks(organizationId) {
-  // Implement webhook fetching logic
-  return [];
-}
-
-function generateWebhookSecret() {
-  return crypto.randomBytes(32).toString('hex');
-}
-
-// =============================================================================
-// ERROR HANDLING
-// =============================================================================
-
-// Global error handler
-router.use((error, req, res, next) => {
-  console.error('Enterprise API Error:', error);
-
-  if (error.type === 'entity.parse.failed') {
-    return res.status(400).json({
-      error: 'Invalid JSON payload',
-      code: 'INVALID_JSON'
-    });
-  }
-
-  res.status(500).json({
-    error: 'Internal server error',
-    code: 'INTERNAL_ERROR',
-    ...(process.env.NODE_ENV === 'development' && { details: error.message })
-  });
-});
-
-// Health check endpoint
-router.get('/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    timestamp: new Date().toISOString(),
-    version: '1.0.0'
-  });
-});
-
-export default router;
+/** * Enterprise API for NaturineX B2B Platform * RESTful API endpoints for external integrations, batch operations, and webhooks */import express from 'express';import rateLimit from 'express-rate-limit';import helmet from 'helmet';import cors from 'cors';import crypto from 'crypto';import { body, param, query, validationResult } from 'express-validator';import EnterpriseService from '../services/EnterpriseService.js';const router = express.Router();// =============================================================================// MIDDLEWARE & SECURITY// =============================================================================// Security middlewarerouter.use(helmet());router.use(cors({  origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],  credentials: true}));// API Key authentication middlewareconst authenticateAPIKey = async (req, res, next) => {  try {    const apiKey = req.headers['x-api-key'] || req.headers['authorization']?.replace('Bearer ', '');    if (!apiKey) {      return res.status(401).json({        error: 'API key required',        code: 'MISSING_API_KEY'      });    }    const validation = await EnterpriseService.validateAPIKey(apiKey);    if (!validation.success) {      return res.status(401).json({        error: 'Invalid API key',        code: 'INVALID_API_KEY'      });    }    req.apiKey = validation.data;    req.organization = validation.data.organizations;    next();  } catch (error) {    console.error('API authentication error:', error);    res.status(500).json({      error: 'Authentication error',      code: 'AUTH_ERROR'    });  }};// Rate limiting based on API key tierconst createRateLimit = (requests, windowMs, message) => {  return rateLimit({    windowMs,    max: requests,    message: { error: message, code: 'RATE_LIMIT_EXCEEDED' },    standardHeaders: true,    legacyHeaders: false,    keyGenerator: (req) => req.apiKey?.id || req.ip  });};// Dynamic rate limiting based on API key settingsconst dynamicRateLimit = (req, res, next) => {  if (!req.apiKey) return next();  const limiter = createRateLimit(    req.apiKey.rate_limit_per_minute,    60 * 1000,    'Rate limit exceeded'  );  limiter(req, res, next);};// Validation error handlerconst handleValidationErrors = (req, res, next) => {  const errors = validationResult(req);  if (!errors.isEmpty()) {    return res.status(400).json({      error: 'Validation failed',      code: 'VALIDATION_ERROR',      details: errors.array()    });  }  next();};// Usage tracking middlewareconst trackUsage = async (req, res, next) => {  const start = Date.now();  res.on('finish', async () => {    try {      const responseTime = Date.now() - start;      const dataSize = parseInt(res.get('content-length') || '0') / (1024 * 1024); // MB      await EnterpriseService.recordUsage(req.organization.id, {        apiKeyId: req.apiKey.id,        metricType: 'api_call',        metricCategory: req.route?.path || req.path,        endpoint: req.originalUrl,        method: req.method,        responseStatus: res.statusCode,        responseTimeMs: responseTime,        dataProcessedMb: dataSize,        costCredits: calculateCostCredits(req, dataSize),        ipAddress: req.ip,        userAgent: req.get('User-Agent')      });    } catch (error) {      console.error('Usage tracking error:', error);    }  });  next();};const calculateCostCredits = (req, dataSizeMb) => {  // Implement cost calculation based on API endpoint and data processed  const baseCost = 0.001;  const dataCost = dataSizeMb * 0.01;  return baseCost + dataCost;};// =============================================================================// ORGANIZATION MANAGEMENT ENDPOINTS// =============================================================================/** * GET /api/enterprise/organization * Get organization information */router.get('/organization',  authenticateAPIKey,  dynamicRateLimit,  trackUsage,  async (req, res) => {    try {      res.json({        success: true,        data: {          id: req.organization.id,          name: req.organization.name,          domain: req.organization.domain,          subscription_tier: req.organization.subscription_tier,          features: req.organization.features,          api_quota_monthly: req.organization.api_quota_monthly,          max_users: req.organization.max_users        }      });    } catch (error) {      console.error('Error fetching organization:', error);      res.status(500).json({        error: 'Internal server error',        code: 'INTERNAL_ERROR'      });    }  });/** * PUT /api/enterprise/organization * Update organization settings */router.put('/organization',  authenticateAPIKey,  dynamicRateLimit,  trackUsage,  [    body('name').optional().isLength({ min: 1, max: 255 }),    body('features').optional().isObject()  ],  handleValidationErrors,  async (req, res) => {    try {      const { name, features } = req.body;      const updates = {};      if (name) updates.name = name;      if (features) updates.features = features;      const result = await EnterpriseService.updateOrganization(        req.organization.id,        updates,        req.apiKey.id      );      if (result.success) {        res.json({          success: true,          data: result.data        });      } else {        res.status(400).json({          error: result.error,          code: 'UPDATE_FAILED'        });      }    } catch (error) {      console.error('Error updating organization:', error);      res.status(500).json({        error: 'Internal server error',        code: 'INTERNAL_ERROR'      });    }  });// =============================================================================// USER MANAGEMENT ENDPOINTS// =============================================================================/** * GET /api/enterprise/users * List organization users with pagination and filtering */router.get('/users',  authenticateAPIKey,  dynamicRateLimit,  trackUsage,  [    query('page').optional().isInt({ min: 1 }),    query('limit').optional().isInt({ min: 1, max: 100 }),    query('role').optional().isIn(['admin', 'manager', 'member', 'viewer']),    query('status').optional().isIn(['active', 'invited', 'suspended'])  ],  handleValidationErrors,  async (req, res) => {    try {      const options = {        page: parseInt(req.query.page) || 1,        limit: parseInt(req.query.limit) || 20,        role: req.query.role,        status: req.query.status,        search: req.query.search      };      const result = await EnterpriseService.getOrganizationUsers(        req.organization.id,        options      );      if (result.success) {        res.json({          success: true,          data: result.data        });      } else {        res.status(400).json({          error: result.error,          code: 'FETCH_FAILED'        });      }    } catch (error) {      console.error('Error fetching users:', error);      res.status(500).json({        error: 'Internal server error',        code: 'INTERNAL_ERROR'      });    }  });/** * POST /api/enterprise/users/invite * Invite a new user to the organization */router.post('/users/invite',  authenticateAPIKey,  dynamicRateLimit,  trackUsage,  [    body('email').isEmail().normalizeEmail(),    body('role').isIn(['admin', 'manager', 'member', 'viewer']),    body('permissions').optional().isObject()  ],  handleValidationErrors,  async (req, res) => {    try {      const { email, role, permissions } = req.body;      const result = await EnterpriseService.inviteUser(        req.organization.id,        { email, role, permissions },        req.apiKey.id      );      if (result.success) {        res.status(201).json({          success: true,          data: result.data        });      } else {        res.status(400).json({          error: result.error,          code: 'INVITE_FAILED'        });      }    } catch (error) {      console.error('Error inviting user:', error);      res.status(500).json({        error: 'Internal server error',        code: 'INTERNAL_ERROR'      });    }  });/** * POST /api/enterprise/users/bulk-invite * Bulk invite multiple users */router.post('/users/bulk-invite',  authenticateAPIKey,  createRateLimit(10, 60 * 1000, 'Bulk operations rate limit exceeded'),  trackUsage,  [    body('users').isArray({ min: 1, max: 100 }),    body('users.*.email').isEmail().normalizeEmail(),    body('users.*.role').isIn(['admin', 'manager', 'member', 'viewer'])  ],  handleValidationErrors,  async (req, res) => {    try {      const { users } = req.body;      const result = await EnterpriseService.bulkProvisionUsers(        req.organization.id,        users,        req.apiKey.id      );      if (result.success) {        res.status(201).json({          success: true,          data: result.data        });      } else {        res.status(400).json({          error: result.error,          code: 'BULK_INVITE_FAILED'        });      }    } catch (error) {      console.error('Error in bulk invite:', error);      res.status(500).json({        error: 'Internal server error',        code: 'INTERNAL_ERROR'      });    }  });/** * PUT /api/enterprise/users/:userId/role * Update user role and permissions */router.put('/users/:userId/role',  authenticateAPIKey,  dynamicRateLimit,  trackUsage,  [    param('userId').notEmpty(),    body('role').isIn(['admin', 'manager', 'member', 'viewer']),    body('permissions').optional().isObject()  ],  handleValidationErrors,  async (req, res) => {    try {      const { userId } = req.params;      const { role, permissions } = req.body;      const result = await EnterpriseService.updateUserRole(        req.organization.id,        userId,        role,        permissions || {},        req.apiKey.id      );      if (result.success) {        res.json({          success: true,          data: result.data        });      } else {        res.status(400).json({          error: result.error,          code: 'UPDATE_FAILED'        });      }    } catch (error) {      console.error('Error updating user role:', error);      res.status(500).json({        error: 'Internal server error',        code: 'INTERNAL_ERROR'      });    }  });/** * PUT /api/enterprise/users/:userId/status * Update user status (suspend/activate) */router.put('/users/:userId/status',  authenticateAPIKey,  dynamicRateLimit,  trackUsage,  [    param('userId').notEmpty(),    body('status').isIn(['active', 'suspended'])  ],  handleValidationErrors,  async (req, res) => {    try {      const { userId } = req.params;      const { status } = req.body;      const result = await EnterpriseService.updateUserStatus(        req.organization.id,        userId,        status,        req.apiKey.id      );      if (result.success) {        res.json({          success: true,          data: result.data        });      } else {        res.status(400).json({          error: result.error,          code: 'UPDATE_FAILED'        });      }    } catch (error) {      console.error('Error updating user status:', error);      res.status(500).json({        error: 'Internal server error',        code: 'INTERNAL_ERROR'      });    }  });// =============================================================================// ANALYTICS & REPORTING ENDPOINTS// =============================================================================/** * GET /api/enterprise/analytics/usage * Get usage analytics and reports */router.get('/analytics/usage',  authenticateAPIKey,  dynamicRateLimit,  trackUsage,  [    query('period').optional().isIn(['daily', 'weekly', 'monthly']),    query('start_date').optional().isISO8601(),    query('end_date').optional().isISO8601(),    query('metric_type').optional().isString(),    query('group_by').optional().isIn(['user', 'endpoint', 'date'])  ],  handleValidationErrors,  async (req, res) => {    try {      const options = {        period: req.query.period || 'daily',        startDate: req.query.start_date,        endDate: req.query.end_date,        metricType: req.query.metric_type,        groupBy: req.query.group_by      };      const result = await EnterpriseService.getUsageAnalytics(        req.organization.id,        options      );      if (result.success) {        res.json({          success: true,          data: result.data        });      } else {        res.status(400).json({          error: result.error,          code: 'ANALYTICS_FAILED'        });      }    } catch (error) {      console.error('Error fetching analytics:', error);      res.status(500).json({        error: 'Internal server error',        code: 'INTERNAL_ERROR'      });    }  });/** * GET /api/enterprise/analytics/dashboard * Get dashboard summary data */router.get('/analytics/dashboard',  authenticateAPIKey,  dynamicRateLimit,  trackUsage,  async (req, res) => {    try {      const result = await EnterpriseService.getBillingDashboard(req.organization.id);      if (result.success) {        res.json({          success: true,          data: result.data        });      } else {        res.status(400).json({          error: result.error,          code: 'DASHBOARD_FAILED'        });      }    } catch (error) {      console.error('Error fetching dashboard:', error);      res.status(500).json({        error: 'Internal server error',        code: 'INTERNAL_ERROR'      });    }  });// =============================================================================// INTEGRATION ENDPOINTS// =============================================================================/** * POST /api/enterprise/medical-scan * Process medical scan via API */router.post('/medical-scan',  authenticateAPIKey,  createRateLimit(1000, 60 * 60 * 1000, 'Medical scan rate limit exceeded'),  trackUsage,  [    body('image_data').notEmpty().isBase64(),    body('scan_type').optional().isIn(['medication', 'supplement', 'label']),    body('patient_id').optional().isString(),    body('metadata').optional().isObject()  ],  handleValidationErrors,  async (req, res) => {    try {      const { image_data, scan_type, patient_id, metadata } = req.body;      // Implement medical scan processing logic      // This would integrate with your existing AI/OCR services      const scanResult = await processMedicalScan({        imageData: image_data,        scanType: scan_type || 'medication',        patientId: patient_id,        organizationId: req.organization.id,        metadata: metadata || {}      });      res.json({        success: true,        data: scanResult      });    } catch (error) {      console.error('Error processing medical scan:', error);      res.status(500).json({        error: 'Scan processing failed',        code: 'SCAN_ERROR'      });    }  });/** * POST /api/enterprise/batch-scan * Process multiple scans in batch */router.post('/batch-scan',  authenticateAPIKey,  createRateLimit(100, 60 * 60 * 1000, 'Batch scan rate limit exceeded'),  trackUsage,  [    body('scans').isArray({ min: 1, max: 50 }),    body('scans.*.image_data').isBase64(),    body('scans.*.scan_type').optional().isIn(['medication', 'supplement', 'label'])  ],  handleValidationErrors,  async (req, res) => {    try {      const { scans } = req.body;      const batchResults = await Promise.all(        scans.map(async (scan, index) => {          try {            const result = await processMedicalScan({              imageData: scan.image_data,              scanType: scan.scan_type || 'medication',              organizationId: req.organization.id,              batchId: `batch-${Date.now()}-${index}`            });            return { index, success: true, data: result };          } catch (error) {            return { index, success: false, error: error.message };          }        })      );      const successful = batchResults.filter(r => r.success).length;      const failed = batchResults.filter(r => !r.success).length;      res.json({        success: true,        data: {          total: scans.length,          successful,          failed,          results: batchResults        }      });    } catch (error) {      console.error('Error processing batch scan:', error);      res.status(500).json({        error: 'Batch processing failed',        code: 'BATCH_ERROR'      });    }  });// =============================================================================// WEBHOOK ENDPOINTS// =============================================================================/** * POST /api/enterprise/webhooks/register * Register a webhook endpoint */router.post('/webhooks/register',  authenticateAPIKey,  dynamicRateLimit,  trackUsage,  [    body('url').isURL(),    body('events').isArray({ min: 1 }),    body('secret').optional().isLength({ min: 10 })  ],  handleValidationErrors,  async (req, res) => {    try {      const { url, events, secret } = req.body;      const webhook = await registerWebhook({        organizationId: req.organization.id,        url,        events,        secret: secret || generateWebhookSecret()      });      res.status(201).json({        success: true,        data: webhook      });    } catch (error) {      console.error('Error registering webhook:', error);      res.status(500).json({        error: 'Webhook registration failed',        code: 'WEBHOOK_ERROR'      });    }  });/** * GET /api/enterprise/webhooks * List registered webhooks */router.get('/webhooks',  authenticateAPIKey,  dynamicRateLimit,  trackUsage,  async (req, res) => {    try {      const webhooks = await getOrganizationWebhooks(req.organization.id);      res.json({        success: true,        data: webhooks      });    } catch (error) {      console.error('Error fetching webhooks:', error);      res.status(500).json({        error: 'Failed to fetch webhooks',        code: 'WEBHOOK_ERROR'      });    }  });// =============================================================================// HELPER FUNCTIONS// =============================================================================async function processMedicalScan(scanData) {  // Implement medical scan processing logic  // This would integrate with your existing AI/OCR services  return {    scan_id: `scan_${Date.now()}`,    results: {      detected_items: [],      confidence: 0.95,      warnings: [],      alternatives: []    },    processed_at: new Date().toISOString()  };}async function registerWebhook(webhookData) {  // Implement webhook registration logic  return {    id: `webhook_${Date.now()}`,    ...webhookData,    created_at: new Date().toISOString()  };}async function getOrganizationWebhooks(organizationId) {  // Implement webhook fetching logic  return [];}function generateWebhookSecret() {  return crypto.randomBytes(32).toString('hex');}// =============================================================================// ERROR HANDLING// =============================================================================// Global error handlerrouter.use((error, req, res, next) => {  console.error('Enterprise API Error:', error);  if (error.type === 'entity.parse.failed') {    return res.status(400).json({      error: 'Invalid JSON payload',      code: 'INVALID_JSON'    });  }  res.status(500).json({    error: 'Internal server error',    code: 'INTERNAL_ERROR',    ...(process.env.NODE_ENV === 'development' && { details: error.message })  });});// Health check endpointrouter.get('/health', (req, res) => {  res.json({    status: 'healthy',    timestamp: new Date().toISOString(),    version: '1.0.0'  });});export default router;

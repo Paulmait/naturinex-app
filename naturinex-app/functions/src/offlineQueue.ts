@@ -1,671 +1,1 @@
-import * as admin from 'firebase-admin';
-import { Request, Response } from 'express';
-
-/**
- * Offline queue system to ensure no user actions are lost
- */
-
-export interface QueuedAction {
-  queueId: string;
-  userId: string;
-  timestamp: Date;
-  actionType: 'scan' | 'payment' | 'feedback' | 'settings' | 'data_sync';
-  priority: 'high' | 'medium' | 'low';
-  data: any;
-  retryCount: number;
-  maxRetries: number;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  deviceInfo?: {
-    platform: string;
-    version: string;
-    networkStatus?: string;
-  };
-  error?: {
-    message: string;
-    code: string;
-    timestamp: Date;
-  };
-}
-
-/**
- * Submit actions to offline queue
- */
-export async function submitToQueue(req: Request, res: Response) {
-  try {
-    const { userId, actions } = req.body;
-
-    if (!userId || !actions || !Array.isArray(actions)) {
-      return res.status(400).json({
-        error: 'Invalid request',
-        required: ['userId', 'actions (array)']
-      });
-    }
-
-    // Process batch of queued actions
-    const processedActions: any[] = [];
-    const failedActions: any[] = [];
-
-    for (const action of actions) {
-      const queuedAction: QueuedAction = {
-        queueId: generateQueueId(),
-        userId,
-        timestamp: new Date(action.timestamp || Date.now()),
-        actionType: action.type,
-        priority: determinePriority(action.type),
-        data: action.data,
-        retryCount: 0,
-        maxRetries: getMaxRetries(action.type),
-        status: 'pending',
-        deviceInfo: action.deviceInfo
-      };
-
-      try {
-        // Store in queue
-        await admin.firestore()
-          .collection('offline_queue')
-          .doc(queuedAction.queueId)
-          .set({
-            ...queuedAction,
-            timestamp: admin.firestore.FieldValue.serverTimestamp(),
-            submittedAt: admin.firestore.FieldValue.serverTimestamp()
-          });
-
-        // Process immediately if high priority
-        if (queuedAction.priority === 'high') {
-          await processQueuedAction(queuedAction);
-        }
-
-        processedActions.push({
-          queueId: queuedAction.queueId,
-          type: queuedAction.actionType,
-          status: 'queued'
-        });
-
-      } catch (error) {
-        console.error('Failed to queue action:', error);
-        failedActions.push({
-          type: action.type,
-          error: 'Failed to queue'
-        });
-      }
-    }
-
-    // Log queue submission
-    await logQueueActivity('batch_submission', {
-      userId,
-      totalActions: actions.length,
-      processed: processedActions.length,
-      failed: failedActions.length
-    });
-
-    res.json({
-      success: true,
-      processed: processedActions,
-      failed: failedActions,
-      message: `${processedActions.length} actions queued successfully`
-    });
-
-  } catch (error) {
-    console.error('Error submitting to queue:', error);
-    res.status(500).json({
-      error: 'Failed to process offline queue'
-    });
-  }
-}
-
-/**
- * Get user's queued actions
- */
-export async function getUserQueue(req: Request, res: Response) {
-  try {
-    const { userId } = req.params;
-    const { status = 'all' } = req.query;
-
-    let query = admin.firestore()
-      .collection('offline_queue')
-      .where('userId', '==', userId)
-      .orderBy('timestamp', 'desc');
-
-    if (status !== 'all') {
-      query = query.where('status', '==', status);
-    }
-
-    const snapshot = await query.limit(50).get();
-
-    const queuedActions = snapshot.docs.map(doc => ({
-      id: doc.id,
-      ...doc.data(),
-      timestamp: doc.data().timestamp?.toDate()
-    }));
-
-    // Get queue statistics
-    const stats = await getQueueStats(userId);
-
-    res.json({
-      actions: queuedActions,
-      total: queuedActions.length,
-      stats
-    });
-
-  } catch (error) {
-    console.error('Error getting user queue:', error);
-    res.status(500).json({
-      error: 'Failed to get queue'
-    });
-  }
-}
-
-/**
- * Process a specific queued action
- */
-export async function processQueuedAction(action: QueuedAction): Promise<boolean> {
-  try {
-    // Update status to processing
-    await admin.firestore()
-      .collection('offline_queue')
-      .doc(action.queueId)
-      .update({
-        status: 'processing',
-        processingStarted: admin.firestore.FieldValue.serverTimestamp()
-      });
-
-    // Process based on action type
-    let result: boolean = false;
-
-    switch (action.actionType) {
-      case 'scan':
-        result = await processScanAction(action);
-        break;
-      case 'payment':
-        result = await processPaymentAction(action);
-        break;
-      case 'feedback':
-        result = await processFeedbackAction(action);
-        break;
-      case 'settings':
-        result = await processSettingsAction(action);
-        break;
-      case 'data_sync':
-        result = await processDataSyncAction(action);
-        break;
-      default:
-        throw new Error(`Unknown action type: ${action.actionType}`);
-    }
-
-    if (result) {
-      // Mark as completed
-      await admin.firestore()
-        .collection('offline_queue')
-        .doc(action.queueId)
-        .update({
-          status: 'completed',
-          completedAt: admin.firestore.FieldValue.serverTimestamp()
-        });
-
-      // Log success
-      await logQueueActivity('action_completed', {
-        queueId: action.queueId,
-        actionType: action.actionType,
-        userId: action.userId
-      });
-
-      return true;
-    } else {
-      throw new Error('Action processing returned false');
-    }
-
-  } catch (error: any) {
-    console.error('Error processing queued action:', error);
-
-    // Update retry count
-    const newRetryCount = action.retryCount + 1;
-    const shouldRetry = newRetryCount < action.maxRetries;
-
-    await admin.firestore()
-      .collection('offline_queue')
-      .doc(action.queueId)
-      .update({
-        status: shouldRetry ? 'pending' : 'failed',
-        retryCount: newRetryCount,
-        lastError: {
-          message: error.message,
-          code: error.code || 'UNKNOWN_ERROR',
-          timestamp: admin.firestore.FieldValue.serverTimestamp()
-        },
-        nextRetryAt: shouldRetry 
-          ? admin.firestore.Timestamp.fromDate(getNextRetryTime(newRetryCount))
-          : null
-      });
-
-    // Log failure
-    await logQueueActivity('action_failed', {
-      queueId: action.queueId,
-      actionType: action.actionType,
-      userId: action.userId,
-      error: error.message,
-      retryCount: newRetryCount,
-      willRetry: shouldRetry
-    });
-
-    return false;
-  }
-}
-
-/**
- * Process scan action from queue
- */
-async function processScanAction(action: QueuedAction): Promise<boolean> {
-  try {
-    const scanData = action.data;
-
-    // Validate scan data
-    if (!scanData.imageUrl || !scanData.scanType) {
-      throw new Error('Invalid scan data');
-    }
-
-    // Create scan record
-    const scanId = `scan_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
-    await admin.firestore()
-      .collection('scans')
-      .doc(scanId)
-      .set({
-        scanId,
-        userId: action.userId,
-        ...scanData,
-        queuedAt: action.timestamp,
-        processedAt: admin.firestore.FieldValue.serverTimestamp(),
-        fromOfflineQueue: true
-      });
-
-    // Update user scan count
-    await admin.firestore()
-      .collection('users')
-      .doc(action.userId)
-      .update({
-        totalScans: admin.firestore.FieldValue.increment(1),
-        lastScan: admin.firestore.FieldValue.serverTimestamp()
-      });
-
-    return true;
-  } catch (error) {
-    console.error('Failed to process scan action:', error);
-    return false;
-  }
-}
-
-/**
- * Process payment action from queue
- */
-async function processPaymentAction(action: QueuedAction): Promise<boolean> {
-  try {
-    const paymentData = action.data;
-
-    // Critical payment actions should be verified
-    if (paymentData.type === 'subscription_update') {
-      // Verify with Stripe
-      // In production, would make actual Stripe API call
-      console.log('Processing queued payment action:', paymentData);
-    }
-
-    // Log payment action
-    await admin.firestore()
-      .collection('payment_queue_logs')
-      .add({
-        userId: action.userId,
-        actionData: paymentData,
-        queuedAt: action.timestamp,
-        processedAt: admin.firestore.FieldValue.serverTimestamp(),
-        status: 'processed'
-      });
-
-    return true;
-  } catch (error) {
-    console.error('Failed to process payment action:', error);
-    return false;
-  }
-}
-
-/**
- * Process feedback action from queue
- */
-async function processFeedbackAction(action: QueuedAction): Promise<boolean> {
-  try {
-    const feedbackData = action.data;
-
-    // Store feedback
-    await admin.firestore()
-      .collection('beta_feedback')
-      .add({
-        ...feedbackData,
-        userId: action.userId,
-        queuedAt: action.timestamp,
-        submittedAt: admin.firestore.FieldValue.serverTimestamp(),
-        fromOfflineQueue: true
-      });
-
-    return true;
-  } catch (error) {
-    console.error('Failed to process feedback action:', error);
-    return false;
-  }
-}
-
-/**
- * Process settings action from queue
- */
-async function processSettingsAction(action: QueuedAction): Promise<boolean> {
-  try {
-    const settingsData = action.data;
-
-    // Update user settings
-    await admin.firestore()
-      .collection('users')
-      .doc(action.userId)
-      .update({
-        settings: settingsData,
-        lastSettingsUpdate: admin.firestore.FieldValue.serverTimestamp()
-      });
-
-    return true;
-  } catch (error) {
-    console.error('Failed to process settings action:', error);
-    return false;
-  }
-}
-
-/**
- * Process data sync action from queue
- */
-async function processDataSyncAction(action: QueuedAction): Promise<boolean> {
-  try {
-    const syncData = action.data;
-
-    // Store sync checkpoint
-    await admin.firestore()
-      .collection('sync_checkpoints')
-      .doc(action.userId)
-      .set({
-        lastSync: admin.firestore.FieldValue.serverTimestamp(),
-        syncData: syncData,
-        queuedSync: true
-      }, { merge: true });
-
-    return true;
-  } catch (error) {
-    console.error('Failed to process data sync action:', error);
-    return false;
-  }
-}
-
-/**
- * Process pending queue items (scheduled function)
- */
-export async function processPendingQueue() {
-  try {
-    const now = new Date();
-    
-    // Get pending items ready for processing
-    const snapshot = await admin.firestore()
-      .collection('offline_queue')
-      .where('status', '==', 'pending')
-      .where('nextRetryAt', '<=', now)
-      .orderBy('nextRetryAt')
-      .orderBy('priority', 'desc')
-      .limit(50)
-      .get();
-
-    console.log(`Processing ${snapshot.size} pending queue items`);
-
-    const promises = snapshot.docs.map(doc => {
-      const action = doc.data() as QueuedAction;
-      action.queueId = doc.id;
-      return processQueuedAction(action);
-    });
-
-    const results = await Promise.allSettled(promises);
-    
-    const successful = results.filter(r => r.status === 'fulfilled' && r.value).length;
-    const failed = results.length - successful;
-
-    console.log(`Queue processing completed: ${successful} successful, ${failed} failed`);
-
-    // Log batch processing
-    await logQueueActivity('batch_processing', {
-      total: snapshot.size,
-      successful,
-      failed
-    });
-
-  } catch (error) {
-    console.error('Error processing pending queue:', error);
-  }
-}
-
-/**
- * Clean up old completed queue items
- */
-export async function cleanupQueue() {
-  try {
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-    const snapshot = await admin.firestore()
-      .collection('offline_queue')
-      .where('status', '==', 'completed')
-      .where('completedAt', '<', thirtyDaysAgo)
-      .limit(100)
-      .get();
-
-    const batch = admin.firestore().batch();
-    
-    snapshot.docs.forEach(doc => {
-      batch.delete(doc.ref);
-    });
-
-    await batch.commit();
-
-    console.log(`Cleaned up ${snapshot.size} old queue items`);
-
-  } catch (error) {
-    console.error('Error cleaning up queue:', error);
-  }
-}
-
-/**
- * Helper functions
- */
-
-function generateQueueId(): string {
-  return `queue_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-}
-
-function determinePriority(actionType: string): 'high' | 'medium' | 'low' {
-  const priorityMap: Record<string, 'high' | 'medium' | 'low'> = {
-    'payment': 'high',
-    'scan': 'medium',
-    'feedback': 'medium',
-    'settings': 'low',
-    'data_sync': 'low'
-  };
-  
-  return priorityMap[actionType] || 'low';
-}
-
-function getMaxRetries(actionType: string): number {
-  const retryMap: Record<string, number> = {
-    'payment': 5,
-    'scan': 3,
-    'feedback': 3,
-    'settings': 2,
-    'data_sync': 2
-  };
-  
-  return retryMap[actionType] || 3;
-}
-
-function getNextRetryTime(retryCount: number): Date {
-  // Exponential backoff: 1min, 5min, 15min, 1hr, 6hr
-  const delays = [60, 300, 900, 3600, 21600];
-  const delaySeconds = delays[Math.min(retryCount, delays.length - 1)];
-  
-  return new Date(Date.now() + delaySeconds * 1000);
-}
-
-async function getQueueStats(userId: string) {
-  const snapshot = await admin.firestore()
-    .collection('offline_queue')
-    .where('userId', '==', userId)
-    .get();
-  
-  const stats = {
-    total: snapshot.size,
-    pending: 0,
-    processing: 0,
-    completed: 0,
-    failed: 0,
-    byType: {} as Record<string, number>
-  };
-  
-  snapshot.docs.forEach(doc => {
-    const data = doc.data();
-    stats[data.status]++;
-    stats.byType[data.actionType] = (stats.byType[data.actionType] || 0) + 1;
-  });
-  
-  return stats;
-}
-
-async function logQueueActivity(activity: string, details: any) {
-  try {
-    await admin.firestore()
-      .collection('queue_logs')
-      .add({
-        activity,
-        details,
-        timestamp: admin.firestore.FieldValue.serverTimestamp()
-      });
-  } catch (error) {
-    console.error('Failed to log queue activity:', error);
-  }
-}
-
-/**
- * React Native queue manager
- */
-export function getQueueManagerCode(): string {
-  return `
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import NetInfo from '@react-native-community/netinfo';
-
-class OfflineQueueManager {
-  private queue: any[] = [];
-  private isOnline: boolean = true;
-  private syncInterval: any;
-
-  constructor() {
-    this.loadQueue();
-    this.setupNetworkListener();
-    this.startSyncInterval();
-  }
-
-  async loadQueue() {
-    try {
-      const stored = await AsyncStorage.getItem('offline_queue');
-      if (stored) {
-        this.queue = JSON.parse(stored);
-      }
-    } catch (error) {
-      console.error('Failed to load queue:', error);
-    }
-  }
-
-  async saveQueue() {
-    try {
-      await AsyncStorage.setItem('offline_queue', JSON.stringify(this.queue));
-    } catch (error) {
-      console.error('Failed to save queue:', error);
-    }
-  }
-
-  setupNetworkListener() {
-    NetInfo.addEventListener(state => {
-      this.isOnline = state.isConnected;
-      if (this.isOnline && this.queue.length > 0) {
-        this.syncQueue();
-      }
-    });
-  }
-
-  startSyncInterval() {
-    this.syncInterval = setInterval(() => {
-      if (this.isOnline && this.queue.length > 0) {
-        this.syncQueue();
-      }
-    }, 30000); // Try every 30 seconds
-  }
-
-  async addToQueue(action: any) {
-    const queueItem = {
-      id: Date.now() + '_' + Math.random(),
-      timestamp: new Date().toISOString(),
-      ...action
-    };
-
-    this.queue.push(queueItem);
-    await this.saveQueue();
-
-    if (this.isOnline) {
-      this.syncQueue();
-    }
-  }
-
-  async syncQueue() {
-    if (this.queue.length === 0) return;
-
-    const itemsToSync = [...this.queue];
-    
-    try {
-      const response = await fetch('YOUR_API_URL/queue/submit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId: await AsyncStorage.getItem('userId'),
-          actions: itemsToSync
-        })
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        
-        // Remove successfully processed items
-        result.processed.forEach(processed => {
-          const index = this.queue.findIndex(item => 
-            item.type === processed.type && 
-            item.timestamp === processed.timestamp
-          );
-          if (index !== -1) {
-            this.queue.splice(index, 1);
-          }
-        });
-
-        await this.saveQueue();
-      }
-    } catch (error) {
-      console.error('Failed to sync queue:', error);
-    }
-  }
-
-  getQueueSize() {
-    return this.queue.length;
-  }
-
-  clearQueue() {
-    this.queue = [];
-    this.saveQueue();
-  }
-}
-
-export default new OfflineQueueManager();
-`;
-}
+import * as admin from 'firebase-admin';import { Request, Response } from 'express';/** * Offline queue system to ensure no user actions are lost */export interface QueuedAction {  queueId: string;  userId: string;  timestamp: Date;  actionType: 'scan' | 'payment' | 'feedback' | 'settings' | 'data_sync';  priority: 'high' | 'medium' | 'low';  data: any;  retryCount: number;  maxRetries: number;  status: 'pending' | 'processing' | 'completed' | 'failed';  deviceInfo?: {    platform: string;    version: string;    networkStatus?: string;  };  error?: {    message: string;    code: string;    timestamp: Date;  };}/** * Submit actions to offline queue */export async function submitToQueue(req: Request, res: Response) {  try {    const { userId, actions } = req.body;    if (!userId || !actions || !Array.isArray(actions)) {      return res.status(400).json({        error: 'Invalid request',        required: ['userId', 'actions (array)']      });    }    // Process batch of queued actions    const processedActions: any[] = [];    const failedActions: any[] = [];    for (const action of actions) {      const queuedAction: QueuedAction = {        queueId: generateQueueId(),        userId,        timestamp: new Date(action.timestamp || Date.now()),        actionType: action.type,        priority: determinePriority(action.type),        data: action.data,        retryCount: 0,        maxRetries: getMaxRetries(action.type),        status: 'pending',        deviceInfo: action.deviceInfo      };      try {        // Store in queue        await admin.firestore()          .collection('offline_queue')          .doc(queuedAction.queueId)          .set({            ...queuedAction,            timestamp: admin.firestore.FieldValue.serverTimestamp(),            submittedAt: admin.firestore.FieldValue.serverTimestamp()          });        // Process immediately if high priority        if (queuedAction.priority === 'high') {          await processQueuedAction(queuedAction);        }        processedActions.push({          queueId: queuedAction.queueId,          type: queuedAction.actionType,          status: 'queued'        });      } catch (error) {        console.error('Failed to queue action:', error);        failedActions.push({          type: action.type,          error: 'Failed to queue'        });      }    }    // Log queue submission    await logQueueActivity('batch_submission', {      userId,      totalActions: actions.length,      processed: processedActions.length,      failed: failedActions.length    });    res.json({      success: true,      processed: processedActions,      failed: failedActions,      message: `${processedActions.length} actions queued successfully`    });  } catch (error) {    console.error('Error submitting to queue:', error);    res.status(500).json({      error: 'Failed to process offline queue'    });  }}/** * Get user's queued actions */export async function getUserQueue(req: Request, res: Response) {  try {    const { userId } = req.params;    const { status = 'all' } = req.query;    let query = admin.firestore()      .collection('offline_queue')      .where('userId', '==', userId)      .orderBy('timestamp', 'desc');    if (status !== 'all') {      query = query.where('status', '==', status);    }    const snapshot = await query.limit(50).get();    const queuedActions = snapshot.docs.map(doc => ({      id: doc.id,      ...doc.data(),      timestamp: doc.data().timestamp?.toDate()    }));    // Get queue statistics    const stats = await getQueueStats(userId);    res.json({      actions: queuedActions,      total: queuedActions.length,      stats    });  } catch (error) {    console.error('Error getting user queue:', error);    res.status(500).json({      error: 'Failed to get queue'    });  }}/** * Process a specific queued action */export async function processQueuedAction(action: QueuedAction): Promise<boolean> {  try {    // Update status to processing    await admin.firestore()      .collection('offline_queue')      .doc(action.queueId)      .update({        status: 'processing',        processingStarted: admin.firestore.FieldValue.serverTimestamp()      });    // Process based on action type    let result: boolean = false;    switch (action.actionType) {      case 'scan':        result = await processScanAction(action);        break;      case 'payment':        result = await processPaymentAction(action);        break;      case 'feedback':        result = await processFeedbackAction(action);        break;      case 'settings':        result = await processSettingsAction(action);        break;      case 'data_sync':        result = await processDataSyncAction(action);        break;      default:        throw new Error(`Unknown action type: ${action.actionType}`);    }    if (result) {      // Mark as completed      await admin.firestore()        .collection('offline_queue')        .doc(action.queueId)        .update({          status: 'completed',          completedAt: admin.firestore.FieldValue.serverTimestamp()        });      // Log success      await logQueueActivity('action_completed', {        queueId: action.queueId,        actionType: action.actionType,        userId: action.userId      });      return true;    } else {      throw new Error('Action processing returned false');    }  } catch (error: any) {    console.error('Error processing queued action:', error);    // Update retry count    const newRetryCount = action.retryCount + 1;    const shouldRetry = newRetryCount < action.maxRetries;    await admin.firestore()      .collection('offline_queue')      .doc(action.queueId)      .update({        status: shouldRetry ? 'pending' : 'failed',        retryCount: newRetryCount,        lastError: {          message: error.message,          code: error.code || 'UNKNOWN_ERROR',          timestamp: admin.firestore.FieldValue.serverTimestamp()        },        nextRetryAt: shouldRetry           ? admin.firestore.Timestamp.fromDate(getNextRetryTime(newRetryCount))          : null      });    // Log failure    await logQueueActivity('action_failed', {      queueId: action.queueId,      actionType: action.actionType,      userId: action.userId,      error: error.message,      retryCount: newRetryCount,      willRetry: shouldRetry    });    return false;  }}/** * Process scan action from queue */async function processScanAction(action: QueuedAction): Promise<boolean> {  try {    const scanData = action.data;    // Validate scan data    if (!scanData.imageUrl || !scanData.scanType) {      throw new Error('Invalid scan data');    }    // Create scan record    const scanId = `scan_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;    await admin.firestore()      .collection('scans')      .doc(scanId)      .set({        scanId,        userId: action.userId,        ...scanData,        queuedAt: action.timestamp,        processedAt: admin.firestore.FieldValue.serverTimestamp(),        fromOfflineQueue: true      });    // Update user scan count    await admin.firestore()      .collection('users')      .doc(action.userId)      .update({        totalScans: admin.firestore.FieldValue.increment(1),        lastScan: admin.firestore.FieldValue.serverTimestamp()      });    return true;  } catch (error) {    console.error('Failed to process scan action:', error);    return false;  }}/** * Process payment action from queue */async function processPaymentAction(action: QueuedAction): Promise<boolean> {  try {    const paymentData = action.data;    // Critical payment actions should be verified    if (paymentData.type === 'subscription_update') {      // Verify with Stripe      // In production, would make actual Stripe API call    }    // Log payment action    await admin.firestore()      .collection('payment_queue_logs')      .add({        userId: action.userId,        actionData: paymentData,        queuedAt: action.timestamp,        processedAt: admin.firestore.FieldValue.serverTimestamp(),        status: 'processed'      });    return true;  } catch (error) {    console.error('Failed to process payment action:', error);    return false;  }}/** * Process feedback action from queue */async function processFeedbackAction(action: QueuedAction): Promise<boolean> {  try {    const feedbackData = action.data;    // Store feedback    await admin.firestore()      .collection('beta_feedback')      .add({        ...feedbackData,        userId: action.userId,        queuedAt: action.timestamp,        submittedAt: admin.firestore.FieldValue.serverTimestamp(),        fromOfflineQueue: true      });    return true;  } catch (error) {    console.error('Failed to process feedback action:', error);    return false;  }}/** * Process settings action from queue */async function processSettingsAction(action: QueuedAction): Promise<boolean> {  try {    const settingsData = action.data;    // Update user settings    await admin.firestore()      .collection('users')      .doc(action.userId)      .update({        settings: settingsData,        lastSettingsUpdate: admin.firestore.FieldValue.serverTimestamp()      });    return true;  } catch (error) {    console.error('Failed to process settings action:', error);    return false;  }}/** * Process data sync action from queue */async function processDataSyncAction(action: QueuedAction): Promise<boolean> {  try {    const syncData = action.data;    // Store sync checkpoint    await admin.firestore()      .collection('sync_checkpoints')      .doc(action.userId)      .set({        lastSync: admin.firestore.FieldValue.serverTimestamp(),        syncData: syncData,        queuedSync: true      }, { merge: true });    return true;  } catch (error) {    console.error('Failed to process data sync action:', error);    return false;  }}/** * Process pending queue items (scheduled function) */export async function processPendingQueue() {  try {    const now = new Date();    // Get pending items ready for processing    const snapshot = await admin.firestore()      .collection('offline_queue')      .where('status', '==', 'pending')      .where('nextRetryAt', '<=', now)      .orderBy('nextRetryAt')      .orderBy('priority', 'desc')      .limit(50)      .get();    const promises = snapshot.docs.map(doc => {      const action = doc.data() as QueuedAction;      action.queueId = doc.id;      return processQueuedAction(action);    });    const results = await Promise.allSettled(promises);    const successful = results.filter(r => r.status === 'fulfilled' && r.value).length;    const failed = results.length - successful;    // Log batch processing    await logQueueActivity('batch_processing', {      total: snapshot.size,      successful,      failed    });  } catch (error) {    console.error('Error processing pending queue:', error);  }}/** * Clean up old completed queue items */export async function cleanupQueue() {  try {    const thirtyDaysAgo = new Date();    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);    const snapshot = await admin.firestore()      .collection('offline_queue')      .where('status', '==', 'completed')      .where('completedAt', '<', thirtyDaysAgo)      .limit(100)      .get();    const batch = admin.firestore().batch();    snapshot.docs.forEach(doc => {      batch.delete(doc.ref);    });    await batch.commit();  } catch (error) {    console.error('Error cleaning up queue:', error);  }}/** * Helper functions */function generateQueueId(): string {  return `queue_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;}function determinePriority(actionType: string): 'high' | 'medium' | 'low' {  const priorityMap: Record<string, 'high' | 'medium' | 'low'> = {    'payment': 'high',    'scan': 'medium',    'feedback': 'medium',    'settings': 'low',    'data_sync': 'low'  };  return priorityMap[actionType] || 'low';}function getMaxRetries(actionType: string): number {  const retryMap: Record<string, number> = {    'payment': 5,    'scan': 3,    'feedback': 3,    'settings': 2,    'data_sync': 2  };  return retryMap[actionType] || 3;}function getNextRetryTime(retryCount: number): Date {  // Exponential backoff: 1min, 5min, 15min, 1hr, 6hr  const delays = [60, 300, 900, 3600, 21600];  const delaySeconds = delays[Math.min(retryCount, delays.length - 1)];  return new Date(Date.now() + delaySeconds * 1000);}async function getQueueStats(userId: string) {  const snapshot = await admin.firestore()    .collection('offline_queue')    .where('userId', '==', userId)    .get();  const stats = {    total: snapshot.size,    pending: 0,    processing: 0,    completed: 0,    failed: 0,    byType: {} as Record<string, number>  };  snapshot.docs.forEach(doc => {    const data = doc.data();    stats[data.status]++;    stats.byType[data.actionType] = (stats.byType[data.actionType] || 0) + 1;  });  return stats;}async function logQueueActivity(activity: string, details: any) {  try {    await admin.firestore()      .collection('queue_logs')      .add({        activity,        details,        timestamp: admin.firestore.FieldValue.serverTimestamp()      });  } catch (error) {    console.error('Failed to log queue activity:', error);  }}/** * React Native queue manager */export function getQueueManagerCode(): string {  return `import AsyncStorage from '@react-native-async-storage/async-storage';import NetInfo from '@react-native-community/netinfo';class OfflineQueueManager {  private queue: any[] = [];  private isOnline: boolean = true;  private syncInterval: any;  constructor() {    this.loadQueue();    this.setupNetworkListener();    this.startSyncInterval();  }  async loadQueue() {    try {      const stored = await AsyncStorage.getItem('offline_queue');      if (stored) {        this.queue = JSON.parse(stored);      }    } catch (error) {      console.error('Failed to load queue:', error);    }  }  async saveQueue() {    try {      await AsyncStorage.setItem('offline_queue', JSON.stringify(this.queue));    } catch (error) {      console.error('Failed to save queue:', error);    }  }  setupNetworkListener() {    NetInfo.addEventListener(state => {      this.isOnline = state.isConnected;      if (this.isOnline && this.queue.length > 0) {        this.syncQueue();      }    });  }  startSyncInterval() {    this.syncInterval = setInterval(() => {      if (this.isOnline && this.queue.length > 0) {        this.syncQueue();      }    }, 30000); // Try every 30 seconds  }  async addToQueue(action: any) {    const queueItem = {      id: Date.now() + '_' + Math.random(),      timestamp: new Date().toISOString(),      ...action    };    this.queue.push(queueItem);    await this.saveQueue();    if (this.isOnline) {      this.syncQueue();    }  }  async syncQueue() {    if (this.queue.length === 0) return;    const itemsToSync = [...this.queue];    try {      const response = await fetch('YOUR_API_URL/queue/submit', {        method: 'POST',        headers: { 'Content-Type': 'application/json' },        body: JSON.stringify({          userId: await AsyncStorage.getItem('userId'),          actions: itemsToSync        })      });      if (response.ok) {        const result = await response.json();        // Remove successfully processed items        result.processed.forEach(processed => {          const index = this.queue.findIndex(item =>             item.type === processed.type &&             item.timestamp === processed.timestamp          );          if (index !== -1) {            this.queue.splice(index, 1);          }        });        await this.saveQueue();      }    } catch (error) {      console.error('Failed to sync queue:', error);    }  }  getQueueSize() {    return this.queue.length;  }  clearQueue() {    this.queue = [];    this.saveQueue();  }}export default new OfflineQueueManager();`;}

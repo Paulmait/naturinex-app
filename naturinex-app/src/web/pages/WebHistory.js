@@ -25,7 +25,6 @@ import {
 // Firebase auth imported from firebase.web
 import { collection, query, where, orderBy, getDocs, deleteDoc, doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebase.web';
-
 function WebHistory() {
   const [scans, setScans] = useState([]);
   const [filteredScans, setFilteredScans] = useState([]);
@@ -38,12 +37,10 @@ function WebHistory() {
   const [userData, setUserData] = useState(null);
   const user = auth.currentUser;
   const itemsPerPage = 10;
-
   useEffect(() => {
     loadScans();
     loadUserData();
   }, [user]);
-  
   const loadUserData = async () => {
     if (!user) return;
     try {
@@ -55,14 +52,11 @@ function WebHistory() {
       console.error('Error loading user data:', error);
     }
   };
-
   useEffect(() => {
     filterScans();
   }, [scans, searchTerm, filterType]);
-
   const loadScans = async () => {
     if (!user) return;
-    
     setLoading(true);
     try {
       const scansQuery = query(
@@ -70,14 +64,12 @@ function WebHistory() {
         where('userId', '==', user.uid),
         orderBy('timestamp', 'desc')
       );
-      
       const snapshot = await getDocs(scansQuery);
       const scansData = snapshot.docs.map(doc => ({
         id: doc.id,
         ...doc.data(),
         timestamp: doc.data().timestamp?.toDate() || new Date(doc.data().timestamp),
       }));
-      
       setScans(scansData);
     } catch (error) {
       console.error('Error loading scans:', error);
@@ -85,10 +77,8 @@ function WebHistory() {
       setLoading(false);
     }
   };
-
   const filterScans = () => {
     let filtered = [...scans];
-    
     // Search filter
     if (searchTerm) {
       filtered = filtered.filter(scan =>
@@ -96,26 +86,21 @@ function WebHistory() {
         scan.analysis?.summary?.toLowerCase().includes(searchTerm.toLowerCase())
       );
     }
-    
     // Type filter
     if (filterType !== 'all') {
       filtered = filtered.filter(scan => scan.scanType === filterType);
     }
-    
     setFilteredScans(filtered);
     setPage(1);
   };
-
   const handleMenuOpen = (event, scan) => {
     setAnchorEl(event.currentTarget);
     setSelectedScan(scan);
   };
-
   const handleMenuClose = () => {
     setAnchorEl(null);
     setSelectedScan(null);
   };
-
   const handleDelete = async () => {
     if (selectedScan) {
       try {
@@ -127,26 +112,22 @@ function WebHistory() {
       }
     }
   };
-
   const exportScans = () => {
     // Check if user has premium subscription
     if (userData?.subscriptionType !== 'premium') {
       alert('Export to CSV is a Premium feature. Please upgrade to access this feature.');
       return;
     }
-    
     const data = filteredScans.map(scan => ({
       date: scan.timestamp.toLocaleDateString(),
       product: scan.productName,
       type: scan.scanType,
       summary: scan.analysis?.summary || '',
     }));
-    
     const csv = [
       ['Date', 'Product', 'Type', 'Summary'],
       ...data.map(row => [row.date, row.product, row.type, row.summary])
     ].map(row => row.join(',')).join('\n');
-    
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -154,12 +135,10 @@ function WebHistory() {
     a.download = 'scan-history.csv';
     a.click();
   };
-
   const paginatedScans = filteredScans.slice(
     (page - 1) * itemsPerPage,
     page * itemsPerPage
   );
-
   if (loading) {
     return (
       <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -167,7 +146,6 @@ function WebHistory() {
       </Container>
     );
   }
-
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -184,7 +162,6 @@ function WebHistory() {
           Export {userData?.subscriptionType !== 'premium' && '🔒'}
         </Button>
       </Box>
-
       {/* Filters */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
@@ -239,7 +216,6 @@ function WebHistory() {
           </Grid>
         </CardContent>
       </Card>
-
       {/* Scan List */}
       {paginatedScans.length > 0 ? (
         <>
@@ -287,7 +263,6 @@ function WebHistory() {
               </Grid>
             ))}
           </Grid>
-
           <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
             <Pagination
               count={Math.ceil(filteredScans.length / itemsPerPage)}
@@ -304,7 +279,6 @@ function WebHistory() {
             : 'No scan history yet. Start scanning products to see them here!'}
         </Alert>
       )}
-
       {/* Action Menu */}
       <Menu
         anchorEl={anchorEl}
@@ -325,5 +299,4 @@ function WebHistory() {
     </Container>
   );
 }
-
 export default WebHistory;

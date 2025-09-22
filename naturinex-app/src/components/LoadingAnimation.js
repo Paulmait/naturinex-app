@@ -1,126 +1,1 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Animated, Dimensions } from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
-
-const { width } = Dimensions.get('window');
-
-export default function LoadingAnimation({ message = 'Analyzing product...' }) {
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.8)).current;
-  const rotateAnim = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    // Fade in animation
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 500,
-      useNativeDriver: true,
-    }).start();
-
-    // Scale animation
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(scaleAnim, {
-          toValue: 1.1,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-        Animated.timing(scaleAnim, {
-          toValue: 0.8,
-          duration: 1000,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
-
-    // Rotate animation
-    Animated.loop(
-      Animated.timing(rotateAnim, {
-        toValue: 1,
-        duration: 3000,
-        useNativeDriver: true,
-      })
-    ).start();
-  }, []);
-
-  const spin = rotateAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: ['0deg', '360deg'],
-  });
-
-  return (
-    <View style={styles.container}>
-      <Animated.View
-        style={[
-          styles.animationContainer,
-          {
-            opacity: fadeAnim,
-            transform: [{ scale: scaleAnim }],
-          },
-        ]}
-      >
-        <Animated.View style={{ transform: [{ rotate: spin }] }}>
-          <MaterialIcons name="camera" size={60} color="#10B981" />
-        </Animated.View>
-      </Animated.View>
-      
-      <Text style={styles.message}>{message}</Text>
-      
-      <View style={styles.tipsContainer}>
-        <Text style={styles.tipTitle}>Wellness Tips While You Wait:</Text>
-        <Text style={styles.tip}>
-          🌿 Natural remedies have been used for thousands of years
-        </Text>
-        <Text style={styles.tip}>
-          💧 Staying hydrated is one of the best wellness practices
-        </Text>
-        <Text style={styles.tip}>
-          🧘 Mind-body wellness is just as important as physical health
-        </Text>
-      </View>
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#F9FAFB',
-    padding: 20,
-  },
-  animationContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#D1FAE5',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  message: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 40,
-  },
-  tipsContainer: {
-    width: width - 40,
-    backgroundColor: '#F3F4F6',
-    borderRadius: 15,
-    padding: 20,
-  },
-  tipTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 15,
-  },
-  tip: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginBottom: 10,
-    lineHeight: 20,
-  },
-});
+import React, { useEffect, useRef } from 'react';import { View, Text, StyleSheet, Animated, Dimensions } from 'react-native';import { MaterialIcons } from '@expo/vector-icons';const { width } = Dimensions.get('window');export default function LoadingAnimation({ message = 'Analyzing product...' }) {  const fadeAnim = useRef(new Animated.Value(0)).current;  const scaleAnim = useRef(new Animated.Value(0.8)).current;  const rotateAnim = useRef(new Animated.Value(0)).current;  useEffect(() => {    // Fade in animation    Animated.timing(fadeAnim, {      toValue: 1,      duration: 500,      useNativeDriver: true,    }).start();    // Scale animation    Animated.loop(      Animated.sequence([        Animated.timing(scaleAnim, {          toValue: 1.1,          duration: 1000,          useNativeDriver: true,        }),        Animated.timing(scaleAnim, {          toValue: 0.8,          duration: 1000,          useNativeDriver: true,        }),      ])    ).start();    // Rotate animation    Animated.loop(      Animated.timing(rotateAnim, {        toValue: 1,        duration: 3000,        useNativeDriver: true,      })    ).start();  }, []);  const spin = rotateAnim.interpolate({    inputRange: [0, 1],    outputRange: ['0deg', '360deg'],  });  return (    <View style={styles.container}>      <Animated.View        style={[          styles.animationContainer,          {            opacity: fadeAnim,            transform: [{ scale: scaleAnim }],          },        ]}      >        <Animated.View style={{ transform: [{ rotate: spin }] }}>          <MaterialIcons name="camera" size={60} color="#10B981" />        </Animated.View>      </Animated.View>      <Text style={styles.message}>{message}</Text>      <View style={styles.tipsContainer}>        <Text style={styles.tipTitle}>Wellness Tips While You Wait:</Text>        <Text style={styles.tip}>          🌿 Natural remedies have been used for thousands of years        </Text>        <Text style={styles.tip}>          💧 Staying hydrated is one of the best wellness practices        </Text>        <Text style={styles.tip}>          🧘 Mind-body wellness is just as important as physical health        </Text>      </View>    </View>  );}const styles = StyleSheet.create({  container: {    flex: 1,    justifyContent: 'center',    alignItems: 'center',    backgroundColor: '#F9FAFB',    padding: 20,  },  animationContainer: {    width: 120,    height: 120,    borderRadius: 60,    backgroundColor: '#D1FAE5',    justifyContent: 'center',    alignItems: 'center',    marginBottom: 30,  },  message: {    fontSize: 18,    fontWeight: '600',    color: '#1F2937',    marginBottom: 40,  },  tipsContainer: {    width: width - 40,    backgroundColor: '#F3F4F6',    borderRadius: 15,    padding: 20,  },  tipTitle: {    fontSize: 16,    fontWeight: '600',    color: '#374151',    marginBottom: 15,  },  tip: {    fontSize: 14,    color: '#6B7280',    marginBottom: 10,    lineHeight: 20,  },});

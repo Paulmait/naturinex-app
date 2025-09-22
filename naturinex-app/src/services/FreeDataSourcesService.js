@@ -1,6 +1,5 @@
 // Free and Reputable Data Sources Service
 // Uses only free, reliable APIs for medical data
-
 class FreeDataSourcesService {
   constructor() {
     this.sources = {
@@ -10,7 +9,6 @@ class FreeDataSourcesService {
         key: 'free', // No API key required for basic usage
         rateLimit: 3, // 3 requests per second
       },
-      
       // FDA APIs - FREE
       fda: {
         drugs: 'https://api.fda.gov/drug',
@@ -18,37 +16,31 @@ class FreeDataSourcesService {
         events: 'https://api.fda.gov/drug/event.json',
         key: 'free', // No key required
       },
-      
       // RxNorm (NIH) - FREE
       rxnorm: {
         base: 'https://rxnav.nlm.nih.gov/REST',
         key: 'free',
       },
-      
       // OpenFDA - FREE
       openFDA: {
         base: 'https://api.fda.gov',
         key: 'free',
       },
-      
       // DailyMed (NIH) - FREE
       dailymed: {
         base: 'https://dailymed.nlm.nih.gov/dailymed/services',
         key: 'free',
       },
-      
       // MedlinePlus - FREE
       medlinePlus: {
         base: 'https://connect.medlineplus.gov/service',
         key: 'free',
       },
-      
       // WHO APIs - FREE
       who: {
         icd: 'https://id.who.int/icd/release/11',
         key: 'free', // Registration required but free
       },
-      
       // Natural Medicines Database (Limited Free Access)
       naturalMedicines: {
         base: 'https://naturalmedicines.therapeuticresearch.com',
@@ -56,18 +48,14 @@ class FreeDataSourcesService {
       },
     };
   }
-
   // Get drug information from FDA
   async getFDADrugInfo(drugName) {
     try {
       const response = await fetch(
         `${this.sources.fda.labels}?search=openfda.brand_name:"${drugName}"&limit=1`
       );
-      
       if (!response.ok) throw new Error('FDA API error');
-      
       const data = await response.json();
-      
       if (data.results && data.results.length > 0) {
         const drug = data.results[0];
         return {
@@ -83,25 +71,20 @@ class FreeDataSourcesService {
           source: 'FDA',
         };
       }
-      
       return null;
     } catch (error) {
       console.error('FDA API error:', error);
       return null;
     }
   }
-
   // Get drug interactions from RxNorm
   async getRxNormInteractions(rxcui) {
     try {
       const response = await fetch(
         `${this.sources.rxnorm.base}/interaction/interaction.json?rxcui=${rxcui}`
       );
-      
       if (!response.ok) throw new Error('RxNorm API error');
-      
       const data = await response.json();
-      
       if (data.interactionTypeGroup) {
         return data.interactionTypeGroup.flatMap(group => 
           group.interactionType || []
@@ -112,14 +95,12 @@ class FreeDataSourcesService {
           source: 'RxNorm/NIH',
         }));
       }
-      
       return [];
     } catch (error) {
       console.error('RxNorm API error:', error);
       return [];
     }
   }
-
   // Search PubMed for research
   async searchPubMedStudies(query, limit = 5) {
     try {
@@ -127,24 +108,17 @@ class FreeDataSourcesService {
       const searchResponse = await fetch(
         `${this.sources.pubmed.base}/esearch.fcgi?db=pubmed&term=${encodeURIComponent(query)}&retmode=json&retmax=${limit}`
       );
-      
       if (!searchResponse.ok) throw new Error('PubMed search error');
-      
       const searchData = await searchResponse.json();
       const ids = searchData.esearchresult?.idlist || [];
-      
       if (ids.length === 0) return [];
-      
       // Fetch article details
       const summaryResponse = await fetch(
         `${this.sources.pubmed.base}/esummary.fcgi?db=pubmed&id=${ids.join(',')}&retmode=json`
       );
-      
       if (!summaryResponse.ok) throw new Error('PubMed summary error');
-      
       const summaryData = await summaryResponse.json();
       const articles = [];
-      
       for (const id of ids) {
         const article = summaryData.result?.[id];
         if (article) {
@@ -159,14 +133,12 @@ class FreeDataSourcesService {
           });
         }
       }
-      
       return articles;
     } catch (error) {
       console.error('PubMed API error:', error);
       return [];
     }
   }
-
   // Get natural alternatives from combined sources
   async getNaturalAlternatives(medication) {
     try {
@@ -175,13 +147,10 @@ class FreeDataSourcesService {
         `${medication} natural alternative herbal supplement`,
         10
       );
-      
       // Get FDA adverse events for the medication
       const adverseEvents = await this.getFDAAdverseEvents(medication);
-      
       // Combine and analyze data
       const alternatives = this.analyzeStudiesForAlternatives(studies);
-      
       return {
         medication,
         alternatives,
@@ -199,18 +168,14 @@ class FreeDataSourcesService {
       };
     }
   }
-
   // Get FDA adverse events
   async getFDAAdverseEvents(drugName) {
     try {
       const response = await fetch(
         `${this.sources.fda.events}?search=patient.drug.openfda.brand_name:"${drugName}"&limit=10`
       );
-      
       if (!response.ok) throw new Error('FDA events API error');
-      
       const data = await response.json();
-      
       if (data.results) {
         const events = {};
         data.results.forEach(result => {
@@ -219,7 +184,6 @@ class FreeDataSourcesService {
             events[term] = (events[term] || 0) + 1;
           });
         });
-        
         return Object.entries(events)
           .sort((a, b) => b[1] - a[1])
           .slice(0, 10)
@@ -229,25 +193,20 @@ class FreeDataSourcesService {
             source: 'FDA Adverse Event Reporting',
           }));
       }
-      
       return [];
     } catch (error) {
       console.error('FDA events API error:', error);
       return [];
     }
   }
-
   // Get medication info from DailyMed
   async getDailyMedInfo(drugName) {
     try {
       const response = await fetch(
         `${this.sources.dailymed.base}/v2/spls.json?drug_name=${encodeURIComponent(drugName)}`
       );
-      
       if (!response.ok) throw new Error('DailyMed API error');
-      
       const data = await response.json();
-      
       if (data.data && data.data.length > 0) {
         const spl = data.data[0];
         return {
@@ -259,18 +218,15 @@ class FreeDataSourcesService {
           source: 'DailyMed/NIH',
         };
       }
-      
       return null;
     } catch (error) {
       console.error('DailyMed API error:', error);
       return null;
     }
   }
-
   // Analyze studies for natural alternatives
   analyzeStudiesForAlternatives(studies) {
     const alternatives = new Map();
-    
     // Common natural alternatives keywords
     const naturalKeywords = [
       'turmeric', 'curcumin', 'ginger', 'garlic', 'omega-3',
@@ -279,10 +235,8 @@ class FreeDataSourcesService {
       'melatonin', 'cbd', 'glucosamine', 'chondroitin', 'saw palmetto',
       'echinacea', 'ginkgo', 'st johns wort', 'milk thistle', 'ginseng',
     ];
-    
     studies.forEach(study => {
       const text = (study.title + ' ' + study.journal).toLowerCase();
-      
       naturalKeywords.forEach(keyword => {
         if (text.includes(keyword)) {
           if (!alternatives.has(keyword)) {
@@ -296,10 +250,8 @@ class FreeDataSourcesService {
         }
       });
     });
-    
     return Array.from(alternatives.values());
   }
-
   // Get comprehensive medication data
   async getComprehensiveMedicationData(medication) {
     const [fdaInfo, dailyMedInfo, studies] = await Promise.all([
@@ -307,7 +259,6 @@ class FreeDataSourcesService {
       this.getDailyMedInfo(medication),
       this.searchPubMedStudies(medication, 5),
     ]);
-    
     return {
       medication,
       fda: fdaInfo,
@@ -321,11 +272,9 @@ class FreeDataSourcesService {
       },
     };
   }
-
   // Verify all free APIs are accessible
   async verifyDataSources() {
     const status = {};
-    
     // Test FDA API
     try {
       const fdaTest = await fetch(`${this.sources.fda.labels}?limit=1`);
@@ -333,7 +282,6 @@ class FreeDataSourcesService {
     } catch {
       status.fda = 'unreachable';
     }
-    
     // Test PubMed API
     try {
       const pubmedTest = await fetch(
@@ -343,7 +291,6 @@ class FreeDataSourcesService {
     } catch {
       status.pubmed = 'unreachable';
     }
-    
     // Test RxNorm API
     try {
       const rxnormTest = await fetch(
@@ -353,7 +300,6 @@ class FreeDataSourcesService {
     } catch {
       status.rxnorm = 'unreachable';
     }
-    
     return {
       status,
       allOperational: Object.values(status).every(s => s === 'operational'),
@@ -361,12 +307,9 @@ class FreeDataSourcesService {
     };
   }
 }
-
 // Singleton instance
 const freeDataSourcesService = new FreeDataSourcesService();
-
 export default freeDataSourcesService;
-
 // Export convenience functions
 export const getFDADrugInfo = (drug) => freeDataSourcesService.getFDADrugInfo(drug);
 export const getRxNormInteractions = (rxcui) => freeDataSourcesService.getRxNormInteractions(rxcui);

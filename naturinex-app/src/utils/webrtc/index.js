@@ -1,380 +1,1 @@
-/**
- * WebRTC Utilities Index
- * Exports all WebRTC-related utilities and services for telemedicine
- */
-
-import WebRTCManager from './WebRTCManager';
-import SignalingService from './SignalingService';
-import MediaUtils from './MediaUtils';
-
-// Configuration constants
-export const WEBRTC_CONFIG = {
-  // ICE servers for NAT traversal
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    {
-      urls: 'turn:numb.viagenie.ca',
-      username: 'webrtc@live.com',
-      credential: 'muazkh'
-    }
-  ],
-
-  // Peer connection configuration
-  iceCandidatePoolSize: 10,
-  bundlePolicy: 'balanced',
-  rtcpMuxPolicy: 'require',
-
-  // Quality settings
-  videoQuality: {
-    low: {
-      width: { ideal: 640 },
-      height: { ideal: 480 },
-      frameRate: { ideal: 15 },
-      bitrate: 300 // kbps
-    },
-    medium: {
-      width: { ideal: 1280 },
-      height: { ideal: 720 },
-      frameRate: { ideal: 24 },
-      bitrate: 800 // kbps
-    },
-    high: {
-      width: { ideal: 1920 },
-      height: { ideal: 1080 },
-      frameRate: { ideal: 30 },
-      bitrate: 1500 // kbps
-    }
-  },
-
-  // Audio settings
-  audioQuality: {
-    sampleRate: 48000,
-    channelCount: 2,
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true
-  },
-
-  // Connection thresholds
-  connectionThresholds: {
-    excellent: { rtt: 100, packetLoss: 0.01 },
-    good: { rtt: 300, packetLoss: 0.05 },
-    fair: { rtt: 500, packetLoss: 0.1 },
-    poor: { rtt: 1000, packetLoss: 0.2 }
-  }
-};
-
-// Error codes
-export const WEBRTC_ERRORS = {
-  PERMISSION_DENIED: 'PERMISSION_DENIED',
-  DEVICE_NOT_FOUND: 'DEVICE_NOT_FOUND',
-  DEVICE_IN_USE: 'DEVICE_IN_USE',
-  CONNECTION_FAILED: 'CONNECTION_FAILED',
-  SIGNALING_ERROR: 'SIGNALING_ERROR',
-  MEDIA_ERROR: 'MEDIA_ERROR',
-  UNKNOWN_ERROR: 'UNKNOWN_ERROR'
-};
-
-// Connection states
-export const CONNECTION_STATES = {
-  NEW: 'new',
-  CONNECTING: 'connecting',
-  CONNECTED: 'connected',
-  DISCONNECTED: 'disconnected',
-  FAILED: 'failed',
-  CLOSED: 'closed'
-};
-
-// ICE connection states
-export const ICE_CONNECTION_STATES = {
-  NEW: 'new',
-  CHECKING: 'checking',
-  CONNECTED: 'connected',
-  COMPLETED: 'completed',
-  FAILED: 'failed',
-  DISCONNECTED: 'disconnected',
-  CLOSED: 'closed'
-};
-
-// Quality levels
-export const QUALITY_LEVELS = {
-  POOR: 'poor',
-  FAIR: 'fair',
-  GOOD: 'good',
-  EXCELLENT: 'excellent'
-};
-
-/**
- * Create a WebRTC manager instance with default configuration
- */
-export function createWebRTCManager(config = {}) {
-  const finalConfig = {
-    ...WEBRTC_CONFIG,
-    ...config
-  };
-
-  return new WebRTCManager(finalConfig);
-}
-
-/**
- * Create a signaling service instance
- */
-export function createSignalingService() {
-  return new SignalingService();
-}
-
-/**
- * Check WebRTC support in current browser
- */
-export function checkWebRTCSupport() {
-  const support = {
-    webrtc: false,
-    getUserMedia: false,
-    mediaRecorder: false,
-    screenShare: false,
-    dataChannels: false,
-    errors: []
-  };
-
-  try {
-    // Check RTCPeerConnection support
-    if (typeof RTCPeerConnection !== 'undefined') {
-      support.webrtc = true;
-    } else {
-      support.errors.push('RTCPeerConnection not supported');
-    }
-
-    // Check getUserMedia support
-    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-      support.getUserMedia = true;
-    } else {
-      support.errors.push('getUserMedia not supported');
-    }
-
-    // Check MediaRecorder support
-    if (typeof MediaRecorder !== 'undefined') {
-      support.mediaRecorder = true;
-    } else {
-      support.errors.push('MediaRecorder not supported');
-    }
-
-    // Check screen sharing support
-    if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
-      support.screenShare = true;
-    } else {
-      support.errors.push('Screen sharing not supported');
-    }
-
-    // Check data channels support (assume supported if WebRTC is supported)
-    if (support.webrtc) {
-      support.dataChannels = true;
-    }
-  } catch (error) {
-    support.errors.push(`Error checking support: ${error.message}`);
-  }
-
-  return support;
-}
-
-/**
- * Get recommended quality based on connection
- */
-export function getRecommendedQuality(connectionInfo) {
-  const { effectiveType, downlink, rtt, saveData } = connectionInfo;
-
-  // If user has save data enabled, use low quality
-  if (saveData) {
-    return 'low';
-  }
-
-  // Based on effective connection type
-  switch (effectiveType) {
-    case '4g':
-      return downlink > 5 ? 'high' : 'medium';
-    case '3g':
-      return 'medium';
-    case '2g':
-    case 'slow-2g':
-      return 'low';
-    default:
-      // Use RTT as fallback
-      if (rtt < 100) return 'high';
-      if (rtt < 300) return 'medium';
-      return 'low';
-  }
-}
-
-/**
- * Format bandwidth for display
- */
-export function formatBandwidth(kbps) {
-  if (kbps < 1000) {
-    return `${kbps} kbps`;
-  } else {
-    return `${(kbps / 1000).toFixed(1)} Mbps`;
-  }
-}
-
-/**
- * Format connection quality for display
- */
-export function formatConnectionQuality(quality) {
-  const qualityMap = {
-    excellent: { text: 'Excellent', color: '#10B981', icon: '●●●●●' },
-    good: { text: 'Good', color: '#3B82F6', icon: '●●●●○' },
-    fair: { text: 'Fair', color: '#F59E0B', icon: '●●●○○' },
-    poor: { text: 'Poor', color: '#EF4444', icon: '●●○○○' }
-  };
-
-  return qualityMap[quality] || qualityMap.poor;
-}
-
-/**
- * Get error message for WebRTC errors
- */
-export function getErrorMessage(error) {
-  const errorMessages = {
-    [WEBRTC_ERRORS.PERMISSION_DENIED]: 'Camera and microphone access denied. Please allow permissions and try again.',
-    [WEBRTC_ERRORS.DEVICE_NOT_FOUND]: 'Camera or microphone not found. Please check your devices.',
-    [WEBRTC_ERRORS.DEVICE_IN_USE]: 'Camera or microphone is already in use by another application.',
-    [WEBRTC_ERRORS.CONNECTION_FAILED]: 'Failed to establish connection. Please check your internet connection.',
-    [WEBRTC_ERRORS.SIGNALING_ERROR]: 'Communication error occurred. Please refresh and try again.',
-    [WEBRTC_ERRORS.MEDIA_ERROR]: 'Media error occurred. Please check your camera and microphone.',
-    [WEBRTC_ERRORS.UNKNOWN_ERROR]: 'An unexpected error occurred. Please try again.'
-  };
-
-  if (typeof error === 'string') {
-    return errorMessages[error] || error;
-  }
-
-  if (error && error.name) {
-    switch (error.name) {
-      case 'NotAllowedError':
-        return errorMessages[WEBRTC_ERRORS.PERMISSION_DENIED];
-      case 'NotFoundError':
-        return errorMessages[WEBRTC_ERRORS.DEVICE_NOT_FOUND];
-      case 'NotReadableError':
-        return errorMessages[WEBRTC_ERRORS.DEVICE_IN_USE];
-      case 'OverconstrainedError':
-        return 'Camera or microphone settings are not supported by your device.';
-      case 'SecurityError':
-        return 'Security error occurred. Please use HTTPS.';
-      default:
-        return error.message || errorMessages[WEBRTC_ERRORS.UNKNOWN_ERROR];
-    }
-  }
-
-  return errorMessages[WEBRTC_ERRORS.UNKNOWN_ERROR];
-}
-
-/**
- * Create a comprehensive WebRTC session for telemedicine
- */
-export async function createTelemedicineSession(consultationId, userType, config = {}) {
-  try {
-    // Check WebRTC support
-    const support = checkWebRTCSupport();
-    if (!support.webrtc || !support.getUserMedia) {
-      throw new Error('WebRTC not supported in this browser');
-    }
-
-    // Create WebRTC manager
-    const webrtcManager = createWebRTCManager(config);
-    await webrtcManager.initialize();
-
-    // Create signaling service
-    const signalingService = createSignalingService();
-    await signalingService.initialize(consultationId, userType);
-
-    // Set up signaling handlers
-    signalingService.on('offer', async (offer) => {
-      try {
-        const answer = await webrtcManager.createAnswer(offer);
-        await signalingService.sendAnswer(answer);
-      } catch (error) {
-        console.error('Error handling offer:', error);
-        throw error;
-      }
-    });
-
-    signalingService.on('answer', async (answer) => {
-      try {
-        await webrtcManager.setRemoteAnswer(answer);
-      } catch (error) {
-        console.error('Error handling answer:', error);
-        throw error;
-      }
-    });
-
-    signalingService.on('ice-candidate', async (candidate) => {
-      try {
-        await webrtcManager.addIceCandidate(candidate);
-      } catch (error) {
-        console.error('Error handling ICE candidate:', error);
-      }
-    });
-
-    // Set up WebRTC handlers
-    webrtcManager.on('iceCandidate', async (candidate) => {
-      await signalingService.sendIceCandidate(candidate);
-    });
-
-    webrtcManager.on('offerCreated', async (offer) => {
-      await signalingService.sendOffer(offer);
-    });
-
-    // Start signaling
-    signalingService.startListening();
-    await signalingService.processPendingMessages();
-
-    return {
-      webrtcManager,
-      signalingService,
-      async startCall() {
-        const stream = await webrtcManager.getUserMedia();
-        if (userType === 'provider') {
-          // Provider initiates the call
-          await webrtcManager.createOffer();
-        }
-        return stream;
-      },
-      async endCall() {
-        signalingService.stopListening();
-        webrtcManager.close();
-        await signalingService.cleanup();
-      }
-    };
-  } catch (error) {
-    console.error('Error creating telemedicine session:', error);
-    throw error;
-  }
-}
-
-// Export all utilities
-export {
-  WebRTCManager,
-  SignalingService,
-  MediaUtils
-};
-
-export default {
-  WebRTCManager,
-  SignalingService,
-  MediaUtils,
-  createWebRTCManager,
-  createSignalingService,
-  createTelemedicineSession,
-  checkWebRTCSupport,
-  getRecommendedQuality,
-  formatBandwidth,
-  formatConnectionQuality,
-  getErrorMessage,
-  WEBRTC_CONFIG,
-  WEBRTC_ERRORS,
-  CONNECTION_STATES,
-  ICE_CONNECTION_STATES,
-  QUALITY_LEVELS
-};
+/** * WebRTC Utilities Index * Exports all WebRTC-related utilities and services for telemedicine */import WebRTCManager from './WebRTCManager';import SignalingService from './SignalingService';import MediaUtils from './MediaUtils';// Configuration constantsexport const WEBRTC_CONFIG = {  // ICE servers for NAT traversal  iceServers: [    { urls: 'stun:stun.l.google.com:19302' },    { urls: 'stun:stun1.l.google.com:19302' },    { urls: 'stun:stun2.l.google.com:19302' },    { urls: 'stun:stun3.l.google.com:19302' },    {      urls: 'turn:numb.viagenie.ca',      username: 'webrtc@live.com',      credential: 'muazkh'    }  ],  // Peer connection configuration  iceCandidatePoolSize: 10,  bundlePolicy: 'balanced',  rtcpMuxPolicy: 'require',  // Quality settings  videoQuality: {    low: {      width: { ideal: 640 },      height: { ideal: 480 },      frameRate: { ideal: 15 },      bitrate: 300 // kbps    },    medium: {      width: { ideal: 1280 },      height: { ideal: 720 },      frameRate: { ideal: 24 },      bitrate: 800 // kbps    },    high: {      width: { ideal: 1920 },      height: { ideal: 1080 },      frameRate: { ideal: 30 },      bitrate: 1500 // kbps    }  },  // Audio settings  audioQuality: {    sampleRate: 48000,    channelCount: 2,    echoCancellation: true,    noiseSuppression: true,    autoGainControl: true  },  // Connection thresholds  connectionThresholds: {    excellent: { rtt: 100, packetLoss: 0.01 },    good: { rtt: 300, packetLoss: 0.05 },    fair: { rtt: 500, packetLoss: 0.1 },    poor: { rtt: 1000, packetLoss: 0.2 }  }};// Error codesexport const WEBRTC_ERRORS = {  PERMISSION_DENIED: 'PERMISSION_DENIED',  DEVICE_NOT_FOUND: 'DEVICE_NOT_FOUND',  DEVICE_IN_USE: 'DEVICE_IN_USE',  CONNECTION_FAILED: 'CONNECTION_FAILED',  SIGNALING_ERROR: 'SIGNALING_ERROR',  MEDIA_ERROR: 'MEDIA_ERROR',  UNKNOWN_ERROR: 'UNKNOWN_ERROR'};// Connection statesexport const CONNECTION_STATES = {  NEW: 'new',  CONNECTING: 'connecting',  CONNECTED: 'connected',  DISCONNECTED: 'disconnected',  FAILED: 'failed',  CLOSED: 'closed'};// ICE connection statesexport const ICE_CONNECTION_STATES = {  NEW: 'new',  CHECKING: 'checking',  CONNECTED: 'connected',  COMPLETED: 'completed',  FAILED: 'failed',  DISCONNECTED: 'disconnected',  CLOSED: 'closed'};// Quality levelsexport const QUALITY_LEVELS = {  POOR: 'poor',  FAIR: 'fair',  GOOD: 'good',  EXCELLENT: 'excellent'};/** * Create a WebRTC manager instance with default configuration */export function createWebRTCManager(config = {}) {  const finalConfig = {    ...WEBRTC_CONFIG,    ...config  };  return new WebRTCManager(finalConfig);}/** * Create a signaling service instance */export function createSignalingService() {  return new SignalingService();}/** * Check WebRTC support in current browser */export function checkWebRTCSupport() {  const support = {    webrtc: false,    getUserMedia: false,    mediaRecorder: false,    screenShare: false,    dataChannels: false,    errors: []  };  try {    // Check RTCPeerConnection support    if (typeof RTCPeerConnection !== 'undefined') {      support.webrtc = true;    } else {      support.errors.push('RTCPeerConnection not supported');    }    // Check getUserMedia support    if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {      support.getUserMedia = true;    } else {      support.errors.push('getUserMedia not supported');    }    // Check MediaRecorder support    if (typeof MediaRecorder !== 'undefined') {      support.mediaRecorder = true;    } else {      support.errors.push('MediaRecorder not supported');    }    // Check screen sharing support    if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {      support.screenShare = true;    } else {      support.errors.push('Screen sharing not supported');    }    // Check data channels support (assume supported if WebRTC is supported)    if (support.webrtc) {      support.dataChannels = true;    }  } catch (error) {    support.errors.push(`Error checking support: ${error.message}`);  }  return support;}/** * Get recommended quality based on connection */export function getRecommendedQuality(connectionInfo) {  const { effectiveType, downlink, rtt, saveData } = connectionInfo;  // If user has save data enabled, use low quality  if (saveData) {    return 'low';  }  // Based on effective connection type  switch (effectiveType) {    case '4g':      return downlink > 5 ? 'high' : 'medium';    case '3g':      return 'medium';    case '2g':    case 'slow-2g':      return 'low';    default:      // Use RTT as fallback      if (rtt < 100) return 'high';      if (rtt < 300) return 'medium';      return 'low';  }}/** * Format bandwidth for display */export function formatBandwidth(kbps) {  if (kbps < 1000) {    return `${kbps} kbps`;  } else {    return `${(kbps / 1000).toFixed(1)} Mbps`;  }}/** * Format connection quality for display */export function formatConnectionQuality(quality) {  const qualityMap = {    excellent: { text: 'Excellent', color: '#10B981', icon: '●●●●●' },    good: { text: 'Good', color: '#3B82F6', icon: '●●●●○' },    fair: { text: 'Fair', color: '#F59E0B', icon: '●●●○○' },    poor: { text: 'Poor', color: '#EF4444', icon: '●●○○○' }  };  return qualityMap[quality] || qualityMap.poor;}/** * Get error message for WebRTC errors */export function getErrorMessage(error) {  const errorMessages = {    [WEBRTC_ERRORS.PERMISSION_DENIED]: 'Camera and microphone access denied. Please allow permissions and try again.',    [WEBRTC_ERRORS.DEVICE_NOT_FOUND]: 'Camera or microphone not found. Please check your devices.',    [WEBRTC_ERRORS.DEVICE_IN_USE]: 'Camera or microphone is already in use by another application.',    [WEBRTC_ERRORS.CONNECTION_FAILED]: 'Failed to establish connection. Please check your internet connection.',    [WEBRTC_ERRORS.SIGNALING_ERROR]: 'Communication error occurred. Please refresh and try again.',    [WEBRTC_ERRORS.MEDIA_ERROR]: 'Media error occurred. Please check your camera and microphone.',    [WEBRTC_ERRORS.UNKNOWN_ERROR]: 'An unexpected error occurred. Please try again.'  };  if (typeof error === 'string') {    return errorMessages[error] || error;  }  if (error && error.name) {    switch (error.name) {      case 'NotAllowedError':        return errorMessages[WEBRTC_ERRORS.PERMISSION_DENIED];      case 'NotFoundError':        return errorMessages[WEBRTC_ERRORS.DEVICE_NOT_FOUND];      case 'NotReadableError':        return errorMessages[WEBRTC_ERRORS.DEVICE_IN_USE];      case 'OverconstrainedError':        return 'Camera or microphone settings are not supported by your device.';      case 'SecurityError':        return 'Security error occurred. Please use HTTPS.';      default:        return error.message || errorMessages[WEBRTC_ERRORS.UNKNOWN_ERROR];    }  }  return errorMessages[WEBRTC_ERRORS.UNKNOWN_ERROR];}/** * Create a comprehensive WebRTC session for telemedicine */export async function createTelemedicineSession(consultationId, userType, config = {}) {  try {    // Check WebRTC support    const support = checkWebRTCSupport();    if (!support.webrtc || !support.getUserMedia) {      throw new Error('WebRTC not supported in this browser');    }    // Create WebRTC manager    const webrtcManager = createWebRTCManager(config);    await webrtcManager.initialize();    // Create signaling service    const signalingService = createSignalingService();    await signalingService.initialize(consultationId, userType);    // Set up signaling handlers    signalingService.on('offer', async (offer) => {      try {        const answer = await webrtcManager.createAnswer(offer);        await signalingService.sendAnswer(answer);      } catch (error) {        console.error('Error handling offer:', error);        throw error;      }    });    signalingService.on('answer', async (answer) => {      try {        await webrtcManager.setRemoteAnswer(answer);      } catch (error) {        console.error('Error handling answer:', error);        throw error;      }    });    signalingService.on('ice-candidate', async (candidate) => {      try {        await webrtcManager.addIceCandidate(candidate);      } catch (error) {        console.error('Error handling ICE candidate:', error);      }    });    // Set up WebRTC handlers    webrtcManager.on('iceCandidate', async (candidate) => {      await signalingService.sendIceCandidate(candidate);    });    webrtcManager.on('offerCreated', async (offer) => {      await signalingService.sendOffer(offer);    });    // Start signaling    signalingService.startListening();    await signalingService.processPendingMessages();    return {      webrtcManager,      signalingService,      async startCall() {        const stream = await webrtcManager.getUserMedia();        if (userType === 'provider') {          // Provider initiates the call          await webrtcManager.createOffer();        }        return stream;      },      async endCall() {        signalingService.stopListening();        webrtcManager.close();        await signalingService.cleanup();      }    };  } catch (error) {    console.error('Error creating telemedicine session:', error);    throw error;  }}// Export all utilitiesexport {  WebRTCManager,  SignalingService,  MediaUtils};export default {  WebRTCManager,  SignalingService,  MediaUtils,  createWebRTCManager,  createSignalingService,  createTelemedicineSession,  checkWebRTCSupport,  getRecommendedQuality,  formatBandwidth,  formatConnectionQuality,  getErrorMessage,  WEBRTC_CONFIG,  WEBRTC_ERRORS,  CONNECTION_STATES,  ICE_CONNECTION_STATES,  QUALITY_LEVELS};

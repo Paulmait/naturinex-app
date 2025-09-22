@@ -28,25 +28,19 @@ import { useNavigate } from 'react-router-dom';
 import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebase.web';
 import webConfig from '../../config/webConfig';
-
 function WebSubscription() {
   const [userData, setUserData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
-  
   const navigate = useNavigate();
   const user = auth.currentUser;
-  
   const API_URL = webConfig.API_URL;
-
   useEffect(() => {
     loadUserData();
   }, [user]);
-
   const loadUserData = async () => {
     if (!user) return;
-    
     try {
       const userDoc = await getDoc(doc(db, 'users', user.uid));
       if (userDoc.exists()) {
@@ -58,10 +52,8 @@ function WebSubscription() {
       setLoading(false);
     }
   };
-
   const handleCancelSubscription = async () => {
     setCancelling(true);
-    
     try {
       const response = await fetch(`${API_URL}/api/cancel-subscription`, {
         method: 'POST',
@@ -73,14 +65,12 @@ function WebSubscription() {
           subscriptionId: userData.stripeSubscriptionId,
         }),
       });
-      
       if (response.ok) {
         await updateDoc(doc(db, 'users', user.uid), {
           subscriptionType: 'free',
           subscriptionEndDate: new Date().toISOString(),
           stripeSubscriptionId: null,
         });
-        
         await loadUserData();
         setCancelDialogOpen(false);
       } else {
@@ -93,7 +83,6 @@ function WebSubscription() {
       setCancelling(false);
     }
   };
-
   const premiumFeatures = [
     'Unlimited medication lookups',
     'Detailed medication analysis from AI',
@@ -103,14 +92,12 @@ function WebSubscription() {
     'Ad-free experience',
     'Early access to new features',
   ];
-
   const freeFeatures = [
     '3 medication lookups per day',
     'Basic medication information',
     'Save up to 10 searches',
     'Text-based search only',
   ];
-
   if (loading) {
     return (
       <Container maxWidth="lg" sx={{ py: 4 }}>
@@ -118,15 +105,12 @@ function WebSubscription() {
       </Container>
     );
   }
-
   const isPremium = userData?.subscriptionType === 'premium';
-
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
       <Typography variant="h4" fontWeight="bold" gutterBottom>
         Subscription & Billing
       </Typography>
-
       {/* Current Plan */}
       <Card sx={{ mb: 4 }}>
         <CardContent>
@@ -140,7 +124,6 @@ function WebSubscription() {
               icon={isPremium ? <Star /> : undefined}
             />
           </Box>
-          
           {isPremium ? (
             <Box>
               <Typography variant="body1" gutterBottom>
@@ -175,7 +158,6 @@ function WebSubscription() {
           )}
         </CardContent>
       </Card>
-
       {/* Plan Comparison */}
       <Grid container spacing={3}>
         <Grid item xs={12} md={6}>
@@ -190,7 +172,6 @@ function WebSubscription() {
                   /month
                 </Typography>
               </Typography>
-              
               <List sx={{ mt: 3 }}>
                 {freeFeatures.map((feature, index) => (
                   <ListItem key={index} disablePadding>
@@ -201,7 +182,6 @@ function WebSubscription() {
                   </ListItem>
                 ))}
               </List>
-              
               {!isPremium && (
                 <Button
                   fullWidth
@@ -215,7 +195,6 @@ function WebSubscription() {
             </CardContent>
           </Card>
         </Grid>
-        
         <Grid item xs={12} md={6}>
           <Card
             sx={{
@@ -251,7 +230,6 @@ function WebSubscription() {
                   /month
                 </Typography>
               </Typography>
-              
               <List sx={{ mt: 3 }}>
                 {premiumFeatures.map((feature, index) => (
                   <ListItem key={index} disablePadding>
@@ -262,7 +240,6 @@ function WebSubscription() {
                   </ListItem>
                 ))}
               </List>
-              
               {isPremium ? (
                 <Button
                   fullWidth
@@ -286,7 +263,6 @@ function WebSubscription() {
           </Card>
         </Grid>
       </Grid>
-
       {/* Special Offers */}
       {!isPremium && (
         <Card sx={{ mt: 4, background: 'linear-gradient(135deg, #10B981 0%, #34D399 100%)' }}>
@@ -317,7 +293,6 @@ function WebSubscription() {
           </CardContent>
         </Card>
       )}
-
       {/* Cancel Subscription Dialog */}
       <Dialog open={cancelDialogOpen} onClose={() => setCancelDialogOpen(false)}>
         <DialogTitle>Cancel Subscription</DialogTitle>
@@ -363,5 +338,4 @@ function WebSubscription() {
     </Container>
   );
 }
-
 export default WebSubscription;

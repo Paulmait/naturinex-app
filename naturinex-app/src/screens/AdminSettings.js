@@ -1,402 +1,1 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  TextInput,
-  Alert,
-  ActivityIndicator,
-} from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
-import { getAuth, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
-import { getFirestore, doc, getDoc, updateDoc } from 'firebase/firestore';
-import * as SecureStore from 'expo-secure-store';
-import { safeUpdateUserDoc } from '../utils/firebaseUserUtils';
-
-export default function AdminSettings({ navigation }) {
-  const [loading, setLoading] = useState(false);
-  const [adminInfo, setAdminInfo] = useState({
-    email: '',
-    displayName: '',
-    lastLogin: null,
-  });
-  const [passwords, setPasswords] = useState({
-    current: '',
-    new: '',
-    confirm: '',
-  });
-  const [showPasswords, setShowPasswords] = useState({
-    current: false,
-    new: false,
-    confirm: false,
-  });
-
-  const auth = getAuth();
-  const db = getFirestore();
-
-  useEffect(() => {
-    loadAdminInfo();
-  }, []);
-
-  const loadAdminInfo = async () => {
-    try {
-      const user = auth.currentUser;
-      if (!user) return;
-
-      const userDoc = await getDoc(doc(db, 'users', user.uid));
-      const userData = userDoc.data();
-
-      setAdminInfo({
-        email: user.email,
-        displayName: userData?.displayName || 'Admin',
-        lastLogin: userData?.metadata?.lastLogin?.toDate() || new Date(),
-      });
-    } catch (error) {
-      console.error('Error loading admin info:', error);
-    }
-  };
-
-  const handlePasswordChange = async () => {
-    // Validate inputs
-    if (!passwords.current || !passwords.new || !passwords.confirm) {
-      Alert.alert('Error', 'Please fill in all password fields');
-      return;
-    }
-
-    if (passwords.new.length < 8) {
-      Alert.alert('Error', 'New password must be at least 8 characters long');
-      return;
-    }
-
-    if (passwords.new !== passwords.confirm) {
-      Alert.alert('Error', 'New passwords do not match');
-      return;
-    }
-
-    if (passwords.current === passwords.new) {
-      Alert.alert('Error', 'New password must be different from current password');
-      return;
-    }
-
-    Alert.alert(
-      'Confirm Password Change',
-      'Are you sure you want to change your admin password?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Change Password',
-          style: 'destructive',
-          onPress: async () => {
-            setLoading(true);
-            try {
-              const user = auth.currentUser;
-              
-              // Re-authenticate user
-              const credential = EmailAuthProvider.credential(
-                user.email,
-                passwords.current
-              );
-              
-              await reauthenticateWithCredential(user, credential);
-              
-              // Update password
-              await updatePassword(user, passwords.new);
-              
-              // Clear password fields
-              setPasswords({ current: '', new: '', confirm: '' });
-              
-              Alert.alert(
-                'Success',
-                'Your admin password has been updated successfully. Please use your new password for future logins.',
-                [{ text: 'OK' }]
-              );
-              
-              // Log the password change
-              await safeUpdateUserDoc(user.uid, {
-                'metadata.lastPasswordChange': new Date()
-              });
-              
-            } catch (error) {
-              console.error('Password change error:', error);
-              if (error.code === 'auth/wrong-password') {
-                Alert.alert('Error', 'Current password is incorrect');
-              } else if (error.code === 'auth/weak-password') {
-                Alert.alert('Error', 'New password is too weak. Please choose a stronger password.');
-              } else {
-                Alert.alert('Error', 'Failed to change password. Please try again.');
-              }
-            } finally {
-              setLoading(false);
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  const handleCreateAdminUser = () => {
-    Alert.alert(
-      'Create Admin User',
-      'To create a new admin user:\n\n1. Have them sign up normally\n2. Note their email address\n3. Run the makeUserAdmin() function on your server\n4. They will have admin access on next login',
-      [{ text: 'Understood' }]
-    );
-  };
-
-  return (
-    <ScrollView style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <MaterialIcons name="arrow-back" size={24} color="#1F2937" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Admin Settings</Text>
-        <MaterialIcons name="security" size={24} color="#10B981" />
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Admin Information</Text>
-        <View style={styles.infoCard}>
-          <View style={styles.infoRow}>
-            <MaterialIcons name="email" size={20} color="#6B7280" />
-            <Text style={styles.infoLabel}>Email:</Text>
-            <Text style={styles.infoValue}>{adminInfo.email}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <MaterialIcons name="person" size={20} color="#6B7280" />
-            <Text style={styles.infoLabel}>Name:</Text>
-            <Text style={styles.infoValue}>{adminInfo.displayName}</Text>
-          </View>
-          <View style={styles.infoRow}>
-            <MaterialIcons name="access-time" size={20} color="#6B7280" />
-            <Text style={styles.infoLabel}>Last Login:</Text>
-            <Text style={styles.infoValue}>
-              {adminInfo.lastLogin?.toLocaleString()}
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Change Password</Text>
-        
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            placeholder="Current Password"
-            value={passwords.current}
-            onChangeText={(text) => setPasswords({ ...passwords, current: text })}
-            secureTextEntry={!showPasswords.current}
-          />
-          <TouchableOpacity
-            onPress={() => setShowPasswords({ ...showPasswords, current: !showPasswords.current })}
-            style={styles.eyeIcon}
-          >
-            <MaterialIcons 
-              name={showPasswords.current ? "visibility" : "visibility-off"} 
-              size={24} 
-              color="#6B7280" 
-            />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            placeholder="New Password (min 8 characters)"
-            value={passwords.new}
-            onChangeText={(text) => setPasswords({ ...passwords, new: text })}
-            secureTextEntry={!showPasswords.new}
-          />
-          <TouchableOpacity
-            onPress={() => setShowPasswords({ ...showPasswords, new: !showPasswords.new })}
-            style={styles.eyeIcon}
-          >
-            <MaterialIcons 
-              name={showPasswords.new ? "visibility" : "visibility-off"} 
-              size={24} 
-              color="#6B7280" 
-            />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.inputContainer}>
-          <TextInput
-            style={styles.input}
-            placeholder="Confirm New Password"
-            value={passwords.confirm}
-            onChangeText={(text) => setPasswords({ ...passwords, confirm: text })}
-            secureTextEntry={!showPasswords.confirm}
-          />
-          <TouchableOpacity
-            onPress={() => setShowPasswords({ ...showPasswords, confirm: !showPasswords.confirm })}
-            style={styles.eyeIcon}
-          >
-            <MaterialIcons 
-              name={showPasswords.confirm ? "visibility" : "visibility-off"} 
-              size={24} 
-              color="#6B7280" 
-            />
-          </TouchableOpacity>
-        </View>
-
-        <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handlePasswordChange}
-          disabled={loading}
-        >
-          {loading ? (
-            <ActivityIndicator color="white" />
-          ) : (
-            <>
-              <MaterialIcons name="lock" size={24} color="white" />
-              <Text style={styles.buttonText}>Change Password</Text>
-            </>
-          )}
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Admin Management</Text>
-        
-        <TouchableOpacity
-          style={[styles.button, styles.secondaryButton]}
-          onPress={handleCreateAdminUser}
-        >
-          <MaterialIcons name="person-add" size={24} color="#10B981" />
-          <Text style={[styles.buttonText, styles.secondaryButtonText]}>
-            Create New Admin
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.button, styles.secondaryButton]}
-          onPress={() => navigation.navigate('AdminDashboard')}
-        >
-          <MaterialIcons name="dashboard" size={24} color="#10B981" />
-          <Text style={[styles.buttonText, styles.secondaryButtonText]}>
-            Admin Dashboard
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Security Best Practices</Text>
-        <View style={styles.tipsCard}>
-          <Text style={styles.tip}>• Use a strong, unique password</Text>
-          <Text style={styles.tip}>• Change your password regularly</Text>
-          <Text style={styles.tip}>• Never share admin credentials</Text>
-          <Text style={styles.tip}>• Enable two-factor authentication</Text>
-          <Text style={styles.tip}>• Monitor admin activity logs</Text>
-        </View>
-      </View>
-    </ScrollView>
-  );
-}
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 20,
-    paddingTop: 50,
-    backgroundColor: 'white',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#1F2937',
-  },
-  section: {
-    padding: 20,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1F2937',
-    marginBottom: 15,
-  },
-  infoCard: {
-    backgroundColor: 'white',
-    borderRadius: 10,
-    padding: 15,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  infoLabel: {
-    fontSize: 14,
-    color: '#6B7280',
-    marginLeft: 10,
-    width: 80,
-  },
-  infoValue: {
-    fontSize: 14,
-    color: '#1F2937',
-    flex: 1,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'white',
-    borderRadius: 10,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-  },
-  input: {
-    flex: 1,
-    padding: 15,
-    fontSize: 16,
-  },
-  eyeIcon: {
-    padding: 15,
-  },
-  button: {
-    backgroundColor: '#10B981',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 15,
-    borderRadius: 10,
-    marginTop: 10,
-  },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 10,
-  },
-  secondaryButton: {
-    backgroundColor: 'white',
-    borderWidth: 2,
-    borderColor: '#10B981',
-    marginBottom: 10,
-  },
-  secondaryButtonText: {
-    color: '#10B981',
-  },
-  tipsCard: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 10,
-    padding: 15,
-  },
-  tip: {
-    fontSize: 14,
-    color: '#4B5563',
-    marginBottom: 8,
-    lineHeight: 20,
-  },
-});
+import React, { useState, useEffect } from 'react';import {  View,  Text,  ScrollView,  StyleSheet,  TouchableOpacity,  TextInput,  Alert,  ActivityIndicator,} from 'react-native';import { MaterialIcons } from '@expo/vector-icons';import { getAuth, updatePassword, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';import { getFirestore, doc, getDoc, updateDoc } from 'firebase/firestore';import * as SecureStore from 'expo-secure-store';import { safeUpdateUserDoc } from '../utils/firebaseUserUtils';export default function AdminSettings({ navigation }) {  const [loading, setLoading] = useState(false);  const [adminInfo, setAdminInfo] = useState({    email: '',    displayName: '',    lastLogin: null,  });  const [passwords, setPasswords] = useState({    current: '',    new: '',    confirm: '',  });  const [showPasswords, setShowPasswords] = useState({    current: false,    new: false,    confirm: false,  });  const auth = getAuth();  const db = getFirestore();  useEffect(() => {    loadAdminInfo();  }, []);  const loadAdminInfo = async () => {    try {      const user = auth.currentUser;      if (!user) return;      const userDoc = await getDoc(doc(db, 'users', user.uid));      const userData = userDoc.data();      setAdminInfo({        email: user.email,        displayName: userData?.displayName || 'Admin',        lastLogin: userData?.metadata?.lastLogin?.toDate() || new Date(),      });    } catch (error) {      console.error('Error loading admin info:', error);    }  };  const handlePasswordChange = async () => {    // Validate inputs    if (!passwords.current || !passwords.new || !passwords.confirm) {      Alert.alert('Error', 'Please fill in all password fields');      return;    }    if (passwords.new.length < 8) {      Alert.alert('Error', 'New password must be at least 8 characters long');      return;    }    if (passwords.new !== passwords.confirm) {      Alert.alert('Error', 'New passwords do not match');      return;    }    if (passwords.current === passwords.new) {      Alert.alert('Error', 'New password must be different from current password');      return;    }    Alert.alert(      'Confirm Password Change',      'Are you sure you want to change your admin password?',      [        { text: 'Cancel', style: 'cancel' },        {          text: 'Change Password',          style: 'destructive',          onPress: async () => {            setLoading(true);            try {              const user = auth.currentUser;              // Re-authenticate user              const credential = EmailAuthProvider.credential(                user.email,                passwords.current              );              await reauthenticateWithCredential(user, credential);              // Update password              await updatePassword(user, passwords.new);              // Clear password fields              setPasswords({ current: '', new: '', confirm: '' });              Alert.alert(                'Success',                'Your admin password has been updated successfully. Please use your new password for future logins.',                [{ text: 'OK' }]              );              // Log the password change              await safeUpdateUserDoc(user.uid, {                'metadata.lastPasswordChange': new Date()              });            } catch (error) {              console.error('Password change error:', error);              if (error.code === 'auth/wrong-password') {                Alert.alert('Error', 'Current password is incorrect');              } else if (error.code === 'auth/weak-password') {                Alert.alert('Error', 'New password is too weak. Please choose a stronger password.');              } else {                Alert.alert('Error', 'Failed to change password. Please try again.');              }            } finally {              setLoading(false);            }          },        },      ]    );  };  const handleCreateAdminUser = () => {    Alert.alert(      'Create Admin User',      'To create a new admin user:\n\n1. Have them sign up normally\n2. Note their email address\n3. Run the makeUserAdmin() function on your server\n4. They will have admin access on next login',      [{ text: 'Understood' }]    );  };  return (    <ScrollView style={styles.container}>      <View style={styles.header}>        <TouchableOpacity onPress={() => navigation.goBack()}>          <MaterialIcons name="arrow-back" size={24} color="#1F2937" />        </TouchableOpacity>        <Text style={styles.headerTitle}>Admin Settings</Text>        <MaterialIcons name="security" size={24} color="#10B981" />      </View>      <View style={styles.section}>        <Text style={styles.sectionTitle}>Admin Information</Text>        <View style={styles.infoCard}>          <View style={styles.infoRow}>            <MaterialIcons name="email" size={20} color="#6B7280" />            <Text style={styles.infoLabel}>Email:</Text>            <Text style={styles.infoValue}>{adminInfo.email}</Text>          </View>          <View style={styles.infoRow}>            <MaterialIcons name="person" size={20} color="#6B7280" />            <Text style={styles.infoLabel}>Name:</Text>            <Text style={styles.infoValue}>{adminInfo.displayName}</Text>          </View>          <View style={styles.infoRow}>            <MaterialIcons name="access-time" size={20} color="#6B7280" />            <Text style={styles.infoLabel}>Last Login:</Text>            <Text style={styles.infoValue}>              {adminInfo.lastLogin?.toLocaleString()}            </Text>          </View>        </View>      </View>      <View style={styles.section}>        <Text style={styles.sectionTitle}>Change Password</Text>        <View style={styles.inputContainer}>          <TextInput            style={styles.input}            placeholder="Current Password"            value={passwords.current}            onChangeText={(text) => setPasswords({ ...passwords, current: text })}            secureTextEntry={!showPasswords.current}          />          <TouchableOpacity            onPress={() => setShowPasswords({ ...showPasswords, current: !showPasswords.current })}            style={styles.eyeIcon}          >            <MaterialIcons               name={showPasswords.current ? "visibility" : "visibility-off"}               size={24}               color="#6B7280"             />          </TouchableOpacity>        </View>        <View style={styles.inputContainer}>          <TextInput            style={styles.input}            placeholder="New Password (min 8 characters)"            value={passwords.new}            onChangeText={(text) => setPasswords({ ...passwords, new: text })}            secureTextEntry={!showPasswords.new}          />          <TouchableOpacity            onPress={() => setShowPasswords({ ...showPasswords, new: !showPasswords.new })}            style={styles.eyeIcon}          >            <MaterialIcons               name={showPasswords.new ? "visibility" : "visibility-off"}               size={24}               color="#6B7280"             />          </TouchableOpacity>        </View>        <View style={styles.inputContainer}>          <TextInput            style={styles.input}            placeholder="Confirm New Password"            value={passwords.confirm}            onChangeText={(text) => setPasswords({ ...passwords, confirm: text })}            secureTextEntry={!showPasswords.confirm}          />          <TouchableOpacity            onPress={() => setShowPasswords({ ...showPasswords, confirm: !showPasswords.confirm })}            style={styles.eyeIcon}          >            <MaterialIcons               name={showPasswords.confirm ? "visibility" : "visibility-off"}               size={24}               color="#6B7280"             />          </TouchableOpacity>        </View>        <TouchableOpacity          style={[styles.button, loading && styles.buttonDisabled]}          onPress={handlePasswordChange}          disabled={loading}        >          {loading ? (            <ActivityIndicator color="white" />          ) : (            <>              <MaterialIcons name="lock" size={24} color="white" />              <Text style={styles.buttonText}>Change Password</Text>            </>          )}        </TouchableOpacity>      </View>      <View style={styles.section}>        <Text style={styles.sectionTitle}>Admin Management</Text>        <TouchableOpacity          style={[styles.button, styles.secondaryButton]}          onPress={handleCreateAdminUser}        >          <MaterialIcons name="person-add" size={24} color="#10B981" />          <Text style={[styles.buttonText, styles.secondaryButtonText]}>            Create New Admin          </Text>        </TouchableOpacity>        <TouchableOpacity          style={[styles.button, styles.secondaryButton]}          onPress={() => navigation.navigate('AdminDashboard')}        >          <MaterialIcons name="dashboard" size={24} color="#10B981" />          <Text style={[styles.buttonText, styles.secondaryButtonText]}>            Admin Dashboard          </Text>        </TouchableOpacity>      </View>      <View style={styles.section}>        <Text style={styles.sectionTitle}>Security Best Practices</Text>        <View style={styles.tipsCard}>          <Text style={styles.tip}>• Use a strong, unique password</Text>          <Text style={styles.tip}>• Change your password regularly</Text>          <Text style={styles.tip}>• Never share admin credentials</Text>          <Text style={styles.tip}>• Enable two-factor authentication</Text>          <Text style={styles.tip}>• Monitor admin activity logs</Text>        </View>      </View>    </ScrollView>  );}const styles = StyleSheet.create({  container: {    flex: 1,    backgroundColor: '#F9FAFB',  },  header: {    flexDirection: 'row',    alignItems: 'center',    justifyContent: 'space-between',    padding: 20,    paddingTop: 50,    backgroundColor: 'white',    borderBottomWidth: 1,    borderBottomColor: '#E5E7EB',  },  headerTitle: {    fontSize: 20,    fontWeight: '600',    color: '#1F2937',  },  section: {    padding: 20,  },  sectionTitle: {    fontSize: 18,    fontWeight: '600',    color: '#1F2937',    marginBottom: 15,  },  infoCard: {    backgroundColor: 'white',    borderRadius: 10,    padding: 15,  },  infoRow: {    flexDirection: 'row',    alignItems: 'center',    marginBottom: 12,  },  infoLabel: {    fontSize: 14,    color: '#6B7280',    marginLeft: 10,    width: 80,  },  infoValue: {    fontSize: 14,    color: '#1F2937',    flex: 1,  },  inputContainer: {    flexDirection: 'row',    alignItems: 'center',    backgroundColor: 'white',    borderRadius: 10,    marginBottom: 12,    borderWidth: 1,    borderColor: '#E5E7EB',  },  input: {    flex: 1,    padding: 15,    fontSize: 16,  },  eyeIcon: {    padding: 15,  },  button: {    backgroundColor: '#10B981',    flexDirection: 'row',    alignItems: 'center',    justifyContent: 'center',    padding: 15,    borderRadius: 10,    marginTop: 10,  },  buttonDisabled: {    opacity: 0.6,  },  buttonText: {    color: 'white',    fontSize: 16,    fontWeight: '600',    marginLeft: 10,  },  secondaryButton: {    backgroundColor: 'white',    borderWidth: 2,    borderColor: '#10B981',    marginBottom: 10,  },  secondaryButtonText: {    color: '#10B981',  },  tipsCard: {    backgroundColor: '#F3F4F6',    borderRadius: 10,    padding: 15,  },  tip: {    fontSize: 14,    color: '#4B5563',    marginBottom: 8,    lineHeight: 20,  },});

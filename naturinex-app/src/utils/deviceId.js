@@ -1,71 +1,1 @@
-import * as Device from 'expo-device';
-import * as Application from 'expo-application';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import Constants from 'expo-constants';
-
-export async function getDeviceId() {
-  try {
-    // Check if we already have a device ID stored
-    let deviceId = await AsyncStorage.getItem('deviceId');
-    
-    if (!deviceId) {
-      // Generate unique device ID based on device characteristics
-      const factors = [];
-      
-      // Add device-specific information
-      factors.push(Device.brand || 'unknown');
-      factors.push(Device.modelName || 'unknown');
-      factors.push(Device.osName || 'unknown');
-      factors.push(Device.osVersion || 'unknown');
-      
-      // Add app-specific information
-      if (Constants.sessionId) {
-        factors.push(Constants.sessionId);
-      }
-      
-      // For iOS, use vendor ID
-      if (Device.osName === 'iOS') {
-        try {
-          const vendorId = await Application.getIosIdForVendorAsync();
-          if (vendorId) {
-            factors.push(vendorId);
-          }
-        } catch (error) {
-          console.log('Could not get iOS vendor ID:', error);
-        }
-      }
-      
-      // For Android, use Android ID
-      if (Device.osName === 'Android') {
-        try {
-          const androidId = await Application.getAndroidId();
-          if (androidId) {
-            factors.push(androidId);
-          }
-        } catch (error) {
-          console.log('Could not get Android ID:', error);
-        }
-      }
-      
-      // Create a unique hash from all factors
-      deviceId = factors.join('-');
-      
-      // Store for future use
-      await AsyncStorage.setItem('deviceId', deviceId);
-    }
-    
-    return deviceId;
-  } catch (error) {
-    console.error('Error generating device ID:', error);
-    // Fallback to a random ID if all else fails
-    return `fallback-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  }
-}
-
-export async function clearDeviceId() {
-  try {
-    await AsyncStorage.removeItem('deviceId');
-  } catch (error) {
-    console.error('Error clearing device ID:', error);
-  }
-}
+import * as Device from 'expo-device';import * as Application from 'expo-application';import AsyncStorage from '@react-native-async-storage/async-storage';import Constants from 'expo-constants';export async function getDeviceId() {  try {    // Check if we already have a device ID stored    let deviceId = await AsyncStorage.getItem('deviceId');    if (!deviceId) {      // Generate unique device ID based on device characteristics      const factors = [];      // Add device-specific information      factors.push(Device.brand || 'unknown');      factors.push(Device.modelName || 'unknown');      factors.push(Device.osName || 'unknown');      factors.push(Device.osVersion || 'unknown');      // Add app-specific information      if (Constants.sessionId) {        factors.push(Constants.sessionId);      }      // For iOS, use vendor ID      if (Device.osName === 'iOS') {        try {          const vendorId = await Application.getIosIdForVendorAsync();          if (vendorId) {            factors.push(vendorId);          }        } catch (error) {        }      }      // For Android, use Android ID      if (Device.osName === 'Android') {        try {          const androidId = await Application.getAndroidId();          if (androidId) {            factors.push(androidId);          }        } catch (error) {        }      }      // Create a unique hash from all factors      deviceId = factors.join('-');      // Store for future use      await AsyncStorage.setItem('deviceId', deviceId);    }    return deviceId;  } catch (error) {    console.error('Error generating device ID:', error);    // Fallback to a random ID if all else fails    return `fallback-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;  }}export async function clearDeviceId() {  try {    await AsyncStorage.removeItem('deviceId');  } catch (error) {    console.error('Error clearing device ID:', error);  }}

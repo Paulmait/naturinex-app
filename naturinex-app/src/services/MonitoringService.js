@@ -1,812 +1,1 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Platform } from 'react-native';
-import * as Device from 'expo-device';
-import Constants from 'expo-constants';
-import { supabase } from '../config/supabase';
-import ErrorService from './ErrorService';
-
-/**
- * MonitoringService - Comprehensive monitoring and analytics
- *
- * Features:
- * - Performance monitoring
- * - Error tracking and crash analytics
- * - User session recording
- * - App usage analytics
- * - Real-time monitoring dashboard data
- * - Custom metrics tracking
- */
-class MonitoringService {
-  constructor() {
-    this.sessionId = null;
-    this.sessionStartTime = null;
-    this.performanceMetrics = [];
-    this.userInteractions = [];
-    this.crashReports = [];
-    this.customMetrics = new Map();
-    this.isMonitoring = false;
-
-    // Storage keys
-    this.STORAGE_KEYS = {
-      PERFORMANCE_METRICS: 'monitoring_performance_metrics',
-      USER_SESSIONS: 'monitoring_user_sessions',
-      CRASH_REPORTS: 'monitoring_crash_reports',
-      ANALYTICS_EVENTS: 'monitoring_analytics_events',
-      CUSTOM_METRICS: 'monitoring_custom_metrics',
-      MONITORING_CONFIG: 'monitoring_config',
-    };
-
-    // Performance thresholds
-    this.PERFORMANCE_THRESHOLDS = {
-      APP_START_TIME: 3000, // 3 seconds
-      SCREEN_LOAD_TIME: 2000, // 2 seconds
-      API_RESPONSE_TIME: 5000, // 5 seconds
-      MEMORY_WARNING: 50 * 1024 * 1024, // 50MB
-      CRASH_FREQUENCY: 5, // 5 crashes per hour
-    };
-
-    // Event types
-    this.EVENT_TYPES = {
-      APP_START: 'app_start',
-      SCREEN_VIEW: 'screen_view',
-      USER_ACTION: 'user_action',
-      API_CALL: 'api_call',
-      ERROR: 'error',
-      PERFORMANCE: 'performance',
-      CRASH: 'crash',
-      CUSTOM: 'custom',
-    };
-
-    this.init();
-  }
-
-  async init() {
-    try {
-      // Load monitoring configuration
-      await this.loadMonitoringConfig();
-
-      // Start new session
-      await this.startSession();
-
-      // Set up performance monitoring
-      this.setupPerformanceMonitoring();
-
-      // Set up error listeners
-      this.setupErrorListeners();
-
-      // Set up memory monitoring
-      this.setupMemoryMonitoring();
-
-      this.isMonitoring = true;
-
-      this.trackEvent(this.EVENT_TYPES.APP_START, {
-        timestamp: new Date().toISOString(),
-        deviceInfo: await this.getDeviceInfo(),
-        appVersion: Constants.expoConfig?.version || '1.0.0',
-      });
-
-    } catch (error) {
-      ErrorService.logError(error, 'MonitoringService.init');
-    }
-  }
-
-  /**
-   * Start new user session
-   */
-  async startSession() {
-    this.sessionId = this.generateSessionId();
-    this.sessionStartTime = Date.now();
-
-    const sessionData = {
-      sessionId: this.sessionId,
-      startTime: new Date().toISOString(),
-      deviceInfo: await this.getDeviceInfo(),
-      appVersion: Constants.expoConfig?.version || '1.0.0',
-      platform: Platform.OS,
-    };
-
-    await this.saveSessionData(sessionData);
-
-    ErrorService.logInfo('Monitoring session started', {
-      sessionId: this.sessionId,
-    });
-  }
-
-  /**
-   * End current session
-   */
-  async endSession() {
-    if (!this.sessionId) return;
-
-    const sessionDuration = Date.now() - this.sessionStartTime;
-    const endData = {
-      sessionId: this.sessionId,
-      endTime: new Date().toISOString(),
-      duration: sessionDuration,
-      interactions: this.userInteractions.length,
-      errors: this.getSessionErrors(),
-      crashes: this.getSessionCrashes(),
-    };
-
-    await this.updateSessionData(endData);
-
-    // Send session data to analytics
-    await this.sendSessionAnalytics(endData);
-
-    this.sessionId = null;
-    this.userInteractions = [];
-  }
-
-  /**
-   * Track custom event
-   */
-  async trackEvent(eventType, eventData = {}) {
-    const event = {
-      id: this.generateEventId(),
-      sessionId: this.sessionId,
-      type: eventType,
-      timestamp: new Date().toISOString(),
-      data: eventData,
-    };
-
-    try {
-      // Save locally
-      await this.saveEventLocally(event);
-
-      // Send to analytics if online
-      await this.sendEventAnalytics(event);
-
-      // Add to session interactions if it's a user action
-      if (eventType === this.EVENT_TYPES.USER_ACTION) {
-        this.userInteractions.push(event);
-      }
-
-    } catch (error) {
-      ErrorService.logError(error, 'MonitoringService.trackEvent');
-    }
-  }
-
-  /**
-   * Track screen view
-   */
-  async trackScreenView(screenName, additionalData = {}) {
-    await this.trackEvent(this.EVENT_TYPES.SCREEN_VIEW, {
-      screenName,
-      ...additionalData,
-    });
-  }
-
-  /**
-   * Track user action
-   */
-  async trackUserAction(action, element, additionalData = {}) {
-    await this.trackEvent(this.EVENT_TYPES.USER_ACTION, {
-      action,
-      element,
-      ...additionalData,
-    });
-  }
-
-  /**
-   * Track API call performance
-   */
-  async trackAPICall(endpoint, method, duration, status, error = null) {
-    const eventData = {
-      endpoint,
-      method,
-      duration,
-      status,
-      error: error ? error.message : null,
-      isSlowAPI: duration > this.PERFORMANCE_THRESHOLDS.API_RESPONSE_TIME,
-    };
-
-    await this.trackEvent(this.EVENT_TYPES.API_CALL, eventData);
-
-    // Track performance metric
-    await this.trackPerformanceMetric('api_response_time', duration, {
-      endpoint,
-      method,
-      status,
-    });
-  }
-
-  /**
-   * Track performance metric
-   */
-  async trackPerformanceMetric(metricName, value, metadata = {}) {
-    const metric = {
-      id: this.generateMetricId(),
-      sessionId: this.sessionId,
-      name: metricName,
-      value,
-      metadata,
-      timestamp: new Date().toISOString(),
-    };
-
-    this.performanceMetrics.push(metric);
-
-    // Keep only last 1000 metrics in memory
-    if (this.performanceMetrics.length > 1000) {
-      this.performanceMetrics.splice(0, 500);
-    }
-
-    // Save to storage periodically
-    if (this.performanceMetrics.length % 10 === 0) {
-      await this.savePerformanceMetrics();
-    }
-
-    // Check for performance issues
-    await this.checkPerformanceThresholds(metricName, value, metadata);
-  }
-
-  /**
-   * Track custom metric
-   */
-  async trackCustomMetric(name, value, tags = {}) {
-    const metric = {
-      name,
-      value,
-      tags,
-      timestamp: new Date().toISOString(),
-      sessionId: this.sessionId,
-    };
-
-    // Store in custom metrics map
-    if (!this.customMetrics.has(name)) {
-      this.customMetrics.set(name, []);
-    }
-
-    this.customMetrics.get(name).push(metric);
-
-    // Track as event
-    await this.trackEvent(this.EVENT_TYPES.CUSTOM, {
-      metricName: name,
-      metricValue: value,
-      tags,
-    });
-  }
-
-  /**
-   * Record crash report
-   */
-  async recordCrash(error, errorInfo = {}) {
-    const crashReport = {
-      id: this.generateCrashId(),
-      sessionId: this.sessionId,
-      timestamp: new Date().toISOString(),
-      error: {
-        name: error.name,
-        message: error.message,
-        stack: error.stack,
-      },
-      errorInfo,
-      deviceInfo: await this.getDeviceInfo(),
-      appState: await this.getAppState(),
-      memoryUsage: await this.getMemoryUsage(),
-    };
-
-    this.crashReports.push(crashReport);
-
-    // Save crash report
-    await this.saveCrashReport(crashReport);
-
-    // Send to crash analytics
-    await this.sendCrashAnalytics(crashReport);
-
-    // Track as event
-    await this.trackEvent(this.EVENT_TYPES.CRASH, {
-      errorName: error.name,
-      errorMessage: error.message,
-      crashId: crashReport.id,
-    });
-
-    ErrorService.logError(error, 'MonitoringService.crash', errorInfo);
-  }
-
-  /**
-   * Set up performance monitoring
-   */
-  setupPerformanceMonitoring() {
-    // Monitor app startup time
-    if (Platform.OS === 'web') {
-      // Web performance monitoring
-      if (window.performance && window.performance.timing) {
-        const startTime = window.performance.timing.navigationStart;
-        const loadTime = window.performance.timing.loadEventEnd - startTime;
-
-        this.trackPerformanceMetric('app_start_time', loadTime, {
-          type: 'web_page_load',
-        });
-      }
-    }
-
-    // Set up periodic performance checks
-    setInterval(() => {
-      this.collectPerformanceMetrics();
-    }, 30000); // Every 30 seconds
-  }
-
-  /**
-   * Set up error listeners
-   */
-  setupErrorListeners() {
-    if (Platform.OS === 'web') {
-      // Web error listeners
-      window.addEventListener('error', (event) => {
-        this.recordCrash(event.error || new Error(event.message), {
-          filename: event.filename,
-          lineno: event.lineno,
-          colno: event.colno,
-        });
-      });
-
-      window.addEventListener('unhandledrejection', (event) => {
-        this.recordCrash(event.reason || new Error('Unhandled Promise Rejection'), {
-          type: 'unhandled_promise_rejection',
-        });
-      });
-    }
-  }
-
-  /**
-   * Set up memory monitoring
-   */
-  setupMemoryMonitoring() {
-    setInterval(async () => {
-      const memoryUsage = await this.getMemoryUsage();
-      if (memoryUsage) {
-        await this.trackPerformanceMetric('memory_usage', memoryUsage.used, {
-          total: memoryUsage.total,
-          percentage: memoryUsage.percentage,
-        });
-
-        // Check for memory warnings
-        if (memoryUsage.used > this.PERFORMANCE_THRESHOLDS.MEMORY_WARNING) {
-          await this.trackEvent(this.EVENT_TYPES.PERFORMANCE, {
-            type: 'memory_warning',
-            memoryUsage,
-          });
-        }
-      }
-    }, 60000); // Every minute
-  }
-
-  /**
-   * Collect performance metrics
-   */
-  async collectPerformanceMetrics() {
-    try {
-      // Memory usage
-      const memoryUsage = await this.getMemoryUsage();
-      if (memoryUsage) {
-        await this.trackPerformanceMetric('memory_usage', memoryUsage.used, memoryUsage);
-      }
-
-      // Bundle size (web only)
-      if (Platform.OS === 'web' && window.performance && window.performance.getEntriesByType) {
-        const resources = window.performance.getEntriesByType('resource');
-        const bundleSize = resources
-          .filter(resource => resource.name.includes('.js'))
-          .reduce((total, resource) => total + (resource.transferSize || 0), 0);
-
-        if (bundleSize > 0) {
-          await this.trackPerformanceMetric('bundle_size', bundleSize, {
-            resourceCount: resources.length,
-          });
-        }
-      }
-
-    } catch (error) {
-      ErrorService.logError(error, 'MonitoringService.collectPerformanceMetrics');
-    }
-  }
-
-  /**
-   * Check performance thresholds
-   */
-  async checkPerformanceThresholds(metricName, value, metadata) {
-    let threshold = null;
-    let isViolation = false;
-
-    switch (metricName) {
-      case 'app_start_time':
-        threshold = this.PERFORMANCE_THRESHOLDS.APP_START_TIME;
-        isViolation = value > threshold;
-        break;
-      case 'screen_load_time':
-        threshold = this.PERFORMANCE_THRESHOLDS.SCREEN_LOAD_TIME;
-        isViolation = value > threshold;
-        break;
-      case 'api_response_time':
-        threshold = this.PERFORMANCE_THRESHOLDS.API_RESPONSE_TIME;
-        isViolation = value > threshold;
-        break;
-    }
-
-    if (isViolation) {
-      await this.trackEvent(this.EVENT_TYPES.PERFORMANCE, {
-        type: 'threshold_violation',
-        metricName,
-        value,
-        threshold,
-        metadata,
-      });
-    }
-  }
-
-  /**
-   * Get device information
-   */
-  async getDeviceInfo() {
-    try {
-      return {
-        platform: Platform.OS,
-        version: Platform.Version,
-        deviceName: Device.deviceName,
-        deviceType: Device.deviceType,
-        isDevice: Device.isDevice,
-        manufacturer: Device.manufacturer,
-        modelName: Device.modelName,
-        osName: Device.osName,
-        osVersion: Device.osVersion,
-      };
-    } catch (error) {
-      return { error: 'Failed to get device info' };
-    }
-  }
-
-  /**
-   * Get app state
-   */
-  async getAppState() {
-    return {
-      sessionId: this.sessionId,
-      sessionDuration: this.sessionStartTime ? Date.now() - this.sessionStartTime : 0,
-      interactionCount: this.userInteractions.length,
-      errorCount: this.getSessionErrors(),
-    };
-  }
-
-  /**
-   * Get memory usage
-   */
-  async getMemoryUsage() {
-    try {
-      if (Platform.OS === 'web' && window.performance && window.performance.memory) {
-        const memory = window.performance.memory;
-        return {
-          used: memory.usedJSHeapSize,
-          total: memory.totalJSHeapSize,
-          limit: memory.jsHeapSizeLimit,
-          percentage: (memory.usedJSHeapSize / memory.totalJSHeapSize) * 100,
-        };
-      }
-      return null;
-    } catch (error) {
-      return null;
-    }
-  }
-
-  /**
-   * Get analytics dashboard data
-   */
-  async getAnalyticsDashboard() {
-    try {
-      const [
-        performanceMetrics,
-        recentEvents,
-        crashReports,
-        sessionData
-      ] = await Promise.all([
-        this.getPerformanceMetrics(),
-        this.getRecentEvents(),
-        this.getCrashReports(),
-        this.getSessionData()
-      ]);
-
-      return {
-        overview: {
-          totalSessions: sessionData.length,
-          totalEvents: recentEvents.length,
-          totalCrashes: crashReports.length,
-          averageSessionDuration: this.calculateAverageSessionDuration(sessionData),
-        },
-        performance: this.aggregatePerformanceMetrics(performanceMetrics),
-        errors: this.aggregateErrorData(crashReports),
-        userBehavior: this.aggregateUserBehavior(recentEvents),
-        realTime: {
-          currentSession: this.sessionId,
-          isMonitoring: this.isMonitoring,
-          liveMetrics: this.getLiveMetrics(),
-        },
-      };
-    } catch (error) {
-      ErrorService.logError(error, 'MonitoringService.getAnalyticsDashboard');
-      return null;
-    }
-  }
-
-  /**
-   * Aggregate performance metrics
-   */
-  aggregatePerformanceMetrics(metrics) {
-    const aggregated = {};
-
-    metrics.forEach(metric => {
-      if (!aggregated[metric.name]) {
-        aggregated[metric.name] = {
-          count: 0,
-          total: 0,
-          min: Infinity,
-          max: -Infinity,
-          values: [],
-        };
-      }
-
-      const agg = aggregated[metric.name];
-      agg.count++;
-      agg.total += metric.value;
-      agg.min = Math.min(agg.min, metric.value);
-      agg.max = Math.max(agg.max, metric.value);
-      agg.values.push(metric.value);
-    });
-
-    // Calculate averages and percentiles
-    Object.keys(aggregated).forEach(key => {
-      const agg = aggregated[key];
-      agg.average = agg.total / agg.count;
-      agg.values.sort((a, b) => a - b);
-      agg.p50 = agg.values[Math.floor(agg.count * 0.5)];
-      agg.p95 = agg.values[Math.floor(agg.count * 0.95)];
-      agg.p99 = agg.values[Math.floor(agg.count * 0.99)];
-    });
-
-    return aggregated;
-  }
-
-  /**
-   * Storage and utility methods
-   */
-  async saveEventLocally(event) {
-    try {
-      const events = await this.getRecentEvents();
-      events.unshift(event);
-
-      // Keep only last 500 events
-      if (events.length > 500) {
-        events.splice(500);
-      }
-
-      await AsyncStorage.setItem(
-        this.STORAGE_KEYS.ANALYTICS_EVENTS,
-        JSON.stringify(events)
-      );
-    } catch (error) {
-      ErrorService.logError(error, 'MonitoringService.saveEventLocally');
-    }
-  }
-
-  async getRecentEvents() {
-    try {
-      const eventsData = await AsyncStorage.getItem(this.STORAGE_KEYS.ANALYTICS_EVENTS);
-      return eventsData ? JSON.parse(eventsData) : [];
-    } catch (error) {
-      return [];
-    }
-  }
-
-  async saveSessionData(sessionData) {
-    try {
-      const sessions = await this.getSessionData();
-      sessions.unshift(sessionData);
-
-      // Keep only last 50 sessions
-      if (sessions.length > 50) {
-        sessions.splice(50);
-      }
-
-      await AsyncStorage.setItem(
-        this.STORAGE_KEYS.USER_SESSIONS,
-        JSON.stringify(sessions)
-      );
-    } catch (error) {
-      ErrorService.logError(error, 'MonitoringService.saveSessionData');
-    }
-  }
-
-  async getSessionData() {
-    try {
-      const sessionsData = await AsyncStorage.getItem(this.STORAGE_KEYS.USER_SESSIONS);
-      return sessionsData ? JSON.parse(sessionsData) : [];
-    } catch (error) {
-      return [];
-    }
-  }
-
-  async saveCrashReport(crashReport) {
-    try {
-      const crashes = await this.getCrashReports();
-      crashes.unshift(crashReport);
-
-      // Keep only last 100 crashes
-      if (crashes.length > 100) {
-        crashes.splice(100);
-      }
-
-      await AsyncStorage.setItem(
-        this.STORAGE_KEYS.CRASH_REPORTS,
-        JSON.stringify(crashes)
-      );
-    } catch (error) {
-      ErrorService.logError(error, 'MonitoringService.saveCrashReport');
-    }
-  }
-
-  async getCrashReports() {
-    try {
-      const crashData = await AsyncStorage.getItem(this.STORAGE_KEYS.CRASH_REPORTS);
-      return crashData ? JSON.parse(crashData) : [];
-    } catch (error) {
-      return [];
-    }
-  }
-
-  async savePerformanceMetrics() {
-    try {
-      await AsyncStorage.setItem(
-        this.STORAGE_KEYS.PERFORMANCE_METRICS,
-        JSON.stringify(this.performanceMetrics)
-      );
-    } catch (error) {
-      ErrorService.logError(error, 'MonitoringService.savePerformanceMetrics');
-    }
-  }
-
-  async getPerformanceMetrics() {
-    try {
-      const metricsData = await AsyncStorage.getItem(this.STORAGE_KEYS.PERFORMANCE_METRICS);
-      return metricsData ? JSON.parse(metricsData) : [];
-    } catch (error) {
-      return [];
-    }
-  }
-
-  async loadMonitoringConfig() {
-    try {
-      const configData = await AsyncStorage.getItem(this.STORAGE_KEYS.MONITORING_CONFIG);
-      if (configData) {
-        const config = JSON.parse(configData);
-        // Apply configuration
-        this.isMonitoring = config.enabled !== false;
-      }
-    } catch (error) {
-      ErrorService.logError(error, 'MonitoringService.loadMonitoringConfig');
-    }
-  }
-
-  // Analytics sending methods
-  async sendEventAnalytics(event) {
-    try {
-      if (supabase) {
-        await supabase.from('analytics_events').insert({
-          event_id: event.id,
-          session_id: event.sessionId,
-          event_type: event.type,
-          event_data: event.data,
-          timestamp: event.timestamp,
-        });
-      }
-    } catch (error) {
-      // Fail silently for analytics
-      console.warn('Failed to send event analytics:', error);
-    }
-  }
-
-  async sendSessionAnalytics(sessionData) {
-    try {
-      if (supabase) {
-        await supabase.from('user_sessions').insert({
-          session_id: sessionData.sessionId,
-          start_time: sessionData.startTime,
-          end_time: sessionData.endTime,
-          duration: sessionData.duration,
-          interaction_count: sessionData.interactions,
-          error_count: sessionData.errors,
-          crash_count: sessionData.crashes,
-        });
-      }
-    } catch (error) {
-      console.warn('Failed to send session analytics:', error);
-    }
-  }
-
-  async sendCrashAnalytics(crashReport) {
-    try {
-      if (supabase) {
-        await supabase.from('crash_reports').insert({
-          crash_id: crashReport.id,
-          session_id: crashReport.sessionId,
-          error_name: crashReport.error.name,
-          error_message: crashReport.error.message,
-          stack_trace: crashReport.error.stack,
-          device_info: crashReport.deviceInfo,
-          app_state: crashReport.appState,
-          timestamp: crashReport.timestamp,
-        });
-      }
-    } catch (error) {
-      console.warn('Failed to send crash analytics:', error);
-    }
-  }
-
-  // Utility methods
-  generateSessionId() {
-    return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  }
-
-  generateEventId() {
-    return `event_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  }
-
-  generateMetricId() {
-    return `metric_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  }
-
-  generateCrashId() {
-    return `crash_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-  }
-
-  getSessionErrors() {
-    return this.crashReports.filter(crash => crash.sessionId === this.sessionId).length;
-  }
-
-  getSessionCrashes() {
-    return this.crashReports.filter(crash => crash.sessionId === this.sessionId).length;
-  }
-
-  calculateAverageSessionDuration(sessions) {
-    if (sessions.length === 0) return 0;
-    const total = sessions.reduce((sum, session) => sum + (session.duration || 0), 0);
-    return total / sessions.length;
-  }
-
-  aggregateErrorData(crashes) {
-    const errorTypes = {};
-    crashes.forEach(crash => {
-      const type = crash.error.name || 'Unknown';
-      errorTypes[type] = (errorTypes[type] || 0) + 1;
-    });
-    return errorTypes;
-  }
-
-  aggregateUserBehavior(events) {
-    const screens = {};
-    const actions = {};
-
-    events.forEach(event => {
-      if (event.type === this.EVENT_TYPES.SCREEN_VIEW) {
-        const screen = event.data.screenName || 'Unknown';
-        screens[screen] = (screens[screen] || 0) + 1;
-      } else if (event.type === this.EVENT_TYPES.USER_ACTION) {
-        const action = event.data.action || 'Unknown';
-        actions[action] = (actions[action] || 0) + 1;
-      }
-    });
-
-    return { screens, actions };
-  }
-
-  getLiveMetrics() {
-    return {
-      sessionDuration: this.sessionStartTime ? Date.now() - this.sessionStartTime : 0,
-      interactionCount: this.userInteractions.length,
-      metricsCollected: this.performanceMetrics.length,
-      customMetrics: this.customMetrics.size,
-    };
-  }
-}
-
-// Create singleton instance
-const monitoringService = new MonitoringService();
-
-export default monitoringService;
+import AsyncStorage from '@react-native-async-storage/async-storage';import { Platform } from 'react-native';import * as Device from 'expo-device';import Constants from 'expo-constants';import { supabase } from '../config/supabase';import ErrorService from './ErrorService';/** * MonitoringService - Comprehensive monitoring and analytics * * Features: * - Performance monitoring * - Error tracking and crash analytics * - User session recording * - App usage analytics * - Real-time monitoring dashboard data * - Custom metrics tracking */class MonitoringService {  constructor() {    this.sessionId = null;    this.sessionStartTime = null;    this.performanceMetrics = [];    this.userInteractions = [];    this.crashReports = [];    this.customMetrics = new Map();    this.isMonitoring = false;    // Storage keys    this.STORAGE_KEYS = {      PERFORMANCE_METRICS: 'monitoring_performance_metrics',      USER_SESSIONS: 'monitoring_user_sessions',      CRASH_REPORTS: 'monitoring_crash_reports',      ANALYTICS_EVENTS: 'monitoring_analytics_events',      CUSTOM_METRICS: 'monitoring_custom_metrics',      MONITORING_CONFIG: 'monitoring_config',    };    // Performance thresholds    this.PERFORMANCE_THRESHOLDS = {      APP_START_TIME: 3000, // 3 seconds      SCREEN_LOAD_TIME: 2000, // 2 seconds      API_RESPONSE_TIME: 5000, // 5 seconds      MEMORY_WARNING: 50 * 1024 * 1024, // 50MB      CRASH_FREQUENCY: 5, // 5 crashes per hour    };    // Event types    this.EVENT_TYPES = {      APP_START: 'app_start',      SCREEN_VIEW: 'screen_view',      USER_ACTION: 'user_action',      API_CALL: 'api_call',      ERROR: 'error',      PERFORMANCE: 'performance',      CRASH: 'crash',      CUSTOM: 'custom',    };    this.init();  }  async init() {    try {      // Load monitoring configuration      await this.loadMonitoringConfig();      // Start new session      await this.startSession();      // Set up performance monitoring      this.setupPerformanceMonitoring();      // Set up error listeners      this.setupErrorListeners();      // Set up memory monitoring      this.setupMemoryMonitoring();      this.isMonitoring = true;      this.trackEvent(this.EVENT_TYPES.APP_START, {        timestamp: new Date().toISOString(),        deviceInfo: await this.getDeviceInfo(),        appVersion: Constants.expoConfig?.version || '1.0.0',      });    } catch (error) {      ErrorService.logError(error, 'MonitoringService.init');    }  }  /**   * Start new user session   */  async startSession() {    this.sessionId = this.generateSessionId();    this.sessionStartTime = Date.now();    const sessionData = {      sessionId: this.sessionId,      startTime: new Date().toISOString(),      deviceInfo: await this.getDeviceInfo(),      appVersion: Constants.expoConfig?.version || '1.0.0',      platform: Platform.OS,    };    await this.saveSessionData(sessionData);    ErrorService.logInfo('Monitoring session started', {      sessionId: this.sessionId,    });  }  /**   * End current session   */  async endSession() {    if (!this.sessionId) return;    const sessionDuration = Date.now() - this.sessionStartTime;    const endData = {      sessionId: this.sessionId,      endTime: new Date().toISOString(),      duration: sessionDuration,      interactions: this.userInteractions.length,      errors: this.getSessionErrors(),      crashes: this.getSessionCrashes(),    };    await this.updateSessionData(endData);    // Send session data to analytics    await this.sendSessionAnalytics(endData);    this.sessionId = null;    this.userInteractions = [];  }  /**   * Track custom event   */  async trackEvent(eventType, eventData = {}) {    const event = {      id: this.generateEventId(),      sessionId: this.sessionId,      type: eventType,      timestamp: new Date().toISOString(),      data: eventData,    };    try {      // Save locally      await this.saveEventLocally(event);      // Send to analytics if online      await this.sendEventAnalytics(event);      // Add to session interactions if it's a user action      if (eventType === this.EVENT_TYPES.USER_ACTION) {        this.userInteractions.push(event);      }    } catch (error) {      ErrorService.logError(error, 'MonitoringService.trackEvent');    }  }  /**   * Track screen view   */  async trackScreenView(screenName, additionalData = {}) {    await this.trackEvent(this.EVENT_TYPES.SCREEN_VIEW, {      screenName,      ...additionalData,    });  }  /**   * Track user action   */  async trackUserAction(action, element, additionalData = {}) {    await this.trackEvent(this.EVENT_TYPES.USER_ACTION, {      action,      element,      ...additionalData,    });  }  /**   * Track API call performance   */  async trackAPICall(endpoint, method, duration, status, error = null) {    const eventData = {      endpoint,      method,      duration,      status,      error: error ? error.message : null,      isSlowAPI: duration > this.PERFORMANCE_THRESHOLDS.API_RESPONSE_TIME,    };    await this.trackEvent(this.EVENT_TYPES.API_CALL, eventData);    // Track performance metric    await this.trackPerformanceMetric('api_response_time', duration, {      endpoint,      method,      status,    });  }  /**   * Track performance metric   */  async trackPerformanceMetric(metricName, value, metadata = {}) {    const metric = {      id: this.generateMetricId(),      sessionId: this.sessionId,      name: metricName,      value,      metadata,      timestamp: new Date().toISOString(),    };    this.performanceMetrics.push(metric);    // Keep only last 1000 metrics in memory    if (this.performanceMetrics.length > 1000) {      this.performanceMetrics.splice(0, 500);    }    // Save to storage periodically    if (this.performanceMetrics.length % 10 === 0) {      await this.savePerformanceMetrics();    }    // Check for performance issues    await this.checkPerformanceThresholds(metricName, value, metadata);  }  /**   * Track custom metric   */  async trackCustomMetric(name, value, tags = {}) {    const metric = {      name,      value,      tags,      timestamp: new Date().toISOString(),      sessionId: this.sessionId,    };    // Store in custom metrics map    if (!this.customMetrics.has(name)) {      this.customMetrics.set(name, []);    }    this.customMetrics.get(name).push(metric);    // Track as event    await this.trackEvent(this.EVENT_TYPES.CUSTOM, {      metricName: name,      metricValue: value,      tags,    });  }  /**   * Record crash report   */  async recordCrash(error, errorInfo = {}) {    const crashReport = {      id: this.generateCrashId(),      sessionId: this.sessionId,      timestamp: new Date().toISOString(),      error: {        name: error.name,        message: error.message,        stack: error.stack,      },      errorInfo,      deviceInfo: await this.getDeviceInfo(),      appState: await this.getAppState(),      memoryUsage: await this.getMemoryUsage(),    };    this.crashReports.push(crashReport);    // Save crash report    await this.saveCrashReport(crashReport);    // Send to crash analytics    await this.sendCrashAnalytics(crashReport);    // Track as event    await this.trackEvent(this.EVENT_TYPES.CRASH, {      errorName: error.name,      errorMessage: error.message,      crashId: crashReport.id,    });    ErrorService.logError(error, 'MonitoringService.crash', errorInfo);  }  /**   * Set up performance monitoring   */  setupPerformanceMonitoring() {    // Monitor app startup time    if (Platform.OS === 'web') {      // Web performance monitoring      if (window.performance && window.performance.timing) {        const startTime = window.performance.timing.navigationStart;        const loadTime = window.performance.timing.loadEventEnd - startTime;        this.trackPerformanceMetric('app_start_time', loadTime, {          type: 'web_page_load',        });      }    }    // Set up periodic performance checks    setInterval(() => {      this.collectPerformanceMetrics();    }, 30000); // Every 30 seconds  }  /**   * Set up error listeners   */  setupErrorListeners() {    if (Platform.OS === 'web') {      // Web error listeners      window.addEventListener('error', (event) => {        this.recordCrash(event.error || new Error(event.message), {          filename: event.filename,          lineno: event.lineno,          colno: event.colno,        });      });      window.addEventListener('unhandledrejection', (event) => {        this.recordCrash(event.reason || new Error('Unhandled Promise Rejection'), {          type: 'unhandled_promise_rejection',        });      });    }  }  /**   * Set up memory monitoring   */  setupMemoryMonitoring() {    setInterval(async () => {      const memoryUsage = await this.getMemoryUsage();      if (memoryUsage) {        await this.trackPerformanceMetric('memory_usage', memoryUsage.used, {          total: memoryUsage.total,          percentage: memoryUsage.percentage,        });        // Check for memory warnings        if (memoryUsage.used > this.PERFORMANCE_THRESHOLDS.MEMORY_WARNING) {          await this.trackEvent(this.EVENT_TYPES.PERFORMANCE, {            type: 'memory_warning',            memoryUsage,          });        }      }    }, 60000); // Every minute  }  /**   * Collect performance metrics   */  async collectPerformanceMetrics() {    try {      // Memory usage      const memoryUsage = await this.getMemoryUsage();      if (memoryUsage) {        await this.trackPerformanceMetric('memory_usage', memoryUsage.used, memoryUsage);      }      // Bundle size (web only)      if (Platform.OS === 'web' && window.performance && window.performance.getEntriesByType) {        const resources = window.performance.getEntriesByType('resource');        const bundleSize = resources          .filter(resource => resource.name.includes('.js'))          .reduce((total, resource) => total + (resource.transferSize || 0), 0);        if (bundleSize > 0) {          await this.trackPerformanceMetric('bundle_size', bundleSize, {            resourceCount: resources.length,          });        }      }    } catch (error) {      ErrorService.logError(error, 'MonitoringService.collectPerformanceMetrics');    }  }  /**   * Check performance thresholds   */  async checkPerformanceThresholds(metricName, value, metadata) {    let threshold = null;    let isViolation = false;    switch (metricName) {      case 'app_start_time':        threshold = this.PERFORMANCE_THRESHOLDS.APP_START_TIME;        isViolation = value > threshold;        break;      case 'screen_load_time':        threshold = this.PERFORMANCE_THRESHOLDS.SCREEN_LOAD_TIME;        isViolation = value > threshold;        break;      case 'api_response_time':        threshold = this.PERFORMANCE_THRESHOLDS.API_RESPONSE_TIME;        isViolation = value > threshold;        break;    }    if (isViolation) {      await this.trackEvent(this.EVENT_TYPES.PERFORMANCE, {        type: 'threshold_violation',        metricName,        value,        threshold,        metadata,      });    }  }  /**   * Get device information   */  async getDeviceInfo() {    try {      return {        platform: Platform.OS,        version: Platform.Version,        deviceName: Device.deviceName,        deviceType: Device.deviceType,        isDevice: Device.isDevice,        manufacturer: Device.manufacturer,        modelName: Device.modelName,        osName: Device.osName,        osVersion: Device.osVersion,      };    } catch (error) {      return { error: 'Failed to get device info' };    }  }  /**   * Get app state   */  async getAppState() {    return {      sessionId: this.sessionId,      sessionDuration: this.sessionStartTime ? Date.now() - this.sessionStartTime : 0,      interactionCount: this.userInteractions.length,      errorCount: this.getSessionErrors(),    };  }  /**   * Get memory usage   */  async getMemoryUsage() {    try {      if (Platform.OS === 'web' && window.performance && window.performance.memory) {        const memory = window.performance.memory;        return {          used: memory.usedJSHeapSize,          total: memory.totalJSHeapSize,          limit: memory.jsHeapSizeLimit,          percentage: (memory.usedJSHeapSize / memory.totalJSHeapSize) * 100,        };      }      return null;    } catch (error) {      return null;    }  }  /**   * Get analytics dashboard data   */  async getAnalyticsDashboard() {    try {      const [        performanceMetrics,        recentEvents,        crashReports,        sessionData      ] = await Promise.all([        this.getPerformanceMetrics(),        this.getRecentEvents(),        this.getCrashReports(),        this.getSessionData()      ]);      return {        overview: {          totalSessions: sessionData.length,          totalEvents: recentEvents.length,          totalCrashes: crashReports.length,          averageSessionDuration: this.calculateAverageSessionDuration(sessionData),        },        performance: this.aggregatePerformanceMetrics(performanceMetrics),        errors: this.aggregateErrorData(crashReports),        userBehavior: this.aggregateUserBehavior(recentEvents),        realTime: {          currentSession: this.sessionId,          isMonitoring: this.isMonitoring,          liveMetrics: this.getLiveMetrics(),        },      };    } catch (error) {      ErrorService.logError(error, 'MonitoringService.getAnalyticsDashboard');      return null;    }  }  /**   * Aggregate performance metrics   */  aggregatePerformanceMetrics(metrics) {    const aggregated = {};    metrics.forEach(metric => {      if (!aggregated[metric.name]) {        aggregated[metric.name] = {          count: 0,          total: 0,          min: Infinity,          max: -Infinity,          values: [],        };      }      const agg = aggregated[metric.name];      agg.count++;      agg.total += metric.value;      agg.min = Math.min(agg.min, metric.value);      agg.max = Math.max(agg.max, metric.value);      agg.values.push(metric.value);    });    // Calculate averages and percentiles    Object.keys(aggregated).forEach(key => {      const agg = aggregated[key];      agg.average = agg.total / agg.count;      agg.values.sort((a, b) => a - b);      agg.p50 = agg.values[Math.floor(agg.count * 0.5)];      agg.p95 = agg.values[Math.floor(agg.count * 0.95)];      agg.p99 = agg.values[Math.floor(agg.count * 0.99)];    });    return aggregated;  }  /**   * Storage and utility methods   */  async saveEventLocally(event) {    try {      const events = await this.getRecentEvents();      events.unshift(event);      // Keep only last 500 events      if (events.length > 500) {        events.splice(500);      }      await AsyncStorage.setItem(        this.STORAGE_KEYS.ANALYTICS_EVENTS,        JSON.stringify(events)      );    } catch (error) {      ErrorService.logError(error, 'MonitoringService.saveEventLocally');    }  }  async getRecentEvents() {    try {      const eventsData = await AsyncStorage.getItem(this.STORAGE_KEYS.ANALYTICS_EVENTS);      return eventsData ? JSON.parse(eventsData) : [];    } catch (error) {      return [];    }  }  async saveSessionData(sessionData) {    try {      const sessions = await this.getSessionData();      sessions.unshift(sessionData);      // Keep only last 50 sessions      if (sessions.length > 50) {        sessions.splice(50);      }      await AsyncStorage.setItem(        this.STORAGE_KEYS.USER_SESSIONS,        JSON.stringify(sessions)      );    } catch (error) {      ErrorService.logError(error, 'MonitoringService.saveSessionData');    }  }  async getSessionData() {    try {      const sessionsData = await AsyncStorage.getItem(this.STORAGE_KEYS.USER_SESSIONS);      return sessionsData ? JSON.parse(sessionsData) : [];    } catch (error) {      return [];    }  }  async saveCrashReport(crashReport) {    try {      const crashes = await this.getCrashReports();      crashes.unshift(crashReport);      // Keep only last 100 crashes      if (crashes.length > 100) {        crashes.splice(100);      }      await AsyncStorage.setItem(        this.STORAGE_KEYS.CRASH_REPORTS,        JSON.stringify(crashes)      );    } catch (error) {      ErrorService.logError(error, 'MonitoringService.saveCrashReport');    }  }  async getCrashReports() {    try {      const crashData = await AsyncStorage.getItem(this.STORAGE_KEYS.CRASH_REPORTS);      return crashData ? JSON.parse(crashData) : [];    } catch (error) {      return [];    }  }  async savePerformanceMetrics() {    try {      await AsyncStorage.setItem(        this.STORAGE_KEYS.PERFORMANCE_METRICS,        JSON.stringify(this.performanceMetrics)      );    } catch (error) {      ErrorService.logError(error, 'MonitoringService.savePerformanceMetrics');    }  }  async getPerformanceMetrics() {    try {      const metricsData = await AsyncStorage.getItem(this.STORAGE_KEYS.PERFORMANCE_METRICS);      return metricsData ? JSON.parse(metricsData) : [];    } catch (error) {      return [];    }  }  async loadMonitoringConfig() {    try {      const configData = await AsyncStorage.getItem(this.STORAGE_KEYS.MONITORING_CONFIG);      if (configData) {        const config = JSON.parse(configData);        // Apply configuration        this.isMonitoring = config.enabled !== false;      }    } catch (error) {      ErrorService.logError(error, 'MonitoringService.loadMonitoringConfig');    }  }  // Analytics sending methods  async sendEventAnalytics(event) {    try {      if (supabase) {        await supabase.from('analytics_events').insert({          event_id: event.id,          session_id: event.sessionId,          event_type: event.type,          event_data: event.data,          timestamp: event.timestamp,        });      }    } catch (error) {      // Fail silently for analytics    }  }  async sendSessionAnalytics(sessionData) {    try {      if (supabase) {        await supabase.from('user_sessions').insert({          session_id: sessionData.sessionId,          start_time: sessionData.startTime,          end_time: sessionData.endTime,          duration: sessionData.duration,          interaction_count: sessionData.interactions,          error_count: sessionData.errors,          crash_count: sessionData.crashes,        });      }    } catch (error) {    }  }  async sendCrashAnalytics(crashReport) {    try {      if (supabase) {        await supabase.from('crash_reports').insert({          crash_id: crashReport.id,          session_id: crashReport.sessionId,          error_name: crashReport.error.name,          error_message: crashReport.error.message,          stack_trace: crashReport.error.stack,          device_info: crashReport.deviceInfo,          app_state: crashReport.appState,          timestamp: crashReport.timestamp,        });      }    } catch (error) {    }  }  // Utility methods  generateSessionId() {    return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;  }  generateEventId() {    return `event_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;  }  generateMetricId() {    return `metric_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;  }  generateCrashId() {    return `crash_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;  }  getSessionErrors() {    return this.crashReports.filter(crash => crash.sessionId === this.sessionId).length;  }  getSessionCrashes() {    return this.crashReports.filter(crash => crash.sessionId === this.sessionId).length;  }  calculateAverageSessionDuration(sessions) {    if (sessions.length === 0) return 0;    const total = sessions.reduce((sum, session) => sum + (session.duration || 0), 0);    return total / sessions.length;  }  aggregateErrorData(crashes) {    const errorTypes = {};    crashes.forEach(crash => {      const type = crash.error.name || 'Unknown';      errorTypes[type] = (errorTypes[type] || 0) + 1;    });    return errorTypes;  }  aggregateUserBehavior(events) {    const screens = {};    const actions = {};    events.forEach(event => {      if (event.type === this.EVENT_TYPES.SCREEN_VIEW) {        const screen = event.data.screenName || 'Unknown';        screens[screen] = (screens[screen] || 0) + 1;      } else if (event.type === this.EVENT_TYPES.USER_ACTION) {        const action = event.data.action || 'Unknown';        actions[action] = (actions[action] || 0) + 1;      }    });    return { screens, actions };  }  getLiveMetrics() {    return {      sessionDuration: this.sessionStartTime ? Date.now() - this.sessionStartTime : 0,      interactionCount: this.userInteractions.length,      metricsCollected: this.performanceMetrics.length,      customMetrics: this.customMetrics.size,    };  }}// Create singleton instanceconst monitoringService = new MonitoringService();export default monitoringService;

@@ -1,6 +1,5 @@
 import React from 'react';
 import { Container, Typography, Paper, Box } from '@mui/material';
-
 function WebTerms() {
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
@@ -14,7 +13,6 @@ function WebTerms() {
         <Typography variant="body2" color="text.secondary" gutterBottom>
           Effective Date: September 3, 2025 | Version 2.0
         </Typography>
-        
         <Box sx={{ mt: 3 }}>
           <Typography paragraph>
             These Terms of Service ("Terms", "Agreement") constitute a legally binding agreement between you 
@@ -23,7 +21,6 @@ function WebTerms() {
             web and mobile applications, APIs, and related services (collectively, the "Service").
           </Typography>
         </Box>
-        
         <Box sx={{ mt: 4 }}>
           <Typography variant="h6" gutterBottom>
             1. Acceptance of Terms & Eligibility
@@ -42,7 +39,6 @@ function WebTerms() {
               <li>You must not have been previously banned from the Service</li>
             </ul>
           </Typography>
-          
           <Typography variant="h6" gutterBottom>
             2. Medical & Health Disclaimer
           </Typography>
@@ -61,7 +57,6 @@ function WebTerms() {
               <li><strong>Supplement Risks:</strong> Dietary supplements can interact with medications and have side effects. Consult healthcare providers before use</li>
             </ul>
           </Typography>
-          
           <Typography variant="h6" gutterBottom>
             3. AI-Powered Features & Limitations
           </Typography>
@@ -79,7 +74,6 @@ function WebTerms() {
               <li><strong>Your Responsibility:</strong> You are solely responsible for decisions based on AI outputs</li>
             </ul>
           </Typography>
-          
           <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
             4. User Accounts & Security
           </Typography>
@@ -99,7 +93,6 @@ function WebTerms() {
             We reserve the right to suspend or terminate accounts that violate these Terms, engage in fraudulent 
             activity, or pose security risks. Account termination may result in loss of access to data and services.
           </Typography>
-          
           <Typography variant="h6" gutterBottom>
             5. Subscriptions, Billing & Refunds
           </Typography>
@@ -123,7 +116,6 @@ function WebTerms() {
               <li>Chargebacks may result in immediate account termination</li>
             </ul>
           </Typography>
-          
           <Typography variant="h6" gutterBottom>
             6. Prohibited Uses & Conduct
           </Typography>
@@ -147,7 +139,6 @@ function WebTerms() {
               <li>Impersonate others or misrepresent affiliation</li>
             </ul>
           </Typography>
-          
           <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
             7. Intellectual Property Rights
           </Typography>
@@ -169,7 +160,6 @@ function WebTerms() {
               <li>We may remove content that violates these Terms or applicable laws</li>
             </ul>
           </Typography>
-          
           <Typography variant="h6" gutterBottom>
             8. Limitation of Liability & Indemnification
           </Typography>
@@ -192,7 +182,6 @@ function WebTerms() {
             directors, employees, and agents from any claims, damages, losses, and expenses (including attorney fees) arising 
             from your use of the Service, violation of these Terms, or infringement of any third-party rights.
           </Typography>
-          
           <Typography variant="h6" gutterBottom>
             9. Privacy & Data Protection
           </Typography>
@@ -201,7 +190,6 @@ function WebTerms() {
             data practices described in the Privacy Policy. We implement industry-standard security measures but 
             cannot guarantee absolute security. You are responsible for maintaining the confidentiality of your account.
           </Typography>
-          
           <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
             10. Dispute Resolution & Governing Law
           </Typography>
@@ -215,7 +203,6 @@ function WebTerms() {
               <li><strong>Informal Resolution:</strong> Before formal proceedings, parties agree to attempt good-faith dispute resolution</li>
             </ul>
           </Typography>
-          
           <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
             11. Service Availability & Modifications
           </Typography>
@@ -228,7 +215,6 @@ function WebTerms() {
               <li>We reserve the right to impose usage limits to ensure Service quality</li>
             </ul>
           </Typography>
-          
           <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
             12. Termination
           </Typography>
@@ -241,7 +227,6 @@ function WebTerms() {
               <li>We may retain anonymized data for analytics and service improvement</li>
             </ul>
           </Typography>
-          
           <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
             13. Changes to Terms
           </Typography>
@@ -251,7 +236,6 @@ function WebTerms() {
             constitutes acceptance. If you disagree with changes, you must discontinue use and may be eligible 
             for a prorated refund.
           </Typography>
-          
           <Typography variant="h6" gutterBottom>
             14. Miscellaneous Provisions
           </Typography>
@@ -266,7 +250,6 @@ function WebTerms() {
               <li><strong>Government Use:</strong> If government entity, additional terms may apply</li>
             </ul>
           </Typography>
-          
           <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
             15. Contact Information
           </Typography>
@@ -275,16 +258,13 @@ function WebTerms() {
             17113 Miramar Parkway<br/>
             Miramar, FL 33027<br/>
             United States<br/><br/>
-            
             <strong>Customer Support:</strong> support@naturinex.com<br/>
             <strong>Legal Inquiries:</strong> legal@naturinex.com<br/>
             <strong>Phone:</strong> (754) 254-7141<br/>
             <strong>Business Hours:</strong> Monday-Friday, 9 AM - 5 PM EST<br/>
             <strong>Response Time:</strong> 1-2 business days<br/><br/>
-            
             For DMCA copyright concerns, contact our designated agent at: dmca@naturinex.com
           </Typography>
-          
           <Typography variant="caption" display="block" sx={{ mt: 4, fontStyle: 'italic' }}>
             By using Naturinex Wellness Guide, you acknowledge that you have read, understood, and agree to 
             be bound by these Terms of Service. These Terms were last reviewed by legal counsel and are 
@@ -295,5 +275,4 @@ function WebTerms() {
     </Container>
   );
 }
-
 export default WebTerms;

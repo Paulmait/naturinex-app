@@ -1,14 +1,11 @@
 import { loadStripe } from '@stripe/stripe-js';
 import Constants from 'expo-constants';
-
 let stripePromise;
-
 const getStripe = async () => {
   if (!stripePromise) {
     try {
       // Use the configured Stripe key from app.json
       const stripePublishableKey = Constants.expoConfig?.extra?.stripePublishableKey;
-      
       if (stripePublishableKey) {
         stripePromise = loadStripe(stripePublishableKey);
       } else {
@@ -28,5 +25,4 @@ const getStripe = async () => {
   }
   return stripePromise;
 };
-
 export default getStripe;

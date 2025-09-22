@@ -1,180 +1,1 @@
-import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
-import express from 'express';
-import cors from 'cors';
-
-// Initialize Firebase Admin
-admin.initializeApp();
-
-// Import all modules
-import { handleStripeWebhook } from './stripeWebhook';
-import { createEnhancedCheckoutSession, getSubscriptionStatus } from './enhancedCheckoutHandler';
-import { 
-  logRequest, 
-  rateLimiters, 
-  validatePrivacyConsent, 
-  validateRequestStructure,
-  checkUserStatus,
-  errorHandler 
-} from './securityMiddleware';
-import { 
-  recordPrivacyConsent, 
-  withdrawPrivacyConsent, 
-  getConsentStatus,
-  exportUserData,
-  deleteUserData,
-  getPrivacyPolicy
-} from './privacyConsent';
-import { 
-  reportClientError, 
-  reportCrash, 
-  getErrorAnalytics 
-} from './errorTracking';
-import { 
-  getMedicalDisclaimer, 
-  acknowledgeDisclaimer, 
-  checkDisclaimerStatus 
-} from './medicalDisclaimer';
-import { 
-  submitBetaFeedback, 
-  getUserFeedback, 
-  getFeedbackAnalytics,
-  updateFeedbackStatus
-} from './betaFeedback';
-import { 
-  submitToQueue, 
-  getUserQueue, 
-  processPendingQueue,
-  cleanupQueue
-} from './offlineQueue';
-import { checkReferralCode, getUserReferrals } from './referralRewards';
-import { sendReEngagementEmail, updateEmailPreferences } from './emailCampaigns';
-import { getUserAchievements, claimAchievement } from './gamification';
-
-const app = express();
-
-// Global middleware
-app.use(cors({ origin: true }));
-
-// CRITICAL: Raw body for Stripe webhooks MUST come before other body parsers
-app.use('/webhooks/stripe', express.raw({ type: 'application/json' }));
-
-// JSON body parser for all other routes
-app.use(express.json());
-
-// Security middleware - applied to all routes
-app.use(logRequest); // Log all requests for debugging
-app.use(validateRequestStructure); // Validate request structure
-app.use(checkUserStatus); // Check if user is blocked/suspended
-
-// Routes without authentication required
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(),
-    version: '1.0.0'
-  });
-});
-
-// Privacy and legal endpoints
-app.get('/privacy/policy', getPrivacyPolicy);
-app.get('/disclaimer/medical', getMedicalDisclaimer);
-
-// Stripe webhook - no auth needed but has signature verification
-app.post('/webhooks/stripe', handleStripeWebhook);
-
-// Error reporting - minimal auth
-app.post('/error/report', rateLimiters.general, reportClientError);
-app.post('/error/crash', rateLimiters.general, reportCrash);
-
-// Routes requiring privacy consent
-const protectedRouter = express.Router();
-protectedRouter.use(validatePrivacyConsent);
-
-// Privacy consent management
-protectedRouter.post('/privacy/consent', recordPrivacyConsent);
-protectedRouter.post('/privacy/withdraw', withdrawPrivacyConsent);
-protectedRouter.get('/privacy/status/:userId', getConsentStatus);
-protectedRouter.post('/privacy/export/:userId', exportUserData);
-protectedRouter.post('/privacy/delete', deleteUserData);
-
-// Medical disclaimer
-protectedRouter.post('/disclaimer/acknowledge', acknowledgeDisclaimer);
-protectedRouter.get('/disclaimer/status/:userId', checkDisclaimerStatus);
-
-// Payment endpoints with strict rate limiting
-protectedRouter.post('/checkout/create', rateLimiters.payment, createEnhancedCheckoutSession);
-protectedRouter.get('/subscription/status/:userId', getSubscriptionStatus);
-
-// Referral system
-protectedRouter.get('/referral/check/:code', checkReferralCode);
-protectedRouter.get('/referral/user/:userId', getUserReferrals);
-
-// Email campaigns
-protectedRouter.post('/email/preferences', updateEmailPreferences);
-
-// Gamification
-protectedRouter.get('/achievements/:userId', getUserAchievements);
-protectedRouter.post('/achievements/claim', claimAchievement);
-
-// Beta feedback
-protectedRouter.post('/beta/feedback', rateLimiters.general, submitBetaFeedback);
-protectedRouter.get('/beta/feedback/:userId', getUserFeedback);
-
-// Offline queue
-protectedRouter.post('/queue/submit', rateLimiters.general, submitToQueue);
-protectedRouter.get('/queue/:userId', getUserQueue);
-
-// Admin endpoints (would add admin auth in production)
-const adminRouter = express.Router();
-adminRouter.get('/analytics/errors', getErrorAnalytics);
-adminRouter.get('/analytics/feedback', getFeedbackAnalytics);
-adminRouter.put('/feedback/:feedbackId/status', updateFeedbackStatus);
-
-// Apply routers
-app.use('/api', protectedRouter);
-app.use('/admin', adminRouter);
-
-// Global error handler - must be last
-app.use(errorHandler);
-
-// Export the Express app as a Cloud Function
-export const api = functions
-  .runWith({
-    memory: '1GB',
-    timeoutSeconds: 300,
-  })
-  .https.onRequest(app);
-
-// Scheduled functions for maintenance
-export const processOfflineQueue = functions
-  .runWith({ memory: '512MB' })
-  .pubsub.schedule('every 5 minutes')
-  .onRun(async (context) => {
-    console.log('Processing offline queue...');
-    await processPendingQueue();
-  });
-
-export const cleanupOldQueueItems = functions
-  .runWith({ memory: '256MB' })
-  .pubsub.schedule('every day 03:00')
-  .onRun(async (context) => {
-    console.log('Cleaning up old queue items...');
-    await cleanupQueue();
-  });
-
-export const sendScheduledEmails = functions
-  .runWith({ memory: '512MB' })
-  .pubsub.schedule('every day 10:00')
-  .onRun(async (context) => {
-    console.log('Sending scheduled re-engagement emails...');
-    await sendReEngagementEmail();
-  });
-
-// Log initialization
-console.log('🚀 Naturinex API initialized with comprehensive logging and security');
-console.log('📊 All requests are being logged for debugging');
-console.log('🔒 Privacy consent validation enabled');
-console.log('⚡ Rate limiting active');
-console.log('🏥 Medical disclaimers required');
-console.log('📱 Offline queue system ready');
+import * as functions from 'firebase-functions';import * as admin from 'firebase-admin';import express from 'express';import cors from 'cors';// Initialize Firebase Adminadmin.initializeApp();// Import all modulesimport { handleStripeWebhook } from './stripeWebhook';import { createEnhancedCheckoutSession, getSubscriptionStatus } from './enhancedCheckoutHandler';import {   logRequest,   rateLimiters,   validatePrivacyConsent,   validateRequestStructure,  checkUserStatus,  errorHandler } from './securityMiddleware';import {   recordPrivacyConsent,   withdrawPrivacyConsent,   getConsentStatus,  exportUserData,  deleteUserData,  getPrivacyPolicy} from './privacyConsent';import {   reportClientError,   reportCrash,   getErrorAnalytics } from './errorTracking';import {   getMedicalDisclaimer,   acknowledgeDisclaimer,   checkDisclaimerStatus } from './medicalDisclaimer';import {   submitBetaFeedback,   getUserFeedback,   getFeedbackAnalytics,  updateFeedbackStatus} from './betaFeedback';import {   submitToQueue,   getUserQueue,   processPendingQueue,  cleanupQueue} from './offlineQueue';import { checkReferralCode, getUserReferrals } from './referralRewards';import { sendReEngagementEmail, updateEmailPreferences } from './emailCampaigns';import { getUserAchievements, claimAchievement } from './gamification';const app = express();// Global middlewareapp.use(cors({ origin: true }));// CRITICAL: Raw body for Stripe webhooks MUST come before other body parsersapp.use('/webhooks/stripe', express.raw({ type: 'application/json' }));// JSON body parser for all other routesapp.use(express.json());// Security middleware - applied to all routesapp.use(logRequest); // Log all requests for debuggingapp.use(validateRequestStructure); // Validate request structureapp.use(checkUserStatus); // Check if user is blocked/suspended// Routes without authentication requiredapp.get('/health', (req, res) => {  res.json({     status: 'ok',     timestamp: new Date().toISOString(),    version: '1.0.0'  });});// Privacy and legal endpointsapp.get('/privacy/policy', getPrivacyPolicy);app.get('/disclaimer/medical', getMedicalDisclaimer);// Stripe webhook - no auth needed but has signature verificationapp.post('/webhooks/stripe', handleStripeWebhook);// Error reporting - minimal authapp.post('/error/report', rateLimiters.general, reportClientError);app.post('/error/crash', rateLimiters.general, reportCrash);// Routes requiring privacy consentconst protectedRouter = express.Router();protectedRouter.use(validatePrivacyConsent);// Privacy consent managementprotectedRouter.post('/privacy/consent', recordPrivacyConsent);protectedRouter.post('/privacy/withdraw', withdrawPrivacyConsent);protectedRouter.get('/privacy/status/:userId', getConsentStatus);protectedRouter.post('/privacy/export/:userId', exportUserData);protectedRouter.post('/privacy/delete', deleteUserData);// Medical disclaimerprotectedRouter.post('/disclaimer/acknowledge', acknowledgeDisclaimer);protectedRouter.get('/disclaimer/status/:userId', checkDisclaimerStatus);// Payment endpoints with strict rate limitingprotectedRouter.post('/checkout/create', rateLimiters.payment, createEnhancedCheckoutSession);protectedRouter.get('/subscription/status/:userId', getSubscriptionStatus);// Referral systemprotectedRouter.get('/referral/check/:code', checkReferralCode);protectedRouter.get('/referral/user/:userId', getUserReferrals);// Email campaignsprotectedRouter.post('/email/preferences', updateEmailPreferences);// GamificationprotectedRouter.get('/achievements/:userId', getUserAchievements);protectedRouter.post('/achievements/claim', claimAchievement);// Beta feedbackprotectedRouter.post('/beta/feedback', rateLimiters.general, submitBetaFeedback);protectedRouter.get('/beta/feedback/:userId', getUserFeedback);// Offline queueprotectedRouter.post('/queue/submit', rateLimiters.general, submitToQueue);protectedRouter.get('/queue/:userId', getUserQueue);// Admin endpoints (would add admin auth in production)const adminRouter = express.Router();adminRouter.get('/analytics/errors', getErrorAnalytics);adminRouter.get('/analytics/feedback', getFeedbackAnalytics);adminRouter.put('/feedback/:feedbackId/status', updateFeedbackStatus);// Apply routersapp.use('/api', protectedRouter);app.use('/admin', adminRouter);// Global error handler - must be lastapp.use(errorHandler);// Export the Express app as a Cloud Functionexport const api = functions  .runWith({    memory: '1GB',    timeoutSeconds: 300,  })  .https.onRequest(app);// Scheduled functions for maintenanceexport const processOfflineQueue = functions  .runWith({ memory: '512MB' })  .pubsub.schedule('every 5 minutes')  .onRun(async (context) => {    await processPendingQueue();  });export const cleanupOldQueueItems = functions  .runWith({ memory: '256MB' })  .pubsub.schedule('every day 03:00')  .onRun(async (context) => {    await cleanupQueue();  });export const sendScheduledEmails = functions  .runWith({ memory: '512MB' })  .pubsub.schedule('every day 10:00')  .onRun(async (context) => {    await sendReEngagementEmail();  });// Log initialization

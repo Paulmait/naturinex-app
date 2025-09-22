@@ -15,15 +15,12 @@ import * as ImagePicker from 'expo-image-picker';
 import { MaterialIcons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
-
 const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-1.onrender.com';
-
 export default function SimpleCameraScreen({ navigation }) {
   const [capturedImage, setCapturedImage] = useState(null);
   const [showManualInput, setShowManualInput] = useState(false);
   const [medicationName, setMedicationName] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
-
   const takePhoto = async () => {
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
@@ -31,13 +28,11 @@ export default function SimpleCameraScreen({ navigation }) {
       quality: 0.8,
       base64: true,
     });
-
     if (!result.canceled) {
       setCapturedImage(result.assets[0]);
       analyzeImage(result.assets[0]);
     }
   };
-
   const pickImage = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -46,17 +41,14 @@ export default function SimpleCameraScreen({ navigation }) {
       quality: 0.8,
       base64: true,
     });
-
     if (!result.canceled) {
       setCapturedImage(result.assets[0]);
       analyzeImage(result.assets[0]);
     }
   };
-
   const analyzeImage = async (image) => {
     try {
       setAnalyzing(true);
-      
       // Check if guest user and update free scans
       const isGuest = await SecureStore.getItemAsync('is_guest') || 'false';
       if (isGuest === 'true') {
@@ -65,11 +57,9 @@ export default function SimpleCameraScreen({ navigation }) {
           await SecureStore.setItemAsync('free_scans_remaining', String(remainingScans - 1));
         }
       }
-      
       // Update total scan count
       const scanCount = parseInt(await SecureStore.getItemAsync('scan_count') || '0');
       await SecureStore.setItemAsync('scan_count', String(scanCount + 1));
-      
       // Navigate to analysis screen
       navigation.navigate('Analysis', { 
         imageUri: image.uri,
@@ -83,15 +73,12 @@ export default function SimpleCameraScreen({ navigation }) {
       setCapturedImage(null);
     }
   };
-
   const handleManualInput = async () => {
     if (!medicationName.trim()) {
       Alert.alert('Error', 'Please enter a medication name');
       return;
     }
-
     setShowManualInput(false);
-
     // Check if guest user and update free scans
     const isGuest = await SecureStore.getItemAsync('is_guest') || 'false';
     if (isGuest === 'true') {
@@ -109,21 +96,17 @@ export default function SimpleCameraScreen({ navigation }) {
       }
       await SecureStore.setItemAsync('free_scans_remaining', String(remainingScans - 1));
     }
-    
     // Update total scan count
     const scanCount = parseInt(await SecureStore.getItemAsync('scan_count') || '0');
     await SecureStore.setItemAsync('scan_count', String(scanCount + 1));
-
     // Navigate to analysis with medication name
     navigation.navigate('Analysis', { 
       medicationName: medicationName.trim(),
       isManualEntry: true,
       analyzing: true 
     });
-
     setMedicationName('');
   };
-
   return (
     <View style={styles.container}>
       {!analyzing ? (
@@ -132,7 +115,6 @@ export default function SimpleCameraScreen({ navigation }) {
             <Text style={styles.title}>Scan Medication</Text>
             <Text style={styles.subtitle}>Choose how to add your medication</Text>
           </View>
-
           <View style={styles.optionsContainer}>
             <TouchableOpacity style={styles.option} onPress={takePhoto}>
               <MaterialIcons name="camera-alt" size={48} color="#10B981" />
@@ -141,7 +123,6 @@ export default function SimpleCameraScreen({ navigation }) {
                 Capture medication label with camera
               </Text>
             </TouchableOpacity>
-
             <TouchableOpacity style={styles.option} onPress={pickImage}>
               <MaterialIcons name="photo-library" size={48} color="#10B981" />
               <Text style={styles.optionTitle}>Choose from Gallery</Text>
@@ -149,7 +130,6 @@ export default function SimpleCameraScreen({ navigation }) {
                 Select existing photo of medication
               </Text>
             </TouchableOpacity>
-
             <TouchableOpacity style={styles.option} onPress={() => setShowManualInput(true)}>
               <MaterialIcons name="keyboard" size={48} color="#10B981" />
               <Text style={styles.optionTitle}>Type Name</Text>
@@ -164,7 +144,6 @@ export default function SimpleCameraScreen({ navigation }) {
           <Text style={styles.analyzingText}>Processing...</Text>
         </View>
       )}
-
       {/* Manual Input Modal */}
       <Modal
         visible={showManualInput}
@@ -181,7 +160,6 @@ export default function SimpleCameraScreen({ navigation }) {
             <Text style={styles.modalSubtitle}>
               Type the name of the medication you want to analyze
             </Text>
-            
             <TextInput
               style={styles.modalInput}
               placeholder="e.g., Ibuprofen, Aspirin, Tylenol"
@@ -192,7 +170,6 @@ export default function SimpleCameraScreen({ navigation }) {
               returnKeyType="search"
               onSubmitEditing={handleManualInput}
             />
-            
             <View style={styles.modalActions}>
               <TouchableOpacity 
                 style={[styles.modalButton, styles.cancelButton]} 
@@ -203,7 +180,6 @@ export default function SimpleCameraScreen({ navigation }) {
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-              
               <TouchableOpacity 
                 style={[styles.modalButton, styles.searchButton]} 
                 onPress={handleManualInput}
@@ -217,7 +193,6 @@ export default function SimpleCameraScreen({ navigation }) {
     </View>
   );
 }
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,

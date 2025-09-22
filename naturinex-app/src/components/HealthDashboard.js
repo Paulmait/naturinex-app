@@ -1,611 +1,1 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  RefreshControl,
-  Alert,
-  TouchableOpacity,
-  Dimensions
-} from 'react-native';
-import { LineChart, BarChart, PieChart } from 'react-native-chart-kit';
-import { MaterialIcons } from '@expo/vector-icons';
-import HealthIntegrationService from '../services/HealthIntegrationService';
-import HealthDataModel from '../models/HealthDataModel';
-
-const { width: screenWidth } = Dimensions.get('window');
-
-/**
- * Health Dashboard Component
- * Displays comprehensive health data with visualizations
- */
-const HealthDashboard = ({ navigation }) => {
-  const [healthData, setHealthData] = useState({});
-  const [isLoading, setIsLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [selectedPeriod, setSelectedPeriod] = useState('week');
-  const [insights, setInsights] = useState([]);
-  const [syncStatus, setSyncStatus] = useState(null);
-
-  const healthDataModel = new HealthDataModel();
-
-  useEffect(() => {
-    initializeDashboard();
-  }, []);
-
-  useEffect(() => {
-    loadHealthData();
-  }, [selectedPeriod]);
-
-  const initializeDashboard = async () => {
-    try {
-      setIsLoading(true);
-
-      // Initialize health integration service
-      const initResult = await HealthIntegrationService.initialize();
-      if (!initResult.success) {
-        throw new Error(initResult.error);
-      }
-
-      // Load initial data
-      await loadHealthData();
-
-      // Get sync status
-      const status = HealthIntegrationService.getSyncStatus();
-      setSyncStatus(status);
-
-    } catch (error) {
-      console.error('Dashboard initialization failed:', error);
-      Alert.alert('Error', 'Failed to initialize health dashboard');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const loadHealthData = async () => {
-    try {
-      const dataTypes = ['steps', 'heartRate', 'weight', 'sleep', 'calories'];
-      const loadedData = {};
-
-      for (const type of dataTypes) {
-        const result = await HealthIntegrationService.readHealthData(type, {
-          startDate: getPeriodStartDate(),
-          endDate: new Date()
-        });
-
-        if (result.success) {
-          loadedData[type] = result.data;
-        }
-      }
-
-      setHealthData(loadedData);
-
-      // Generate insights
-      const allData = Object.values(loadedData).flat();
-      const generatedInsights = healthDataModel.generateInsights(allData);
-      setInsights(generatedInsights);
-
-    } catch (error) {
-      console.error('Failed to load health data:', error);
-    }
-  };
-
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await HealthIntegrationService.syncAllData();
-      await loadHealthData();
-    } catch (error) {
-      console.error('Refresh failed:', error);
-      Alert.alert('Error', 'Failed to refresh health data');
-    } finally {
-      setRefreshing(false);
-    }
-  }, []);
-
-  const getPeriodStartDate = () => {
-    const now = new Date();
-    switch (selectedPeriod) {
-      case 'day':
-        return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      case 'week':
-        const weekAgo = new Date(now);
-        weekAgo.setDate(weekAgo.getDate() - 7);
-        return weekAgo;
-      case 'month':
-        const monthAgo = new Date(now);
-        monthAgo.setMonth(monthAgo.getMonth() - 1);
-        return monthAgo;
-      case 'year':
-        const yearAgo = new Date(now);
-        yearAgo.setFullYear(yearAgo.getFullYear() - 1);
-        return yearAgo;
-      default:
-        return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    }
-  };
-
-  const renderSummaryCard = (title, value, unit, icon, color, onPress) => (
-    <TouchableOpacity style={[styles.summaryCard, { borderLeftColor: color }]} onPress={onPress}>
-      <View style={styles.cardHeader}>
-        <MaterialIcons name={icon} size={24} color={color} />
-        <Text style={styles.cardTitle}>{title}</Text>
-      </View>
-      <View style={styles.cardContent}>
-        <Text style={styles.cardValue}>{value}</Text>
-        <Text style={styles.cardUnit}>{unit}</Text>
-      </View>
-    </TouchableOpacity>
-  );
-
-  const renderChart = (data, title, type = 'line') => {
-    if (!data || data.length === 0) {
-      return (
-        <View style={styles.chartContainer}>
-          <Text style={styles.chartTitle}>{title}</Text>
-          <View style={styles.noDataContainer}>
-            <MaterialIcons name="info" size={48} color="#ccc" />
-            <Text style={styles.noDataText}>No data available</Text>
-          </View>
-        </View>
-      );
-    }
-
-    const chartData = prepareChartData(data, type);
-
-    const chartConfig = {
-      backgroundGradientFrom: '#fff',
-      backgroundGradientTo: '#fff',
-      color: (opacity = 1) => `rgba(74, 144, 226, ${opacity})`,
-      strokeWidth: 2,
-      barPercentage: 0.5,
-      useShadowColorFromDataset: false
-    };
-
-    const renderChartComponent = () => {
-      switch (type) {
-        case 'bar':
-          return (
-            <BarChart
-              data={chartData}
-              width={screenWidth - 60}
-              height={220}
-              chartConfig={chartConfig}
-              verticalLabelRotation={30}
-            />
-          );
-        case 'pie':
-          return (
-            <PieChart
-              data={chartData}
-              width={screenWidth - 60}
-              height={220}
-              chartConfig={chartConfig}
-              accessor="population"
-              backgroundColor="transparent"
-              paddingLeft="15"
-            />
-          );
-        default:
-          return (
-            <LineChart
-              data={chartData}
-              width={screenWidth - 60}
-              height={220}
-              chartConfig={chartConfig}
-              bezier
-            />
-          );
-      }
-    };
-
-    return (
-      <View style={styles.chartContainer}>
-        <Text style={styles.chartTitle}>{title}</Text>
-        {renderChartComponent()}
-      </View>
-    );
-  };
-
-  const prepareChartData = (data, type) => {
-    if (!data || data.length === 0) return { labels: [], datasets: [{ data: [] }] };
-
-    const aggregated = healthDataModel.aggregateData(data, 'day');
-    const entries = Object.entries(aggregated).slice(-7); // Last 7 days
-
-    if (type === 'pie') {
-      return entries.map(([date, stats], index) => ({
-        name: new Date(date).toLocaleDateString('en-US', { weekday: 'short' }),
-        population: stats.average,
-        color: `hsl(${(index * 60) % 360}, 70%, 50%)`,
-        legendFontColor: '#7F7F7F',
-        legendFontSize: 15
-      }));
-    }
-
-    return {
-      labels: entries.map(([date]) =>
-        new Date(date).toLocaleDateString('en-US', { weekday: 'short' })
-      ),
-      datasets: [{
-        data: entries.map(([, stats]) => Math.round(stats.average))
-      }]
-    };
-  };
-
-  const getCurrentValue = (data) => {
-    if (!data || data.length === 0) return 0;
-    const latest = data[data.length - 1];
-    return latest ? Math.round(latest.value) : 0;
-  };
-
-  const renderInsightCard = (insight) => {
-    const iconName = insight.type === 'trend' ? 'trending-up' :
-                    insight.type === 'goal' ? 'flag' : 'warning';
-    const iconColor = insight.severity === 'high' ? '#e74c3c' :
-                     insight.severity === 'medium' ? '#f39c12' : '#2ecc71';
-
-    return (
-      <View key={insight.type + insight.message} style={styles.insightCard}>
-        <MaterialIcons name={iconName} size={20} color={iconColor} />
-        <Text style={styles.insightText}>{insight.message}</Text>
-      </View>
-    );
-  };
-
-  const renderSyncStatus = () => {
-    if (!syncStatus) return null;
-
-    const statusColor = syncStatus.isSync ? '#f39c12' :
-                       syncStatus.errors.length > 0 ? '#e74c3c' : '#2ecc71';
-    const statusText = syncStatus.isSync ? 'Syncing...' :
-                      syncStatus.errors.length > 0 ? 'Sync Issues' : 'Synced';
-
-    return (
-      <View style={styles.syncStatusContainer}>
-        <MaterialIcons name="sync" size={16} color={statusColor} />
-        <Text style={[styles.syncStatusText, { color: statusColor }]}>{statusText}</Text>
-        {syncStatus.lastSync && (
-          <Text style={styles.lastSyncText}>
-            Last: {new Date(syncStatus.lastSync).toLocaleTimeString()}
-          </Text>
-        )}
-      </View>
-    );
-  };
-
-  if (isLoading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <MaterialIcons name="health-and-safety" size={48} color="#4a90e2" />
-        <Text style={styles.loadingText}>Loading health data...</Text>
-      </View>
-    );
-  }
-
-  return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Health Dashboard</Text>
-        {renderSyncStatus()}
-      </View>
-
-      {/* Period Selector */}
-      <View style={styles.periodSelector}>
-        {['day', 'week', 'month', 'year'].map(period => (
-          <TouchableOpacity
-            key={period}
-            style={[
-              styles.periodButton,
-              selectedPeriod === period && styles.periodButtonActive
-            ]}
-            onPress={() => setSelectedPeriod(period)}
-          >
-            <Text style={[
-              styles.periodButtonText,
-              selectedPeriod === period && styles.periodButtonTextActive
-            ]}>
-              {period.charAt(0).toUpperCase() + period.slice(1)}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* Summary Cards */}
-      <View style={styles.summaryContainer}>
-        {renderSummaryCard(
-          'Steps',
-          getCurrentValue(healthData.steps).toLocaleString(),
-          'steps',
-          'directions-walk',
-          '#4a90e2',
-          () => navigation.navigate('ActivityTracker')
-        )}
-        {renderSummaryCard(
-          'Heart Rate',
-          getCurrentValue(healthData.heartRate),
-          'bpm',
-          'favorite',
-          '#e74c3c',
-          () => navigation.navigate('VitalSignsMonitor')
-        )}
-        {renderSummaryCard(
-          'Weight',
-          getCurrentValue(healthData.weight),
-          'kg',
-          'monitor-weight',
-          '#9b59b6',
-          () => navigation.navigate('BodyMeasurements')
-        )}
-        {renderSummaryCard(
-          'Sleep',
-          getCurrentValue(healthData.sleep),
-          'hrs',
-          'bedtime',
-          '#34495e',
-          () => navigation.navigate('SleepAnalysis')
-        )}
-      </View>
-
-      {/* Charts */}
-      {renderChart(healthData.steps, 'Steps Trend', 'line')}
-      {renderChart(healthData.heartRate, 'Heart Rate', 'line')}
-      {renderChart(healthData.calories, 'Calories Burned', 'bar')}
-
-      {/* Insights */}
-      {insights.length > 0 && (
-        <View style={styles.insightsContainer}>
-          <Text style={styles.sectionTitle}>Health Insights</Text>
-          {insights.map(renderInsightCard)}
-        </View>
-      )}
-
-      {/* Quick Actions */}
-      <View style={styles.quickActionsContainer}>
-        <Text style={styles.sectionTitle}>Quick Actions</Text>
-        <View style={styles.quickActionsGrid}>
-          <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={() => navigation.navigate('ManualDataEntry')}
-          >
-            <MaterialIcons name="add" size={24} color="#4a90e2" />
-            <Text style={styles.quickActionText}>Add Data</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={() => navigation.navigate('HealthSettings')}
-          >
-            <MaterialIcons name="settings" size={24} color="#4a90e2" />
-            <Text style={styles.quickActionText}>Settings</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={() => navigation.navigate('DataExport')}
-          >
-            <MaterialIcons name="file-download" size={24} color="#4a90e2" />
-            <Text style={styles.quickActionText}>Export</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.quickActionButton}
-            onPress={onRefresh}
-          >
-            <MaterialIcons name="refresh" size={24} color="#4a90e2" />
-            <Text style={styles.quickActionText}>Sync</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    </ScrollView>
-  );
-};
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f8f9fa'
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#f8f9fa'
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: '#666'
-  },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    padding: 20,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#e9ecef'
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#2c3e50'
-  },
-  syncStatusContainer: {
-    flexDirection: 'row',
-    alignItems: 'center'
-  },
-  syncStatusText: {
-    fontSize: 12,
-    marginLeft: 4,
-    fontWeight: '500'
-  },
-  lastSyncText: {
-    fontSize: 10,
-    color: '#999',
-    marginLeft: 8
-  },
-  periodSelector: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    marginHorizontal: 20,
-    marginTop: 10,
-    borderRadius: 8,
-    padding: 4
-  },
-  periodButton: {
-    flex: 1,
-    paddingVertical: 8,
-    alignItems: 'center',
-    borderRadius: 6
-  },
-  periodButtonActive: {
-    backgroundColor: '#4a90e2'
-  },
-  periodButtonText: {
-    fontSize: 14,
-    color: '#666'
-  },
-  periodButtonTextActive: {
-    color: '#fff',
-    fontWeight: '500'
-  },
-  summaryContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    padding: 20,
-    paddingBottom: 10
-  },
-  summaryCard: {
-    width: '48%',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 10,
-    marginRight: '2%',
-    borderLeftWidth: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8
-  },
-  cardTitle: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 8,
-    fontWeight: '500'
-  },
-  cardContent: {
-    flexDirection: 'row',
-    alignItems: 'baseline'
-  },
-  cardValue: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#2c3e50'
-  },
-  cardUnit: {
-    fontSize: 12,
-    color: '#999',
-    marginLeft: 4
-  },
-  chartContainer: {
-    backgroundColor: '#fff',
-    marginHorizontal: 20,
-    marginBottom: 20,
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3
-  },
-  chartTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2c3e50',
-    marginBottom: 10
-  },
-  noDataContainer: {
-    alignItems: 'center',
-    padding: 40
-  },
-  noDataText: {
-    fontSize: 14,
-    color: '#999',
-    marginTop: 8
-  },
-  insightsContainer: {
-    marginHorizontal: 20,
-    marginBottom: 20
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#2c3e50',
-    marginBottom: 12
-  },
-  insightCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2
-  },
-  insightText: {
-    fontSize: 14,
-    color: '#555',
-    marginLeft: 10,
-    flex: 1
-  },
-  quickActionsContainer: {
-    marginHorizontal: 20,
-    marginBottom: 30
-  },
-  quickActionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between'
-  },
-  quickActionButton: {
-    width: '48%',
-    backgroundColor: '#fff',
-    padding: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-    marginBottom: 10,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3
-  },
-  quickActionText: {
-    fontSize: 12,
-    color: '#4a90e2',
-    marginTop: 4,
-    fontWeight: '500'
-  }
-});
-
-export default HealthDashboard;
+import React, { useState, useEffect, useCallback } from 'react';import {  View,  Text,  StyleSheet,  ScrollView,  RefreshControl,  Alert,  TouchableOpacity,  Dimensions} from 'react-native';import { LineChart, BarChart, PieChart } from 'react-native-chart-kit';import { MaterialIcons } from '@expo/vector-icons';import HealthIntegrationService from '../services/HealthIntegrationService';import HealthDataModel from '../models/HealthDataModel';const { width: screenWidth } = Dimensions.get('window');/** * Health Dashboard Component * Displays comprehensive health data with visualizations */const HealthDashboard = ({ navigation }) => {  const [healthData, setHealthData] = useState({});  const [isLoading, setIsLoading] = useState(true);  const [refreshing, setRefreshing] = useState(false);  const [selectedPeriod, setSelectedPeriod] = useState('week');  const [insights, setInsights] = useState([]);  const [syncStatus, setSyncStatus] = useState(null);  const healthDataModel = new HealthDataModel();  useEffect(() => {    initializeDashboard();  }, []);  useEffect(() => {    loadHealthData();  }, [selectedPeriod]);  const initializeDashboard = async () => {    try {      setIsLoading(true);      // Initialize health integration service      const initResult = await HealthIntegrationService.initialize();      if (!initResult.success) {        throw new Error(initResult.error);      }      // Load initial data      await loadHealthData();      // Get sync status      const status = HealthIntegrationService.getSyncStatus();      setSyncStatus(status);    } catch (error) {      console.error('Dashboard initialization failed:', error);      Alert.alert('Error', 'Failed to initialize health dashboard');    } finally {      setIsLoading(false);    }  };  const loadHealthData = async () => {    try {      const dataTypes = ['steps', 'heartRate', 'weight', 'sleep', 'calories'];      const loadedData = {};      for (const type of dataTypes) {        const result = await HealthIntegrationService.readHealthData(type, {          startDate: getPeriodStartDate(),          endDate: new Date()        });        if (result.success) {          loadedData[type] = result.data;        }      }      setHealthData(loadedData);      // Generate insights      const allData = Object.values(loadedData).flat();      const generatedInsights = healthDataModel.generateInsights(allData);      setInsights(generatedInsights);    } catch (error) {      console.error('Failed to load health data:', error);    }  };  const onRefresh = useCallback(async () => {    setRefreshing(true);    try {      await HealthIntegrationService.syncAllData();      await loadHealthData();    } catch (error) {      console.error('Refresh failed:', error);      Alert.alert('Error', 'Failed to refresh health data');    } finally {      setRefreshing(false);    }  }, []);  const getPeriodStartDate = () => {    const now = new Date();    switch (selectedPeriod) {      case 'day':        return new Date(now.getFullYear(), now.getMonth(), now.getDate());      case 'week':        const weekAgo = new Date(now);        weekAgo.setDate(weekAgo.getDate() - 7);        return weekAgo;      case 'month':        const monthAgo = new Date(now);        monthAgo.setMonth(monthAgo.getMonth() - 1);        return monthAgo;      case 'year':        const yearAgo = new Date(now);        yearAgo.setFullYear(yearAgo.getFullYear() - 1);        return yearAgo;      default:        return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);    }  };  const renderSummaryCard = (title, value, unit, icon, color, onPress) => (    <TouchableOpacity style={[styles.summaryCard, { borderLeftColor: color }]} onPress={onPress}>      <View style={styles.cardHeader}>        <MaterialIcons name={icon} size={24} color={color} />        <Text style={styles.cardTitle}>{title}</Text>      </View>      <View style={styles.cardContent}>        <Text style={styles.cardValue}>{value}</Text>        <Text style={styles.cardUnit}>{unit}</Text>      </View>    </TouchableOpacity>  );  const renderChart = (data, title, type = 'line') => {    if (!data || data.length === 0) {      return (        <View style={styles.chartContainer}>          <Text style={styles.chartTitle}>{title}</Text>          <View style={styles.noDataContainer}>            <MaterialIcons name="info" size={48} color="#ccc" />            <Text style={styles.noDataText}>No data available</Text>          </View>        </View>      );    }    const chartData = prepareChartData(data, type);    const chartConfig = {      backgroundGradientFrom: '#fff',      backgroundGradientTo: '#fff',      color: (opacity = 1) => `rgba(74, 144, 226, ${opacity})`,      strokeWidth: 2,      barPercentage: 0.5,      useShadowColorFromDataset: false    };    const renderChartComponent = () => {      switch (type) {        case 'bar':          return (            <BarChart              data={chartData}              width={screenWidth - 60}              height={220}              chartConfig={chartConfig}              verticalLabelRotation={30}            />          );        case 'pie':          return (            <PieChart              data={chartData}              width={screenWidth - 60}              height={220}              chartConfig={chartConfig}              accessor="population"              backgroundColor="transparent"              paddingLeft="15"            />          );        default:          return (            <LineChart              data={chartData}              width={screenWidth - 60}              height={220}              chartConfig={chartConfig}              bezier            />          );      }    };    return (      <View style={styles.chartContainer}>        <Text style={styles.chartTitle}>{title}</Text>        {renderChartComponent()}      </View>    );  };  const prepareChartData = (data, type) => {    if (!data || data.length === 0) return { labels: [], datasets: [{ data: [] }] };    const aggregated = healthDataModel.aggregateData(data, 'day');    const entries = Object.entries(aggregated).slice(-7); // Last 7 days    if (type === 'pie') {      return entries.map(([date, stats], index) => ({        name: new Date(date).toLocaleDateString('en-US', { weekday: 'short' }),        population: stats.average,        color: `hsl(${(index * 60) % 360}, 70%, 50%)`,        legendFontColor: '#7F7F7F',        legendFontSize: 15      }));    }    return {      labels: entries.map(([date]) =>        new Date(date).toLocaleDateString('en-US', { weekday: 'short' })      ),      datasets: [{        data: entries.map(([, stats]) => Math.round(stats.average))      }]    };  };  const getCurrentValue = (data) => {    if (!data || data.length === 0) return 0;    const latest = data[data.length - 1];    return latest ? Math.round(latest.value) : 0;  };  const renderInsightCard = (insight) => {    const iconName = insight.type === 'trend' ? 'trending-up' :                    insight.type === 'goal' ? 'flag' : 'warning';    const iconColor = insight.severity === 'high' ? '#e74c3c' :                     insight.severity === 'medium' ? '#f39c12' : '#2ecc71';    return (      <View key={insight.type + insight.message} style={styles.insightCard}>        <MaterialIcons name={iconName} size={20} color={iconColor} />        <Text style={styles.insightText}>{insight.message}</Text>      </View>    );  };  const renderSyncStatus = () => {    if (!syncStatus) return null;    const statusColor = syncStatus.isSync ? '#f39c12' :                       syncStatus.errors.length > 0 ? '#e74c3c' : '#2ecc71';    const statusText = syncStatus.isSync ? 'Syncing...' :                      syncStatus.errors.length > 0 ? 'Sync Issues' : 'Synced';    return (      <View style={styles.syncStatusContainer}>        <MaterialIcons name="sync" size={16} color={statusColor} />        <Text style={[styles.syncStatusText, { color: statusColor }]}>{statusText}</Text>        {syncStatus.lastSync && (          <Text style={styles.lastSyncText}>            Last: {new Date(syncStatus.lastSync).toLocaleTimeString()}          </Text>        )}      </View>    );  };  if (isLoading) {    return (      <View style={styles.loadingContainer}>        <MaterialIcons name="health-and-safety" size={48} color="#4a90e2" />        <Text style={styles.loadingText}>Loading health data...</Text>      </View>    );  }  return (    <ScrollView      style={styles.container}      refreshControl={        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />      }    >      {/* Header */}      <View style={styles.header}>        <Text style={styles.headerTitle}>Health Dashboard</Text>        {renderSyncStatus()}      </View>      {/* Period Selector */}      <View style={styles.periodSelector}>        {['day', 'week', 'month', 'year'].map(period => (          <TouchableOpacity            key={period}            style={[              styles.periodButton,              selectedPeriod === period && styles.periodButtonActive            ]}            onPress={() => setSelectedPeriod(period)}          >            <Text style={[              styles.periodButtonText,              selectedPeriod === period && styles.periodButtonTextActive            ]}>              {period.charAt(0).toUpperCase() + period.slice(1)}            </Text>          </TouchableOpacity>        ))}      </View>      {/* Summary Cards */}      <View style={styles.summaryContainer}>        {renderSummaryCard(          'Steps',          getCurrentValue(healthData.steps).toLocaleString(),          'steps',          'directions-walk',          '#4a90e2',          () => navigation.navigate('ActivityTracker')        )}        {renderSummaryCard(          'Heart Rate',          getCurrentValue(healthData.heartRate),          'bpm',          'favorite',          '#e74c3c',          () => navigation.navigate('VitalSignsMonitor')        )}        {renderSummaryCard(          'Weight',          getCurrentValue(healthData.weight),          'kg',          'monitor-weight',          '#9b59b6',          () => navigation.navigate('BodyMeasurements')        )}        {renderSummaryCard(          'Sleep',          getCurrentValue(healthData.sleep),          'hrs',          'bedtime',          '#34495e',          () => navigation.navigate('SleepAnalysis')        )}      </View>      {/* Charts */}      {renderChart(healthData.steps, 'Steps Trend', 'line')}      {renderChart(healthData.heartRate, 'Heart Rate', 'line')}      {renderChart(healthData.calories, 'Calories Burned', 'bar')}      {/* Insights */}      {insights.length > 0 && (        <View style={styles.insightsContainer}>          <Text style={styles.sectionTitle}>Health Insights</Text>          {insights.map(renderInsightCard)}        </View>      )}      {/* Quick Actions */}      <View style={styles.quickActionsContainer}>        <Text style={styles.sectionTitle}>Quick Actions</Text>        <View style={styles.quickActionsGrid}>          <TouchableOpacity            style={styles.quickActionButton}            onPress={() => navigation.navigate('ManualDataEntry')}          >            <MaterialIcons name="add" size={24} color="#4a90e2" />            <Text style={styles.quickActionText}>Add Data</Text>          </TouchableOpacity>          <TouchableOpacity            style={styles.quickActionButton}            onPress={() => navigation.navigate('HealthSettings')}          >            <MaterialIcons name="settings" size={24} color="#4a90e2" />            <Text style={styles.quickActionText}>Settings</Text>          </TouchableOpacity>          <TouchableOpacity            style={styles.quickActionButton}            onPress={() => navigation.navigate('DataExport')}          >            <MaterialIcons name="file-download" size={24} color="#4a90e2" />            <Text style={styles.quickActionText}>Export</Text>          </TouchableOpacity>          <TouchableOpacity            style={styles.quickActionButton}            onPress={onRefresh}          >            <MaterialIcons name="refresh" size={24} color="#4a90e2" />            <Text style={styles.quickActionText}>Sync</Text>          </TouchableOpacity>        </View>      </View>    </ScrollView>  );};const styles = StyleSheet.create({  container: {    flex: 1,    backgroundColor: '#f8f9fa'  },  loadingContainer: {    flex: 1,    justifyContent: 'center',    alignItems: 'center',    backgroundColor: '#f8f9fa'  },  loadingText: {    marginTop: 10,    fontSize: 16,    color: '#666'  },  header: {    flexDirection: 'row',    justifyContent: 'space-between',    alignItems: 'center',    padding: 20,    backgroundColor: '#fff',    borderBottomWidth: 1,    borderBottomColor: '#e9ecef'  },  headerTitle: {    fontSize: 24,    fontWeight: 'bold',    color: '#2c3e50'  },  syncStatusContainer: {    flexDirection: 'row',    alignItems: 'center'  },  syncStatusText: {    fontSize: 12,    marginLeft: 4,    fontWeight: '500'  },  lastSyncText: {    fontSize: 10,    color: '#999',    marginLeft: 8  },  periodSelector: {    flexDirection: 'row',    backgroundColor: '#fff',    marginHorizontal: 20,    marginTop: 10,    borderRadius: 8,    padding: 4  },  periodButton: {    flex: 1,    paddingVertical: 8,    alignItems: 'center',    borderRadius: 6  },  periodButtonActive: {    backgroundColor: '#4a90e2'  },  periodButtonText: {    fontSize: 14,    color: '#666'  },  periodButtonTextActive: {    color: '#fff',    fontWeight: '500'  },  summaryContainer: {    flexDirection: 'row',    flexWrap: 'wrap',    padding: 20,    paddingBottom: 10  },  summaryCard: {    width: '48%',    backgroundColor: '#fff',    borderRadius: 12,    padding: 16,    marginBottom: 10,    marginRight: '2%',    borderLeftWidth: 4,    shadowColor: '#000',    shadowOffset: { width: 0, height: 2 },    shadowOpacity: 0.1,    shadowRadius: 4,    elevation: 3  },  cardHeader: {    flexDirection: 'row',    alignItems: 'center',    marginBottom: 8  },  cardTitle: {    fontSize: 14,    color: '#666',    marginLeft: 8,    fontWeight: '500'  },  cardContent: {    flexDirection: 'row',    alignItems: 'baseline'  },  cardValue: {    fontSize: 20,    fontWeight: 'bold',    color: '#2c3e50'  },  cardUnit: {    fontSize: 12,    color: '#999',    marginLeft: 4  },  chartContainer: {    backgroundColor: '#fff',    marginHorizontal: 20,    marginBottom: 20,    borderRadius: 12,    padding: 16,    shadowColor: '#000',    shadowOffset: { width: 0, height: 2 },    shadowOpacity: 0.1,    shadowRadius: 4,    elevation: 3  },  chartTitle: {    fontSize: 16,    fontWeight: 'bold',    color: '#2c3e50',    marginBottom: 10  },  noDataContainer: {    alignItems: 'center',    padding: 40  },  noDataText: {    fontSize: 14,    color: '#999',    marginTop: 8  },  insightsContainer: {    marginHorizontal: 20,    marginBottom: 20  },  sectionTitle: {    fontSize: 18,    fontWeight: 'bold',    color: '#2c3e50',    marginBottom: 12  },  insightCard: {    flexDirection: 'row',    alignItems: 'center',    backgroundColor: '#fff',    padding: 12,    borderRadius: 8,    marginBottom: 8,    shadowColor: '#000',    shadowOffset: { width: 0, height: 1 },    shadowOpacity: 0.1,    shadowRadius: 2,    elevation: 2  },  insightText: {    fontSize: 14,    color: '#555',    marginLeft: 10,    flex: 1  },  quickActionsContainer: {    marginHorizontal: 20,    marginBottom: 30  },  quickActionsGrid: {    flexDirection: 'row',    flexWrap: 'wrap',    justifyContent: 'space-between'  },  quickActionButton: {    width: '48%',    backgroundColor: '#fff',    padding: 16,    borderRadius: 12,    alignItems: 'center',    marginBottom: 10,    shadowColor: '#000',    shadowOffset: { width: 0, height: 2 },    shadowOpacity: 0.1,    shadowRadius: 4,    elevation: 3  },  quickActionText: {    fontSize: 12,    color: '#4a90e2',    marginTop: 4,    fontWeight: '500'  }});export default HealthDashboard;

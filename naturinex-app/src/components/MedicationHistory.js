@@ -1,321 +1,1 @@
-import React, { useState, useEffect } from 'react';
-import { Clock, Search, Filter, Download, Pill, ChevronRight, Calendar, TrendingUp } from 'lucide-react';
-import { useUser } from '../hooks/useUser';
-import { useNotifications } from './NotificationSystem';
-import medicationService from '../services/medicationService';
-import './MedicationHistory.css';
-
-const MedicationHistory = () => {
-  const { user } = useUser();
-  const { showNotification } = useNotifications();
-  const [history, setHistory] = useState([]);
-  const [filteredHistory, setFilteredHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterBy, setFilterBy] = useState('all');
-  const [sortBy, setSortBy] = useState('date');
-  const [expandedItems, setExpandedItems] = useState(new Set());
-  const [recommendations, setRecommendations] = useState(null);
-
-  useEffect(() => {
-    if (user) {
-      fetchHistory();
-      fetchRecommendations();
-    }
-  }, [user]);
-
-  useEffect(() => {
-    filterAndSortHistory();
-  }, [history, searchTerm, filterBy, sortBy]);
-
-  const fetchHistory = async () => {
-    setLoading(true);
-    try {
-      const userHistory = await medicationService.getMedicationHistory(user.uid, 50);
-      setHistory(userHistory);
-    } catch (error) {
-      console.error('Error fetching history:', error);
-      showNotification('Failed to load medication history', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchRecommendations = async () => {
-    try {
-      const userRecommendations = await medicationService.getPersonalizedRecommendations(user.uid);
-      setRecommendations(userRecommendations);
-    } catch (error) {
-      console.error('Error fetching recommendations:', error);
-    }
-  };
-
-  const filterAndSortHistory = () => {
-    let filtered = [...history];
-
-    // Apply search filter
-    if (searchTerm) {
-      filtered = filtered.filter(item =>
-        item.medicationName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (item.naturalAlternatives && item.naturalAlternatives.some(alt => 
-          alt.toLowerCase().includes(searchTerm.toLowerCase())
-        ))
-      );
-    }
-
-    // Apply category filter
-    if (filterBy !== 'all') {
-      filtered = filtered.filter(item => {
-        if (filterBy === 'withAlternatives') {
-          return item.naturalAlternatives && item.naturalAlternatives.length > 0;
-        } else if (filterBy === 'interactions') {
-          return item.interactions && item.interactions.length > 0;
-        }
-        return true;
-      });
-    }
-
-    // Apply sorting
-    filtered.sort((a, b) => {
-      if (sortBy === 'date') {
-        return new Date(b.timestamp) - new Date(a.timestamp);
-      } else if (sortBy === 'name') {
-        return a.medicationName.localeCompare(b.medicationName);
-      }
-      return 0;
-    });
-
-    setFilteredHistory(filtered);
-  };
-
-  const toggleExpand = (itemId) => {
-    const newExpanded = new Set(expandedItems);
-    if (newExpanded.has(itemId)) {
-      newExpanded.delete(itemId);
-    } else {
-      newExpanded.add(itemId);
-    }
-    setExpandedItems(newExpanded);
-  };
-
-  const exportHistory = () => {
-    const exportData = history.map(item => ({
-      date: new Date(item.timestamp).toLocaleString(),
-      medication: item.medicationName,
-      alternatives: item.naturalAlternatives ? item.naturalAlternatives.join(', ') : '',
-      interactions: item.interactions ? item.interactions.length : 0,
-      scanMethod: item.scanMethod || 'manual'
-    }));
-
-    const csv = [
-      ['Date', 'Medication', 'Natural Alternatives', 'Interactions', 'Scan Method'],
-      ...exportData.map(row => [
-        row.date,
-        row.medication,
-        row.alternatives,
-        row.interactions,
-        row.scanMethod
-      ])
-    ].map(row => row.join(',')).join('\n');
-
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `medication-history-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    window.URL.revokeObjectURL(url);
-
-    showNotification('History exported successfully', 'success');
-  };
-
-  const formatDate = (timestamp) => {
-    const date = new Date(timestamp);
-    const today = new Date();
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-
-    if (date.toDateString() === today.toDateString()) {
-      return `Today at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-    } else if (date.toDateString() === yesterday.toDateString()) {
-      return `Yesterday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-    } else {
-      return date.toLocaleDateString([], { 
-        month: 'short', 
-        day: 'numeric', 
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="medication-history loading">
-        <div className="loading-spinner"></div>
-        <p>Loading your medication history...</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="medication-history">
-      <div className="history-header">
-        <div className="header-top">
-          <h2>
-            <Clock size={24} />
-            Medication History
-          </h2>
-          <button className="export-btn" onClick={exportHistory}>
-            <Download size={18} />
-            Export
-          </button>
-        </div>
-
-        {recommendations && recommendations.hasRecommendations && (
-          <div className="personalized-insights">
-            <h3>
-              <TrendingUp size={20} />
-              Your Insights
-            </h3>
-            <div className="insights-content">
-              {recommendations.topConcerns.length > 0 && (
-                <div className="insight-item">
-                  <span className="insight-label">Most Scanned:</span>
-                  <span className="insight-value">
-                    {recommendations.topConcerns.join(', ')}
-                  </span>
-                </div>
-              )}
-              {recommendations.suggestedProtocols.length > 0 && (
-                <div className="suggested-protocols">
-                  <p className="protocol-label">Suggested Protocols:</p>
-                  {recommendations.suggestedProtocols.map((protocol, index) => (
-                    <div key={index} className="protocol-card">
-                      <h4>{protocol.name}</h4>
-                      <p>Supplements: {protocol.supplements.join(', ')}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        <div className="history-controls">
-          <div className="search-box">
-            <Search size={18} />
-            <input
-              type="text"
-              placeholder="Search medications..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-
-          <div className="filter-controls">
-            <select
-              value={filterBy}
-              onChange={(e) => setFilterBy(e.target.value)}
-              className="filter-select"
-            >
-              <option value="all">All Scans</option>
-              <option value="withAlternatives">With Alternatives</option>
-              <option value="interactions">With Interactions</option>
-            </select>
-
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="sort-select"
-            >
-              <option value="date">Sort by Date</option>
-              <option value="name">Sort by Name</option>
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {filteredHistory.length === 0 ? (
-        <div className="empty-history">
-          <Pill size={48} />
-          <h3>No medication history yet</h3>
-          <p>Start scanning medications to build your history</p>
-        </div>
-      ) : (
-        <div className="history-list">
-          {filteredHistory.map((item) => (
-            <div
-              key={item.id}
-              className={`history-item ${expandedItems.has(item.id) ? 'expanded' : ''}`}
-            >
-              <div
-                className="history-item-header"
-                onClick={() => toggleExpand(item.id)}
-              >
-                <div className="item-info">
-                  <h4>{item.medicationName}</h4>
-                  <div className="item-meta">
-                    <span className="item-date">
-                      <Calendar size={14} />
-                      {formatDate(item.timestamp)}
-                    </span>
-                    {item.scanMethod && (
-                      <span className="scan-method">{item.scanMethod}</span>
-                    )}
-                  </div>
-                </div>
-                <ChevronRight
-                  size={20}
-                  className={`expand-icon ${expandedItems.has(item.id) ? 'expanded' : ''}`}
-                />
-              </div>
-
-              {expandedItems.has(item.id) && (
-                <div className="history-item-details">
-                  {item.naturalAlternatives && item.naturalAlternatives.length > 0 && (
-                    <div className="detail-section">
-                      <h5>Natural Alternatives:</h5>
-                      <ul className="alternatives-list">
-                        {item.naturalAlternatives.map((alt, index) => (
-                          <li key={index}>{alt}</li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {item.interactions && item.interactions.length > 0 && (
-                    <div className="detail-section">
-                      <h5>Interactions Found:</h5>
-                      <div className="interactions-list">
-                        {item.interactions.map((interaction, index) => (
-                          <div key={index} className={`interaction-item ${interaction.severity}`}>
-                            <span className="interaction-severity">{interaction.severity}</span>
-                            <p>{interaction.description}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {item.dosageInfo && (
-                    <div className="detail-section">
-                      <h5>Dosage Information:</h5>
-                      <p className="dosage-info">{item.dosageInfo.general}</p>
-                      {item.dosageInfo.precautions && (
-                        <p className="precautions">⚠️ {item.dosageInfo.precautions}</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-export default MedicationHistory;
+import React, { useState, useEffect } from 'react';import { Clock, Search, Filter, Download, Pill, ChevronRight, Calendar, TrendingUp } from 'lucide-react';import { useUser } from '../hooks/useUser';import { useNotifications } from './NotificationSystem';import medicationService from '../services/medicationService';import './MedicationHistory.css';const MedicationHistory = () => {  const { user } = useUser();  const { showNotification } = useNotifications();  const [history, setHistory] = useState([]);  const [filteredHistory, setFilteredHistory] = useState([]);  const [loading, setLoading] = useState(true);  const [searchTerm, setSearchTerm] = useState('');  const [filterBy, setFilterBy] = useState('all');  const [sortBy, setSortBy] = useState('date');  const [expandedItems, setExpandedItems] = useState(new Set());  const [recommendations, setRecommendations] = useState(null);  useEffect(() => {    if (user) {      fetchHistory();      fetchRecommendations();    }  }, [user]);  useEffect(() => {    filterAndSortHistory();  }, [history, searchTerm, filterBy, sortBy]);  const fetchHistory = async () => {    setLoading(true);    try {      const userHistory = await medicationService.getMedicationHistory(user.uid, 50);      setHistory(userHistory);    } catch (error) {      console.error('Error fetching history:', error);      showNotification('Failed to load medication history', 'error');    } finally {      setLoading(false);    }  };  const fetchRecommendations = async () => {    try {      const userRecommendations = await medicationService.getPersonalizedRecommendations(user.uid);      setRecommendations(userRecommendations);    } catch (error) {      console.error('Error fetching recommendations:', error);    }  };  const filterAndSortHistory = () => {    let filtered = [...history];    // Apply search filter    if (searchTerm) {      filtered = filtered.filter(item =>        item.medicationName.toLowerCase().includes(searchTerm.toLowerCase()) ||        (item.naturalAlternatives && item.naturalAlternatives.some(alt =>           alt.toLowerCase().includes(searchTerm.toLowerCase())        ))      );    }    // Apply category filter    if (filterBy !== 'all') {      filtered = filtered.filter(item => {        if (filterBy === 'withAlternatives') {          return item.naturalAlternatives && item.naturalAlternatives.length > 0;        } else if (filterBy === 'interactions') {          return item.interactions && item.interactions.length > 0;        }        return true;      });    }    // Apply sorting    filtered.sort((a, b) => {      if (sortBy === 'date') {        return new Date(b.timestamp) - new Date(a.timestamp);      } else if (sortBy === 'name') {        return a.medicationName.localeCompare(b.medicationName);      }      return 0;    });    setFilteredHistory(filtered);  };  const toggleExpand = (itemId) => {    const newExpanded = new Set(expandedItems);    if (newExpanded.has(itemId)) {      newExpanded.delete(itemId);    } else {      newExpanded.add(itemId);    }    setExpandedItems(newExpanded);  };  const exportHistory = () => {    const exportData = history.map(item => ({      date: new Date(item.timestamp).toLocaleString(),      medication: item.medicationName,      alternatives: item.naturalAlternatives ? item.naturalAlternatives.join(', ') : '',      interactions: item.interactions ? item.interactions.length : 0,      scanMethod: item.scanMethod || 'manual'    }));    const csv = [      ['Date', 'Medication', 'Natural Alternatives', 'Interactions', 'Scan Method'],      ...exportData.map(row => [        row.date,        row.medication,        row.alternatives,        row.interactions,        row.scanMethod      ])    ].map(row => row.join(',')).join('\n');    const blob = new Blob([csv], { type: 'text/csv' });    const url = window.URL.createObjectURL(blob);    const a = document.createElement('a');    a.href = url;    a.download = `medication-history-${new Date().toISOString().split('T')[0]}.csv`;    a.click();    window.URL.revokeObjectURL(url);    showNotification('History exported successfully', 'success');  };  const formatDate = (timestamp) => {    const date = new Date(timestamp);    const today = new Date();    const yesterday = new Date(today);    yesterday.setDate(yesterday.getDate() - 1);    if (date.toDateString() === today.toDateString()) {      return `Today at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;    } else if (date.toDateString() === yesterday.toDateString()) {      return `Yesterday at ${date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;    } else {      return date.toLocaleDateString([], {         month: 'short',         day: 'numeric',         year: 'numeric',        hour: '2-digit',        minute: '2-digit'      });    }  };  if (loading) {    return (      <div className="medication-history loading">        <div className="loading-spinner"></div>        <p>Loading your medication history...</p>      </div>    );  }  return (    <div className="medication-history">      <div className="history-header">        <div className="header-top">          <h2>            <Clock size={24} />            Medication History          </h2>          <button className="export-btn" onClick={exportHistory}>            <Download size={18} />            Export          </button>        </div>        {recommendations && recommendations.hasRecommendations && (          <div className="personalized-insights">            <h3>              <TrendingUp size={20} />              Your Insights            </h3>            <div className="insights-content">              {recommendations.topConcerns.length > 0 && (                <div className="insight-item">                  <span className="insight-label">Most Scanned:</span>                  <span className="insight-value">                    {recommendations.topConcerns.join(', ')}                  </span>                </div>              )}              {recommendations.suggestedProtocols.length > 0 && (                <div className="suggested-protocols">                  <p className="protocol-label">Suggested Protocols:</p>                  {recommendations.suggestedProtocols.map((protocol, index) => (                    <div key={index} className="protocol-card">                      <h4>{protocol.name}</h4>                      <p>Supplements: {protocol.supplements.join(', ')}</p>                    </div>                  ))}                </div>              )}            </div>          </div>        )}        <div className="history-controls">          <div className="search-box">            <Search size={18} />            <input              type="text"              placeholder="Search medications..."              value={searchTerm}              onChange={(e) => setSearchTerm(e.target.value)}            />          </div>          <div className="filter-controls">            <select              value={filterBy}              onChange={(e) => setFilterBy(e.target.value)}              className="filter-select"            >              <option value="all">All Scans</option>              <option value="withAlternatives">With Alternatives</option>              <option value="interactions">With Interactions</option>            </select>            <select              value={sortBy}              onChange={(e) => setSortBy(e.target.value)}              className="sort-select"            >              <option value="date">Sort by Date</option>              <option value="name">Sort by Name</option>            </select>          </div>        </div>      </div>      {filteredHistory.length === 0 ? (        <div className="empty-history">          <Pill size={48} />          <h3>No medication history yet</h3>          <p>Start scanning medications to build your history</p>        </div>      ) : (        <div className="history-list">          {filteredHistory.map((item) => (            <div              key={item.id}              className={`history-item ${expandedItems.has(item.id) ? 'expanded' : ''}`}            >              <div                className="history-item-header"                onClick={() => toggleExpand(item.id)}              >                <div className="item-info">                  <h4>{item.medicationName}</h4>                  <div className="item-meta">                    <span className="item-date">                      <Calendar size={14} />                      {formatDate(item.timestamp)}                    </span>                    {item.scanMethod && (                      <span className="scan-method">{item.scanMethod}</span>                    )}                  </div>                </div>                <ChevronRight                  size={20}                  className={`expand-icon ${expandedItems.has(item.id) ? 'expanded' : ''}`}                />              </div>              {expandedItems.has(item.id) && (                <div className="history-item-details">                  {item.naturalAlternatives && item.naturalAlternatives.length > 0 && (                    <div className="detail-section">                      <h5>Natural Alternatives:</h5>                      <ul className="alternatives-list">                        {item.naturalAlternatives.map((alt, index) => (                          <li key={index}>{alt}</li>                        ))}                      </ul>                    </div>                  )}                  {item.interactions && item.interactions.length > 0 && (                    <div className="detail-section">                      <h5>Interactions Found:</h5>                      <div className="interactions-list">                        {item.interactions.map((interaction, index) => (                          <div key={index} className={`interaction-item ${interaction.severity}`}>                            <span className="interaction-severity">{interaction.severity}</span>                            <p>{interaction.description}</p>                          </div>                        ))}                      </div>                    </div>                  )}                  {item.dosageInfo && (                    <div className="detail-section">                      <h5>Dosage Information:</h5>                      <p className="dosage-info">{item.dosageInfo.general}</p>                      {item.dosageInfo.precautions && (                        <p className="precautions">⚠️ {item.dosageInfo.precautions}</p>                      )}                    </div>                  )}                </div>              )}            </div>          ))}        </div>      )}    </div>  );};export default MedicationHistory;

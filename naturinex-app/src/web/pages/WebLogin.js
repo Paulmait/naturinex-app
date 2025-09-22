@@ -22,7 +22,6 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebase.web';
-
 function WebLogin() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
@@ -31,31 +30,25 @@ function WebLogin() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [resetEmailSent, setResetEmailSent] = useState(false);
-  
   const navigate = useNavigate();
-
   const validateEmail = (email) => {
     const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return re.test(email);
   };
-
   const validatePassword = (password) => {
     // At least 8 characters, 1 uppercase, 1 lowercase, 1 number
     const re = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)[a-zA-Z\d@$!%*?&]{8,}$/;
     return re.test(password);
   };
-
   const handleEmailAuth = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
-
     try {
       // Input validation
       if (!validateEmail(email)) {
         throw new Error('Please enter a valid email address');
       }
-
       if (isSignUp) {
         if (password !== confirmPassword) {
           throw new Error('Passwords do not match');
@@ -63,9 +56,7 @@ function WebLogin() {
         if (!validatePassword(password)) {
           throw new Error('Password must be at least 8 characters with uppercase, lowercase, and number');
         }
-        
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        
         // Create user profile in Firestore
         await setDoc(doc(db, 'users', userCredential.user.uid), {
           email: userCredential.user.email,
@@ -74,7 +65,6 @@ function WebLogin() {
           dailyScans: 0,
           lastScanReset: new Date().toISOString(),
         });
-        
         navigate('/dashboard');
       } else {
         await signInWithEmailAndPassword(auth, email, password);
@@ -89,33 +79,25 @@ function WebLogin() {
       setLoading(false);
     }
   };
-
   const handleGoogleSignIn = async () => {
     setError('');
     setLoading(true);
-    
     try {
       const provider = new GoogleAuthProvider();
       // Add scopes for better user experience
       provider.addScope('profile');
       provider.addScope('email');
-      
       // Set custom parameters
       provider.setCustomParameters({
         prompt: 'select_account'
       });
-      
       if (process.env.NODE_ENV === 'development') {
-        console.log('Starting Google sign-in...');
       }
       const result = await signInWithPopup(auth, provider);
       if (process.env.NODE_ENV === 'development') {
-        console.log('Google sign-in successful:', result.user.email);
       }
-      
       // Check if user profile exists
       const userDoc = await getDoc(doc(db, 'users', result.user.uid));
-      
       if (!userDoc.exists()) {
         // Create new user profile
         await setDoc(doc(db, 'users', result.user.uid), {
@@ -128,7 +110,6 @@ function WebLogin() {
           lastScanReset: new Date().toISOString(),
         });
       }
-      
       navigate('/dashboard');
     } catch (err) {
       if (process.env.NODE_ENV === 'development') {
@@ -148,13 +129,11 @@ function WebLogin() {
       setLoading(false);
     }
   };
-
   const handlePasswordReset = async () => {
     if (!email) {
       setError('Please enter your email address');
       return;
     }
-    
     setLoading(true);
     try {
       await sendPasswordResetEmail(auth, email);
@@ -166,7 +145,6 @@ function WebLogin() {
       setLoading(false);
     }
   };
-
   return (
     <Box
       sx={{
@@ -184,19 +162,16 @@ function WebLogin() {
           <Typography variant="body1" align="center" color="text.secondary" sx={{ mb: 3 }}>
             {isSignUp ? 'Start your wellness journey today' : 'Sign in to continue'}
           </Typography>
-
           {error && (
             <Alert severity="error" sx={{ mb: 2 }}>
               {error}
             </Alert>
           )}
-
           {resetEmailSent && (
             <Alert severity="success" sx={{ mb: 2 }}>
               Password reset email sent! Check your inbox.
             </Alert>
           )}
-
           <form onSubmit={handleEmailAuth}>
             <TextField
               fullWidth
@@ -230,7 +205,6 @@ function WebLogin() {
                 autoComplete="new-password"
               />
             )}
-
             {!isSignUp && (
               <Box sx={{ textAlign: 'right', mt: 1 }}>
                 <Link
@@ -244,7 +218,6 @@ function WebLogin() {
                 </Link>
               </Box>
             )}
-
             <Button
               type="submit"
               fullWidth
@@ -260,9 +233,7 @@ function WebLogin() {
               )}
             </Button>
           </form>
-
           <Divider sx={{ my: 3 }}>OR</Divider>
-
           <Button
             fullWidth
             variant="outlined"
@@ -274,7 +245,6 @@ function WebLogin() {
           >
             Continue with Google
           </Button>
-
           <Typography align="center" variant="body2">
             {isSignUp ? 'Already have an account? ' : "Don't have an account? "}
             <Link
@@ -290,7 +260,6 @@ function WebLogin() {
               {isSignUp ? 'Sign In' : 'Sign Up'}
             </Link>
           </Typography>
-
           <Box sx={{ mt: 3, textAlign: 'center' }}>
             <Typography variant="caption" color="text.secondary">
               By continuing, you agree to our{' '}
@@ -308,5 +277,4 @@ function WebLogin() {
     </Box>
   );
 }
-
 export default WebLogin;

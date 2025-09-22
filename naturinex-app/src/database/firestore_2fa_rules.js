@@ -1,172 +1,1 @@
-// Firestore Security Rules for Two-Factor Authentication
-// Add these rules to your Firebase Console -> Firestore Database -> Rules
-
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-
-    // 2FA Settings Collection
-    match /user_2fa_settings/{userId} {
-      // Users can only access their own 2FA settings
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-
-      // Validation for 2FA settings document
-      allow create, update: if request.auth != null &&
-        request.auth.uid == userId &&
-        validateTwoFactorSettings(request.resource.data);
-    }
-
-    // Phone Verification Collection (temporary storage)
-    match /phone_verifications/{verificationId} {
-      // Users can only access their own phone verifications
-      allow read, write: if request.auth != null &&
-        request.auth.uid == resource.data.user_id;
-
-      // Allow creation with validation
-      allow create: if request.auth != null &&
-        request.auth.uid == request.resource.data.user_id &&
-        validatePhoneVerification(request.resource.data);
-    }
-
-    // User profiles (if you need to store 2FA status in user documents)
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-
-    // Helper functions for validation
-    function validateTwoFactorSettings(data) {
-      return data.keys().hasAll(['user_id', 'updated_at']) &&
-             data.user_id == request.auth.uid &&
-             data.updated_at is timestamp &&
-             // Validate optional boolean fields
-             ((!('phone_2fa_enabled' in data)) || data.phone_2fa_enabled is bool) &&
-             ((!('totp_enabled' in data)) || data.totp_enabled is bool) &&
-             ((!('biometric_enabled' in data)) || data.biometric_enabled is bool) &&
-             // If phone 2FA is enabled, phone number should be present
-             (data.get('phone_2fa_enabled', false) == false ||
-              ('phone_number' in data && data.phone_number is string));
-    }
-
-    function validatePhoneVerification(data) {
-      return data.keys().hasAll(['user_id', 'phone_number', 'verification_code', 'expires_at']) &&
-             data.user_id == request.auth.uid &&
-             data.phone_number is string &&
-             data.verification_code is string &&
-             data.expires_at is timestamp &&
-             data.get('verified', false) is bool;
-    }
-
-    // Sensitive operations that require 2FA verification
-    match /payments/{paymentId} {
-      // Check if user has 2FA enabled and verified
-      allow read, write: if request.auth != null &&
-        request.auth.uid == resource.data.user_id &&
-        userHasValidTwoFactorSession(request.auth.uid);
-    }
-
-    match /medical_data/{dataId} {
-      // Medical data access requires 2FA
-      allow read, write: if request.auth != null &&
-        request.auth.uid == resource.data.user_id &&
-        userHasValidTwoFactorSession(request.auth.uid);
-    }
-
-    // Helper function to check 2FA session (you'll need to implement session tracking)
-    function userHasValidTwoFactorSession(userId) {
-      // This is a placeholder - you'll need to implement actual session validation
-      // based on your session management strategy
-      return true; // For now, allow all authenticated users
-    }
-
-    // Helper function to check if user has 2FA enabled
-    function userHasTwoFactorEnabled(userId) {
-      let settings = get(/databases/$(database)/documents/user_2fa_settings/$(userId));
-      return settings != null && (
-        settings.data.get('phone_2fa_enabled', false) ||
-        settings.data.get('totp_enabled', false) ||
-        settings.data.get('biometric_enabled', false)
-      );
-    }
-
-    // Example rule for a sensitive operation
-    match /subscription_changes/{changeId} {
-      allow read, write: if request.auth != null &&
-        request.auth.uid == resource.data.user_id &&
-        (userHasTwoFactorEnabled(request.auth.uid) == false ||
-         userHasValidTwoFactorSession(request.auth.uid));
-    }
-
-    // Allow users to read their own documents by default
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-  }
-}
-
-/*
-Enhanced Security Rules Example:
-
-// For production, you might want more granular control:
-
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-
-    // 2FA Settings with enhanced validation
-    match /user_2fa_settings/{userId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-
-      allow create: if request.auth != null &&
-        request.auth.uid == userId &&
-        validateTwoFactorSettingsCreate(request.resource.data);
-
-      allow update: if request.auth != null &&
-        request.auth.uid == userId &&
-        validateTwoFactorSettingsUpdate(resource.data, request.resource.data);
-
-      allow delete: if request.auth != null &&
-        request.auth.uid == userId &&
-        // Additional verification might be required for deletion
-        request.auth.token.get('email_verified', false) == true;
-    }
-
-    function validateTwoFactorSettingsCreate(data) {
-      return data.user_id == request.auth.uid &&
-             data.created_at == request.time &&
-             data.updated_at == request.time &&
-             // All boolean fields default to false if not specified
-             data.get('phone_2fa_enabled', false) is bool &&
-             data.get('totp_enabled', false) is bool &&
-             data.get('biometric_enabled', false) is bool;
-    }
-
-    function validateTwoFactorSettingsUpdate(oldData, newData) {
-      return newData.user_id == oldData.user_id &&
-             newData.created_at == oldData.created_at &&
-             newData.updated_at == request.time &&
-             // Prevent malicious updates to sensitive fields
-             (newData.get('totp_secret_encrypted', '') == oldData.get('totp_secret_encrypted', '') ||
-              newData.totp_enabled == true) &&
-             // Phone number can only be changed when enabling phone 2FA
-             (newData.get('phone_number', '') == oldData.get('phone_number', '') ||
-              newData.phone_2fa_enabled == true);
-    }
-
-    // Time-limited phone verifications
-    match /phone_verifications/{verificationId} {
-      allow create: if request.auth != null &&
-        request.auth.uid == request.resource.data.user_id &&
-        request.resource.data.expires_at > request.time &&
-        request.resource.data.expires_at <= request.time + duration.value(10, 'm'); // Max 10 minutes
-
-      allow read, update: if request.auth != null &&
-        request.auth.uid == resource.data.user_id &&
-        resource.data.expires_at > request.time; // Only valid verifications
-
-      // Auto-cleanup expired verifications (if using client-side cleanup)
-      allow delete: if request.auth != null &&
-        request.auth.uid == resource.data.user_id;
-    }
-  }
-}
-*/
+// Firestore Security Rules for Two-Factor Authentication// Add these rules to your Firebase Console -> Firestore Database -> Rulesrules_version = '2';service cloud.firestore {  match /databases/{database}/documents {    // 2FA Settings Collection    match /user_2fa_settings/{userId} {      // Users can only access their own 2FA settings      allow read, write: if request.auth != null && request.auth.uid == userId;      // Validation for 2FA settings document      allow create, update: if request.auth != null &&        request.auth.uid == userId &&        validateTwoFactorSettings(request.resource.data);    }    // Phone Verification Collection (temporary storage)    match /phone_verifications/{verificationId} {      // Users can only access their own phone verifications      allow read, write: if request.auth != null &&        request.auth.uid == resource.data.user_id;      // Allow creation with validation      allow create: if request.auth != null &&        request.auth.uid == request.resource.data.user_id &&        validatePhoneVerification(request.resource.data);    }    // User profiles (if you need to store 2FA status in user documents)    match /users/{userId} {      allow read, write: if request.auth != null && request.auth.uid == userId;    }    // Helper functions for validation    function validateTwoFactorSettings(data) {      return data.keys().hasAll(['user_id', 'updated_at']) &&             data.user_id == request.auth.uid &&             data.updated_at is timestamp &&             // Validate optional boolean fields             ((!('phone_2fa_enabled' in data)) || data.phone_2fa_enabled is bool) &&             ((!('totp_enabled' in data)) || data.totp_enabled is bool) &&             ((!('biometric_enabled' in data)) || data.biometric_enabled is bool) &&             // If phone 2FA is enabled, phone number should be present             (data.get('phone_2fa_enabled', false) == false ||              ('phone_number' in data && data.phone_number is string));    }    function validatePhoneVerification(data) {      return data.keys().hasAll(['user_id', 'phone_number', 'verification_code', 'expires_at']) &&             data.user_id == request.auth.uid &&             data.phone_number is string &&             data.verification_code is string &&             data.expires_at is timestamp &&             data.get('verified', false) is bool;    }    // Sensitive operations that require 2FA verification    match /payments/{paymentId} {      // Check if user has 2FA enabled and verified      allow read, write: if request.auth != null &&        request.auth.uid == resource.data.user_id &&        userHasValidTwoFactorSession(request.auth.uid);    }    match /medical_data/{dataId} {      // Medical data access requires 2FA      allow read, write: if request.auth != null &&        request.auth.uid == resource.data.user_id &&        userHasValidTwoFactorSession(request.auth.uid);    }    // Helper function to check 2FA session (you'll need to implement session tracking)    function userHasValidTwoFactorSession(userId) {      // This is a placeholder - you'll need to implement actual session validation      // based on your session management strategy      return true; // For now, allow all authenticated users    }    // Helper function to check if user has 2FA enabled    function userHasTwoFactorEnabled(userId) {      let settings = get(/databases/$(database)/documents/user_2fa_settings/$(userId));      return settings != null && (        settings.data.get('phone_2fa_enabled', false) ||        settings.data.get('totp_enabled', false) ||        settings.data.get('biometric_enabled', false)      );    }    // Example rule for a sensitive operation    match /subscription_changes/{changeId} {      allow read, write: if request.auth != null &&        request.auth.uid == resource.data.user_id &&        (userHasTwoFactorEnabled(request.auth.uid) == false ||         userHasValidTwoFactorSession(request.auth.uid));    }    // Allow users to read their own documents by default    match /users/{userId} {      allow read, write: if request.auth != null && request.auth.uid == userId;    }  }}/*Enhanced Security Rules Example:// For production, you might want more granular control:rules_version = '2';service cloud.firestore {  match /databases/{database}/documents {    // 2FA Settings with enhanced validation    match /user_2fa_settings/{userId} {      allow read: if request.auth != null && request.auth.uid == userId;      allow create: if request.auth != null &&        request.auth.uid == userId &&        validateTwoFactorSettingsCreate(request.resource.data);      allow update: if request.auth != null &&        request.auth.uid == userId &&        validateTwoFactorSettingsUpdate(resource.data, request.resource.data);      allow delete: if request.auth != null &&        request.auth.uid == userId &&        // Additional verification might be required for deletion        request.auth.token.get('email_verified', false) == true;    }    function validateTwoFactorSettingsCreate(data) {      return data.user_id == request.auth.uid &&             data.created_at == request.time &&             data.updated_at == request.time &&             // All boolean fields default to false if not specified             data.get('phone_2fa_enabled', false) is bool &&             data.get('totp_enabled', false) is bool &&             data.get('biometric_enabled', false) is bool;    }    function validateTwoFactorSettingsUpdate(oldData, newData) {      return newData.user_id == oldData.user_id &&             newData.created_at == oldData.created_at &&             newData.updated_at == request.time &&             // Prevent malicious updates to sensitive fields             (newData.get('totp_secret_encrypted', '') == oldData.get('totp_secret_encrypted', '') ||              newData.totp_enabled == true) &&             // Phone number can only be changed when enabling phone 2FA             (newData.get('phone_number', '') == oldData.get('phone_number', '') ||              newData.phone_2fa_enabled == true);    }    // Time-limited phone verifications    match /phone_verifications/{verificationId} {      allow create: if request.auth != null &&        request.auth.uid == request.resource.data.user_id &&        request.resource.data.expires_at > request.time &&        request.resource.data.expires_at <= request.time + duration.value(10, 'm'); // Max 10 minutes      allow read, update: if request.auth != null &&        request.auth.uid == resource.data.user_id &&        resource.data.expires_at > request.time; // Only valid verifications      // Auto-cleanup expired verifications (if using client-side cleanup)      allow delete: if request.auth != null &&        request.auth.uid == resource.data.user_id;    }  }}*/

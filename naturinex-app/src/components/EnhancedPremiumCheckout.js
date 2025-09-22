@@ -1,12 +1,9 @@
 // 💎 Enhanced Premium Checkout with Tiered Pricing
 // Professional pricing strategy with better value proposition and anti-abuse features
-
 import React, { useState } from 'react';
 import { trackEvent } from '../utils/analytics';
 import Constants from 'expo-constants';
-
 const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-1.onrender.com';
-
 function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
   const [selectedPlan, setSelectedPlan] = useState('premium');
   const [billingCycle, setBillingCycle] = useState('monthly');
@@ -77,7 +74,6 @@ function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
       }
     }
   };
-
   const handlePlanSelect = (planKey) => {
     setSelectedPlan(planKey);
     trackEvent('plan_selected', { 
@@ -86,7 +82,6 @@ function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
       price: billingCycle === 'monthly' ? plans[planKey].monthly : plans[planKey].yearly
     });
   };
-
   const handleBillingCycleChange = (cycle) => {
     setBillingCycle(cycle);
     trackEvent('billing_cycle_changed', { 
@@ -95,14 +90,11 @@ function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
       savings: cycle === 'yearly' ? plans[selectedPlan].savings : 0
     });
   };
-
   const handleCheckout = async () => {
     setIsProcessing(true);
-    
     try {
       const plan = plans[selectedPlan];
       const amount = billingCycle === 'monthly' ? plan.monthly : plan.yearly;
-      
       // Track checkout initiation
       await trackEvent('checkout_initiated', {
         plan: selectedPlan,
@@ -110,7 +102,6 @@ function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
         amount,
         userId: user?.uid
       });
-
       // Call Stripe checkout
       const response = await fetch(`${API_URL}/create-checkout-session`, {
         method: 'POST',
@@ -124,19 +115,14 @@ function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
           planName: `${plan.name} - ${billingCycle}`
         })
       });
-
       if (!response.ok) {
         throw new Error('Failed to create checkout session');
       }
-
       const { url } = await response.json();
-      
       // Redirect to Stripe checkout
       window.location.href = url;
-      
     } catch (error) {
       console.error('Checkout error:', error);
-      
       // Track checkout error
       await trackEvent('checkout_error', {
         plan: selectedPlan,
@@ -144,25 +130,21 @@ function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
         error: error.message,
         userId: user?.uid
       });
-      
       alert('Checkout failed. Please try again.');
     } finally {
       setIsProcessing(false);
     }
   };
-
   const getCurrentPrice = () => {
     const plan = plans[selectedPlan];
     return billingCycle === 'monthly' ? plan.monthly : plan.yearly;
   };
-
   const getSavings = () => {
     if (billingCycle === 'yearly') {
       return plans[selectedPlan].savings;
     }
     return 0;
   };
-
   return (
     <div style={{ 
       padding: '30px',
@@ -180,7 +162,6 @@ function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
           Unlock professional health management with advanced AI analysis
         </p>
       </div>
-
       {/* Billing Cycle Toggle */}
       <div style={{ 
         display: 'flex', 
@@ -210,7 +191,6 @@ function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
           </button>
         ))}
       </div>
-
       {/* Plans Grid */}
       <div style={{ 
         display: 'grid', 
@@ -249,7 +229,6 @@ function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
                 MOST POPULAR
               </div>
             )}
-
             {/* Plan Header */}
             <div style={{ textAlign: 'center', marginBottom: '20px' }}>
               <div style={{ fontSize: '40px', marginBottom: '10px' }}>{plan.icon}</div>
@@ -266,7 +245,6 @@ function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
                 </div>
               )}
             </div>
-
             {/* Features List */}
             <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
               {plan.features.map((feature, index) => (
@@ -281,7 +259,6 @@ function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
                 </li>
               ))}
             </ul>
-
             {/* Selection Indicator */}
             {selectedPlan === key && (
               <div style={{
@@ -296,7 +273,6 @@ function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
           </div>
         ))}
       </div>
-
       {/* Anti-Abuse Notice */}
       <div style={{
         backgroundColor: '#fff3cd',
@@ -313,7 +289,6 @@ function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
           Each account is tracked by device fingerprint and usage patterns.
         </p>
       </div>
-
       {/* Checkout Summary */}
       <div style={{ 
         backgroundColor: '#f8f9fa',
@@ -342,7 +317,6 @@ function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
           </div>
         )}
       </div>
-
       {/* Action Buttons */}
       <div style={{ display: 'flex', gap: '15px' }}>
         <button
@@ -378,7 +352,6 @@ function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
           {isProcessing ? 'Processing...' : `Start ${plans[selectedPlan].name} Plan`}
         </button>
       </div>
-
       {/* Security Notice */}
       <div style={{ 
         textAlign: 'center', 
@@ -391,5 +364,4 @@ function EnhancedPremiumCheckout({ user, onSuccess, onCancel }) {
     </div>
   );
 }
-
 export default EnhancedPremiumCheckout;

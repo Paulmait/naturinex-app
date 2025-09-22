@@ -1,9 +1,7 @@
 // AI Integration Service - Connect Real AI Models
 // Integrates OpenAI, Google Vision, and custom ML models
-
 import * as tf from '@tensorflow/tfjs';
 import { supabase } from '../config/supabase';
-
 class AIIntegrationService {
   constructor() {
     this.providers = {
@@ -13,51 +11,41 @@ class AIIntegrationService {
     };
     this.initialized = false;
   }
-
   async initialize() {
     if (this.initialized) return;
-
     try {
       // Initialize AI providers
       await this.initializeOpenAI();
       await this.initializeGoogleVision();
       await this.loadCustomModel();
-      
       this.initialized = true;
     } catch (error) {
       console.error('AI initialization failed:', error);
     }
   }
-
   // Initialize OpenAI for natural language processing
   async initializeOpenAI() {
     const apiKey = process.env.REACT_APP_OPENAI_API_KEY;
     if (!apiKey) {
-      console.warn('OpenAI API key not configured');
       return;
     }
-
     this.providers.openai = {
       apiKey,
       baseURL: 'https://api.openai.com/v1',
       model: 'gpt-4-turbo-preview',
     };
   }
-
   // Initialize Google Vision for OCR
   async initializeGoogleVision() {
     const apiKey = process.env.REACT_APP_GOOGLE_VISION_API_KEY;
     if (!apiKey) {
-      console.warn('Google Vision API key not configured');
       return;
     }
-
     this.providers.googleVision = {
       apiKey,
       baseURL: 'https://vision.googleapis.com/v1',
     };
   }
-
   // Load custom TensorFlow model
   async loadCustomModel() {
     try {
@@ -65,10 +53,8 @@ class AIIntegrationService {
       const modelUrl = '/models/medication-classifier/model.json';
       this.providers.customModel = await tf.loadLayersModel(modelUrl);
     } catch (error) {
-      console.warn('Custom model not available:', error);
     }
   }
-
   // Analyze medication with AI
   async analyzeMedication(input) {
     const analyses = await Promise.all([
@@ -76,16 +62,13 @@ class AIIntegrationService {
       this.analyzeWithCustomModel(input),
       this.searchMedicalDatabases(input),
     ]);
-
     return this.combineAnalyses(analyses);
   }
-
   // OpenAI analysis for natural alternatives
   async analyzeWithOpenAI(medication) {
     if (!this.providers.openai) {
       return this.getFallbackAnalysis(medication);
     }
-
     try {
       const prompt = `
         As a medical information assistant, provide natural alternatives for ${medication}.
@@ -97,7 +80,6 @@ class AIIntegrationService {
         5. Recommended dosages
         Format as JSON.
       `;
-
       const response = await fetch(`${this.providers.openai.baseURL}/chat/completions`, {
         method: 'POST',
         headers: {
@@ -114,7 +96,6 @@ class AIIntegrationService {
           max_tokens: 2000,
         }),
       });
-
       const data = await response.json();
       return this.parseOpenAIResponse(data);
     } catch (error) {
@@ -122,13 +103,11 @@ class AIIntegrationService {
       return this.getFallbackAnalysis(medication);
     }
   }
-
   // OCR with Google Vision
   async performOCR(imageBase64) {
     if (!this.providers.googleVision) {
       return { text: '', confidence: 0 };
     }
-
     try {
       const response = await fetch(
         `${this.providers.googleVision.baseURL}/images:annotate?key=${this.providers.googleVision.apiKey}`,
@@ -146,7 +125,6 @@ class AIIntegrationService {
           }),
         }
       );
-
       const data = await response.json();
       return this.parseGoogleVisionResponse(data);
     } catch (error) {
@@ -154,20 +132,16 @@ class AIIntegrationService {
       return { text: '', confidence: 0 };
     }
   }
-
   // Custom model prediction
   async analyzeWithCustomModel(input) {
     if (!this.providers.customModel) {
       return null;
     }
-
     try {
       // Preprocess input for model
       const tensor = this.preprocessForModel(input);
-      
       // Run prediction
       const prediction = await this.providers.customModel.predict(tensor);
-      
       // Process results
       return this.processModelPrediction(prediction);
     } catch (error) {
@@ -175,7 +149,6 @@ class AIIntegrationService {
       return null;
     }
   }
-
   // Search medical databases
   async searchMedicalDatabases(medication) {
     const databases = [
@@ -183,37 +156,30 @@ class AIIntegrationService {
       this.searchDrugBank(medication),
       this.searchNaturalMedicinesDB(medication),
     ];
-
     const results = await Promise.allSettled(databases);
     return this.consolidateDatabaseResults(results);
   }
-
   // PubMed search for scientific evidence
   async searchPubMed(query) {
     try {
       const response = await fetch(
         `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(query + ' natural alternative')}&retmode=json&retmax=5`
       );
-      
       const data = await response.json();
-      
       if (data.esearchresult?.idlist?.length > 0) {
         return await this.fetchPubMedArticles(data.esearchresult.idlist);
       }
-      
       return [];
     } catch (error) {
       console.error('PubMed search failed:', error);
       return [];
     }
   }
-
   // Symptom analysis with AI
   async analyzeSymptoms(symptoms) {
     if (!this.providers.openai) {
       return { conditions: [], recommendations: [] };
     }
-
     try {
       const prompt = `
         Analyze these symptoms: ${symptoms.join(', ')}
@@ -223,7 +189,6 @@ class AIIntegrationService {
         3. When to seek medical attention
         4. Self-care recommendations
       `;
-
       // Similar OpenAI call as above
       // Return structured symptom analysis
     } catch (error) {
@@ -231,21 +196,17 @@ class AIIntegrationService {
       return { conditions: [], recommendations: [] };
     }
   }
-
   // Personalized recommendations
   async getPersonalizedRecommendations(userProfile) {
     const { age, conditions, allergies, medications, preferences } = userProfile;
-
     // Use AI to generate personalized recommendations
     const recommendations = await this.generateRecommendations({
       demographics: { age },
       healthProfile: { conditions, allergies, medications },
       preferences,
     });
-
     return recommendations;
   }
-
   // Combine analyses from multiple sources
   combineAnalyses(analyses) {
     const combined = {
@@ -254,7 +215,6 @@ class AIIntegrationService {
       warnings: [],
       confidence: 0,
     };
-
     // Merge and deduplicate results
     analyses.forEach(analysis => {
       if (analysis?.alternatives) {
@@ -267,16 +227,12 @@ class AIIntegrationService {
         combined.warnings.push(...analysis.warnings);
       }
     });
-
     // Calculate confidence score
     combined.confidence = this.calculateConfidence(analyses);
-
     // Rank alternatives by evidence strength
     combined.alternatives = this.rankAlternatives(combined.alternatives);
-
     return combined;
   }
-
   // Fallback analysis when AI is unavailable
   async getFallbackAnalysis(medication) {
     // Query Supabase database for cached results
@@ -285,7 +241,6 @@ class AIIntegrationService {
       .select('*')
       .ilike('medication_name', `%${medication}%`)
       .limit(5);
-
     if (error || !data?.length) {
       return {
         alternatives: [],
@@ -293,20 +248,17 @@ class AIIntegrationService {
         message: 'AI service temporarily unavailable. Showing cached results.',
       };
     }
-
     return {
       alternatives: data,
       source: 'database',
       confidence: 0.7,
     };
   }
-
   // Parse OpenAI response
   parseOpenAIResponse(response) {
     try {
       const content = response.choices[0].message.content;
       const parsed = JSON.parse(content);
-      
       return {
         alternatives: parsed.alternatives || [],
         evidence: parsed.evidence || [],
@@ -319,19 +271,15 @@ class AIIntegrationService {
       return null;
     }
   }
-
   // Voice interaction
   async processVoiceCommand(audioBlob) {
     // Convert audio to text using speech-to-text
     const text = await this.speechToText(audioBlob);
-    
     // Process command
     const intent = await this.extractIntent(text);
-    
     // Execute action
     return await this.executeVoiceAction(intent);
   }
-
   // Continuous learning
   async improveWithFeedback(analysisId, feedback) {
     // Store feedback for model improvement
@@ -340,17 +288,13 @@ class AIIntegrationService {
       feedback,
       timestamp: new Date().toISOString(),
     });
-
     // Trigger model retraining if enough feedback
     await this.checkRetrainingThreshold();
   }
 }
-
 // Create singleton instance
 const aiIntegrationService = new AIIntegrationService();
-
 export default aiIntegrationService;
-
 // Export specific functions
 export const analyzeMedication = (input) => aiIntegrationService.analyzeMedication(input);
 export const performOCR = (image) => aiIntegrationService.performOCR(image);

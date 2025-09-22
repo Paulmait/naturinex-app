@@ -1,29 +1,1 @@
-/**
- * Community Components Index
- * Exports all community-related components for easy importing
- */
-
-// Main Dashboard and Navigation
-export { default as CommunityDashboard } from './CommunityDashboard';
-
-// Feed and Posts
-export { default as CommunityFeed } from './CommunityFeed';
-export { default as PostCard } from './PostCard';
-export { default as CreatePostModal } from './CreatePostModal';
-
-// Support Groups
-export { default as SupportGroups } from './SupportGroups';
-export { default as CreateGroupModal } from './CreateGroupModal';
-
-// User Profiles and Achievements
-export { default as UserProfile } from './UserProfile';
-export { default as AchievementSystem } from './AchievementSystem';
-
-// Expert Q&A System
-export { default as ExpertQA } from './ExpertQA';
-
-// Content Sharing
-export { default as RecipeSharing } from './RecipeSharing';
-
-// Service
-export { default as CommunityService } from '../../services/CommunityService';
+/** * Community Components Index * Exports all community-related components for easy importing */// Main Dashboard and Navigationexport { default as CommunityDashboard } from './CommunityDashboard';// Feed and Postsexport { default as CommunityFeed } from './CommunityFeed';export { default as PostCard } from './PostCard';export { default as CreatePostModal } from './CreatePostModal';// Support Groupsexport { default as SupportGroups } from './SupportGroups';export { default as CreateGroupModal } from './CreateGroupModal';// User Profiles and Achievementsexport { default as UserProfile } from './UserProfile';export { default as AchievementSystem } from './AchievementSystem';// Expert Q&A Systemexport { default as ExpertQA } from './ExpertQA';// Content Sharingexport { default as RecipeSharing } from './RecipeSharing';// Serviceexport { default as CommunityService } from '../../services/CommunityService';

@@ -1,28 +1,22 @@
 // Comprehensive Responsive Design System
 // Ensures perfect display across all devices and screen sizes
-
 import { Dimensions, Platform, PixelRatio } from 'react-native';
-
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
-
 // Device detection
 const isIOS = Platform.OS === 'ios';
 const isAndroid = Platform.OS === 'android';
 const isWeb = Platform.OS === 'web';
-
 // Screen size categories
 const isSmallDevice = screenWidth < 375;
 const isMediumDevice = screenWidth >= 375 && screenWidth < 414;
 const isLargeDevice = screenWidth >= 414 && screenWidth < 768;
 const isTablet = screenWidth >= 768 && screenWidth < 1024;
 const isDesktop = screenWidth >= 1024;
-
 // Responsive scaling functions
 const scale = (size) => {
   const baseWidth = 375; // iPhone 11 Pro
   const scaleFactor = screenWidth / baseWidth;
   const newSize = size * scaleFactor;
-  
   if (isSmallDevice) {
     return Math.round(PixelRatio.roundToNearestPixel(newSize * 0.95));
   } else if (isTablet) {
@@ -30,31 +24,25 @@ const scale = (size) => {
   } else if (isDesktop) {
     return Math.round(PixelRatio.roundToNearestPixel(newSize * 1.3));
   }
-  
   return Math.round(PixelRatio.roundToNearestPixel(newSize));
 };
-
 const verticalScale = (size) => {
   const baseHeight = 812; // iPhone 11 Pro
   const scaleFactor = screenHeight / baseHeight;
   const newSize = size * scaleFactor;
   return Math.round(PixelRatio.roundToNearestPixel(newSize));
 };
-
 const moderateScale = (size, factor = 0.5) => {
   return size + (scale(size) - size) * factor;
 };
-
 // Font scaling with accessibility support
 const scaleFontSize = (size) => {
   const fontScale = PixelRatio.getFontScale();
   const scaledSize = size * fontScale;
-  
   // Limit maximum font scaling for layout consistency
   const maxScale = 1.3;
   return Math.min(scaledSize, size * maxScale);
 };
-
 // Responsive styles for all components
 const ResponsiveStyles = {
   // Container styles
@@ -64,13 +52,11 @@ const ResponsiveStyles = {
     paddingVertical: verticalScale(16),
     backgroundColor: '#ffffff',
   },
-  
   safeArea: {
     flex: 1,
     paddingTop: isIOS ? verticalScale(44) : verticalScale(24),
     paddingBottom: isIOS && screenHeight >= 812 ? verticalScale(34) : 0,
   },
-  
   // Typography
   text: {
     h1: {
@@ -102,7 +88,6 @@ const ResponsiveStyles = {
       color: '#666666',
     },
   },
-  
   // Buttons
   button: {
     primary: {
@@ -128,7 +113,6 @@ const ResponsiveStyles = {
       color: '#ffffff',
     },
   },
-  
   // Cards
   card: {
     backgroundColor: '#ffffff',
@@ -144,13 +128,11 @@ const ResponsiveStyles = {
     shadowRadius: scale(4),
     elevation: 3,
   },
-  
   // Grid layouts
   grid: {
     columns: isDesktop ? 3 : isTablet ? 2 : 1,
     gap: scale(isDesktop ? 24 : isTablet ? 20 : 16),
   },
-  
   // Forms
   input: {
     container: {
@@ -172,7 +154,6 @@ const ResponsiveStyles = {
       fontWeight: '500',
     },
   },
-  
   // Navigation
   navigation: {
     header: {
@@ -188,7 +169,6 @@ const ResponsiveStyles = {
       paddingBottom: isIOS && screenHeight >= 812 ? verticalScale(20) : 0,
     },
   },
-  
   // Modals
   modal: {
     overlay: {
@@ -207,7 +187,6 @@ const ResponsiveStyles = {
       maxHeight: screenHeight * 0.8,
     },
   },
-  
   // Lists
   list: {
     item: {
@@ -221,7 +200,6 @@ const ResponsiveStyles = {
       backgroundColor: '#f0f0f0',
     },
   },
-  
   // Images
   image: {
     thumbnail: {
@@ -240,7 +218,6 @@ const ResponsiveStyles = {
       resizeMode: 'cover',
     },
   },
-  
   // Spacing
   spacing: {
     xs: scale(4),
@@ -250,7 +227,6 @@ const ResponsiveStyles = {
     xl: scale(32),
     xxl: scale(48),
   },
-  
   // Breakpoints for web
   breakpoints: {
     mobile: 0,
@@ -259,7 +235,6 @@ const ResponsiveStyles = {
     largeDesktop: 1440,
   },
 };
-
 // Platform-specific adjustments
 const platformStyles = {
   ios: {
@@ -276,32 +251,27 @@ const platformStyles = {
     transition: 'all 0.3s ease',
   },
 };
-
 // Get platform-specific style
 const getPlatformStyle = () => {
   if (isIOS) return platformStyles.ios;
   if (isAndroid) return platformStyles.android;
   return platformStyles.web;
 };
-
 // Responsive component wrapper
 const ResponsiveView = ({ children, style, ...props }) => {
   const [dimensions, setDimensions] = useState(Dimensions.get('window'));
-
   useEffect(() => {
     const subscription = Dimensions.addEventListener('change', ({ window }) => {
       setDimensions(window);
     });
     return () => subscription?.remove();
   }, []);
-
   return (
     <View style={[ResponsiveStyles.container, style]} {...props}>
       {children}
     </View>
   );
 };
-
 export {
   ResponsiveStyles,
   scale,
@@ -321,5 +291,4 @@ export {
   screenWidth,
   screenHeight,
 };
-
 export default ResponsiveStyles;

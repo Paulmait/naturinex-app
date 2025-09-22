@@ -3,9 +3,7 @@ import { auth, db } from '../firebase';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import Constants from 'expo-constants';
-
 const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-1.onrender.com';
-
 function Dashboard({ user }) {
   const [suggestions, setSuggestions] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -13,31 +11,24 @@ function Dashboard({ user }) {
   const [activeTab, setActiveTab] = useState("search");
   const [scanCount, setScanCount] = useState(0);
   const [showPremiumModal, setShowPremiumModal] = useState(false);
-
   const handleSignOut = () => {
     signOut(auth).catch(console.error);
   };
-
   // const handleImage = (e) => {
   //   // File upload for future image processing implementation
-  //   console.log('File selected:', e.target.files[0]);
+  //   
   // };
-
   const handleScan = async () => {
     if (!medicationName.trim()) {
       alert("Please enter a medication name to get suggestions.");
       return;
     }
-
     setIsLoading(true);
-    
     try {
       const userRef = doc(db, "users", user.uid);
       const docSnap = await getDoc(userRef);
       const today = new Date().toISOString().slice(0, 10);
-
       let scans = 0;
-
       if (docSnap.exists()) {
         const data = docSnap.data();
         if (data.lastScanDate === today) {
@@ -48,32 +39,25 @@ function Dashboard({ user }) {
       } else {
         await setDoc(userRef, { scanCount: 0, lastScanDate: today, isPremium: false });
       }
-
       setScanCount(scans);
-
       if (scans >= 5) {
         setShowPremiumModal(true);
         setIsLoading(false);
         return;
       }
-
       await updateDoc(userRef, {
         scanCount: scans + 1,
         lastScanDate: today
       });
-
       setScanCount(scans + 1);
-
       const res = await fetch(`${API_URL}/suggest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ medicationName: medicationName.trim() })
       });
-
       if (!res.ok) {
         throw new Error(`Server error: ${res.status}`);
       }
-
       const data = await res.json();
       setSuggestions(data.suggestions);
     } catch (error) {
@@ -83,7 +67,6 @@ function Dashboard({ user }) {
       setIsLoading(false);
     }
   };
-
   const handleEmail = () => {
     if (!suggestions) {
       alert("No suggestions to email yet.");
@@ -92,7 +75,6 @@ function Dashboard({ user }) {
     const mailto = `mailto:${user.email}?subject=Your Naturinex Results&body=${encodeURIComponent(suggestions)}`;
     window.location.href = mailto;
   };
-
   const handleShare = () => {
     if (navigator.share && suggestions) {
       navigator.share({
@@ -106,7 +88,6 @@ function Dashboard({ user }) {
       alert('Results copied to clipboard!');
     }
   };
-
   const PremiumModal = () => (
     <div style={{
       position: 'fixed',
@@ -172,7 +153,6 @@ function Dashboard({ user }) {
       </div>
     </div>
   );
-
   return (
     <div style={{ 
       minHeight: '100vh',
@@ -208,10 +188,8 @@ function Dashboard({ user }) {
           Sign Out
         </button>
       </div>
-
       {/* Main Content */}
       <div style={{ padding: '20px', maxWidth: '500px', margin: '0 auto' }}>
-        
         {/* Description */}
         <div style={{ textAlign: 'center', marginBottom: '30px' }}>
           <p style={{ 
@@ -237,7 +215,6 @@ function Dashboard({ user }) {
             User ID: {user.uid.substring(0, 20)}...
           </p>
         </div>
-
         {/* Search Input */}
         <div style={{ marginBottom: '20px' }}>
           <input
@@ -273,7 +250,6 @@ function Dashboard({ user }) {
             {isLoading ? 'Searching...' : 'Search'}
           </button>
         </div>
-
         {/* Tab Navigation */}
         <div style={{ 
           display: 'flex', 
@@ -311,7 +287,6 @@ function Dashboard({ user }) {
             Photo
           </button>
         </div>
-
         {/* Photo Scanner */}
         {activeTab === "photo" && (
           <div style={{ marginBottom: '20px' }}>
@@ -351,7 +326,6 @@ function Dashboard({ user }) {
             </button>
           </div>
         )}
-
         {/* Results */}
         {suggestions && (
           <div style={{
@@ -403,7 +377,6 @@ function Dashboard({ user }) {
           </div>
         )}
       </div>
-
       {/* Bottom Navigation */}
       <div style={{
         position: 'fixed',
@@ -433,11 +406,9 @@ function Dashboard({ user }) {
           <div style={{ fontSize: '12px' }}>Profile</div>
         </div>
       </div>
-
       {/* Premium Modal */}
       {showPremiumModal && <PremiumModal />}
     </div>
   );
 }
-
 export default Dashboard;

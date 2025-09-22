@@ -1,743 +1,1 @@
-/**
- * Enterprise Analytics Service
- * Handles usage analytics, reporting, and data visualization for enterprise customers
- */
-
-import { supabase } from '../config/supabase';
-
-class AnalyticsService {
-  constructor() {
-    this.supabase = supabase;
-  }
-
-  // =============================================================================
-  // USAGE ANALYTICS
-  // =============================================================================
-
-  /**
-   * Record detailed usage event
-   */
-  async recordUsageEvent(organizationId, eventData) {
-    try {
-      const {
-        userId,
-        apiKeyId,
-        eventType,
-        eventCategory,
-        endpoint,
-        method,
-        responseStatus,
-        responseTime,
-        dataProcessed,
-        costCredits,
-        metadata = {},
-        ipAddress,
-        userAgent
-      } = eventData;
-
-      const { data, error } = await this.supabase
-        .from('enterprise_usage_analytics')
-        .insert([{
-          organization_id: organizationId,
-          user_id: userId,
-          api_key_id: apiKeyId,
-          metric_type: eventType,
-          metric_category: eventCategory,
-          endpoint,
-          method,
-          response_status: responseStatus,
-          response_time_ms: responseTime,
-          data_processed_mb: dataProcessed,
-          cost_credits: costCredits,
-          metadata,
-          ip_address: ipAddress,
-          user_agent: userAgent
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
-      return { success: true, data };
-    } catch (error) {
-      console.error('Error recording usage event:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Get usage analytics with filtering and aggregation
-   */
-  async getUsageAnalytics(organizationId, options = {}) {
-    try {
-      const {
-        startDate,
-        endDate,
-        period = 'daily', // hourly, daily, weekly, monthly
-        metricType,
-        userId,
-        endpoint,
-        groupBy = 'date',
-        limit = 1000
-      } = options;
-
-      // Build base query
-      let query = this.supabase
-        .from('enterprise_usage_analytics')
-        .select('*')
-        .eq('organization_id', organizationId);
-
-      // Apply filters
-      if (startDate) {
-        query = query.gte('timestamp', startDate);
-      }
-      if (endDate) {
-        query = query.lte('timestamp', endDate);
-      }
-      if (metricType) {
-        query = query.eq('metric_type', metricType);
-      }
-      if (userId) {
-        query = query.eq('user_id', userId);
-      }
-      if (endpoint) {
-        query = query.eq('endpoint', endpoint);
-      }
-
-      const { data, error } = await query
-        .order('timestamp', { ascending: false })
-        .limit(limit);
-
-      if (error) throw error;
-
-      // Process and aggregate data based on groupBy and period
-      const processedData = this.processAnalyticsData(data, { period, groupBy });
-
-      return { success: true, data: processedData };
-    } catch (error) {
-      console.error('Error fetching usage analytics:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Get real-time usage metrics
-   */
-  async getRealTimeMetrics(organizationId) {
-    try {
-      const now = new Date();
-      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-      const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-
-      // Get metrics for last hour
-      const { data: hourlyData, error: hourlyError } = await this.supabase
-        .from('enterprise_usage_analytics')
-        .select('metric_type, response_status')
-        .eq('organization_id', organizationId)
-        .gte('timestamp', oneHourAgo.toISOString());
-
-      if (hourlyError) throw hourlyError;
-
-      // Get metrics for last 24 hours
-      const { data: dailyData, error: dailyError } = await this.supabase
-        .from('enterprise_usage_analytics')
-        .select('metric_type, response_status, data_processed_mb, cost_credits')
-        .eq('organization_id', organizationId)
-        .gte('timestamp', oneDayAgo.toISOString());
-
-      if (dailyError) throw dailyError;
-
-      // Get active users count
-      const { data: activeUsers, error: usersError } = await this.supabase
-        .from('enterprise_usage_analytics')
-        .select('user_id')
-        .eq('organization_id', organizationId)
-        .gte('timestamp', oneHourAgo.toISOString());
-
-      if (usersError) throw usersError;
-
-      const metrics = {
-        lastHour: {
-          totalRequests: hourlyData.length,
-          successfulRequests: hourlyData.filter(d => d.response_status >= 200 && d.response_status < 300).length,
-          errorRequests: hourlyData.filter(d => d.response_status >= 400).length,
-          apiCalls: hourlyData.filter(d => d.metric_type === 'api_call').length,
-          scans: hourlyData.filter(d => d.metric_type === 'scan').length
-        },
-        last24Hours: {
-          totalRequests: dailyData.length,
-          totalDataProcessed: dailyData.reduce((sum, d) => sum + (d.data_processed_mb || 0), 0),
-          totalCostCredits: dailyData.reduce((sum, d) => sum + (d.cost_credits || 0), 0),
-          averageResponseTime: this.calculateAverageResponseTime(dailyData)
-        },
-        activeUsers: {
-          uniqueUsersLastHour: [...new Set(activeUsers.map(u => u.user_id))].length
-        }
-      };
-
-      return { success: true, data: metrics };
-    } catch (error) {
-      console.error('Error fetching real-time metrics:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Get usage trends over time
-   */
-  async getUsageTrends(organizationId, options = {}) {
-    try {
-      const {
-        period = 'daily', // hourly, daily, weekly, monthly
-        timeRange = 30, // number of periods to look back
-        metricTypes = ['api_call', 'scan', 'analysis']
-      } = options;
-
-      const endDate = new Date();
-      const startDate = this.calculateStartDate(endDate, period, timeRange);
-
-      // Get usage summaries if available, otherwise aggregate from raw data
-      const summaries = await this.getUsageSummaries(organizationId, {
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
-        period
-      });
-
-      if (summaries.success && summaries.data.length > 0) {
-        return summaries;
-      }
-
-      // Fallback to raw data aggregation
-      return await this.aggregateRawUsageData(organizationId, {
-        startDate: startDate.toISOString(),
-        endDate: endDate.toISOString(),
-        period,
-        metricTypes
-      });
-    } catch (error) {
-      console.error('Error fetching usage trends:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Get top endpoints by usage
-   */
-  async getTopEndpoints(organizationId, options = {}) {
-    try {
-      const {
-        startDate,
-        endDate,
-        limit = 10,
-        sortBy = 'count' // count, response_time, error_rate
-      } = options;
-
-      let query = this.supabase
-        .from('enterprise_usage_analytics')
-        .select('endpoint, response_status, response_time_ms')
-        .eq('organization_id', organizationId);
-
-      if (startDate) query = query.gte('timestamp', startDate);
-      if (endDate) query = query.lte('timestamp', endDate);
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      // Aggregate by endpoint
-      const endpointStats = {};
-      data.forEach(record => {
-        if (!endpointStats[record.endpoint]) {
-          endpointStats[record.endpoint] = {
-            endpoint: record.endpoint,
-            count: 0,
-            totalResponseTime: 0,
-            successCount: 0,
-            errorCount: 0
-          };
-        }
-
-        const stats = endpointStats[record.endpoint];
-        stats.count++;
-        stats.totalResponseTime += record.response_time_ms || 0;
-
-        if (record.response_status >= 200 && record.response_status < 300) {
-          stats.successCount++;
-        } else if (record.response_status >= 400) {
-          stats.errorCount++;
-        }
-      });
-
-      // Calculate derived metrics and sort
-      const results = Object.values(endpointStats)
-        .map(stats => ({
-          ...stats,
-          averageResponseTime: stats.count > 0 ? stats.totalResponseTime / stats.count : 0,
-          errorRate: stats.count > 0 ? (stats.errorCount / stats.count) * 100 : 0,
-          successRate: stats.count > 0 ? (stats.successCount / stats.count) * 100 : 0
-        }))
-        .sort((a, b) => {
-          switch (sortBy) {
-            case 'response_time':
-              return b.averageResponseTime - a.averageResponseTime;
-            case 'error_rate':
-              return b.errorRate - a.errorRate;
-            default:
-              return b.count - a.count;
-          }
-        })
-        .slice(0, limit);
-
-      return { success: true, data: results };
-    } catch (error) {
-      console.error('Error fetching top endpoints:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Get user activity analytics
-   */
-  async getUserActivity(organizationId, options = {}) {
-    try {
-      const {
-        startDate,
-        endDate,
-        userId,
-        includeInactive = false
-      } = options;
-
-      let query = this.supabase
-        .from('enterprise_usage_analytics')
-        .select('user_id, metric_type, timestamp, response_status')
-        .eq('organization_id', organizationId);
-
-      if (startDate) query = query.gte('timestamp', startDate);
-      if (endDate) query = query.lte('timestamp', endDate);
-      if (userId) query = query.eq('user_id', userId);
-
-      const { data, error } = await query;
-      if (error) throw error;
-
-      // Aggregate by user
-      const userStats = {};
-      data.forEach(record => {
-        if (!userStats[record.user_id]) {
-          userStats[record.user_id] = {
-            userId: record.user_id,
-            totalRequests: 0,
-            successfulRequests: 0,
-            lastActivity: null,
-            activityByType: {},
-            dailyActivity: {}
-          };
-        }
-
-        const stats = userStats[record.user_id];
-        stats.totalRequests++;
-
-        if (record.response_status >= 200 && record.response_status < 300) {
-          stats.successfulRequests++;
-        }
-
-        // Update last activity
-        if (!stats.lastActivity || record.timestamp > stats.lastActivity) {
-          stats.lastActivity = record.timestamp;
-        }
-
-        // Activity by type
-        stats.activityByType[record.metric_type] = (stats.activityByType[record.metric_type] || 0) + 1;
-
-        // Daily activity
-        const date = record.timestamp.split('T')[0];
-        stats.dailyActivity[date] = (stats.dailyActivity[date] || 0) + 1;
-      });
-
-      let results = Object.values(userStats);
-
-      // Filter inactive users if requested
-      if (!includeInactive) {
-        const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
-        results = results.filter(user => user.lastActivity >= threeDaysAgo);
-      }
-
-      // Sort by total requests
-      results.sort((a, b) => b.totalRequests - a.totalRequests);
-
-      return { success: true, data: results };
-    } catch (error) {
-      console.error('Error fetching user activity:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  // =============================================================================
-  // REPORTING & EXPORTS
-  // =============================================================================
-
-  /**
-   * Generate comprehensive usage report
-   */
-  async generateUsageReport(organizationId, options = {}) {
-    try {
-      const {
-        startDate,
-        endDate,
-        format = 'json', // json, csv, pdf
-        includeUserDetails = false,
-        includeEndpointBreakdown = true
-      } = options;
-
-      // Gather all necessary data
-      const [
-        usageData,
-        trendsData,
-        topEndpoints,
-        userActivity,
-        realTimeMetrics
-      ] = await Promise.all([
-        this.getUsageAnalytics(organizationId, { startDate, endDate }),
-        this.getUsageTrends(organizationId, { period: 'daily' }),
-        this.getTopEndpoints(organizationId, { startDate, endDate }),
-        includeUserDetails ? this.getUserActivity(organizationId, { startDate, endDate }) : null,
-        this.getRealTimeMetrics(organizationId)
-      ]);
-
-      const report = {
-        organizationId,
-        reportPeriod: {
-          startDate,
-          endDate,
-          generatedAt: new Date().toISOString()
-        },
-        summary: this.generateReportSummary(usageData.data, realTimeMetrics.data),
-        trends: trendsData.data,
-        topEndpoints: includeEndpointBreakdown ? topEndpoints.data : null,
-        userActivity: includeUserDetails ? userActivity?.data : null,
-        quotaUsage: await this.calculateQuotaUsage(organizationId, startDate, endDate)
-      };
-
-      // Format based on requested format
-      switch (format) {
-        case 'csv':
-          return { success: true, data: this.formatReportAsCSV(report) };
-        case 'pdf':
-          return { success: true, data: await this.formatReportAsPDF(report) };
-        default:
-          return { success: true, data: report };
-      }
-    } catch (error) {
-      console.error('Error generating usage report:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Schedule automated reports
-   */
-  async scheduleReport(organizationId, reportConfig) {
-    try {
-      const {
-        name,
-        frequency, // daily, weekly, monthly
-        format,
-        recipients,
-        includeUserDetails,
-        includeEndpointBreakdown,
-        customFilters
-      } = reportConfig;
-
-      const { data, error } = await this.supabase
-        .from('enterprise_scheduled_reports')
-        .insert([{
-          organization_id: organizationId,
-          name,
-          frequency,
-          format,
-          recipients,
-          config: {
-            includeUserDetails,
-            includeEndpointBreakdown,
-            customFilters
-          },
-          status: 'active',
-          next_run: this.calculateNextRunTime(frequency)
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
-      return { success: true, data };
-    } catch (error) {
-      console.error('Error scheduling report:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  // =============================================================================
-  // DATA PROCESSING & AGGREGATION
-  // =============================================================================
-
-  /**
-   * Process and aggregate raw analytics data
-   */
-  processAnalyticsData(rawData, options = {}) {
-    const { period = 'daily', groupBy = 'date' } = options;
-
-    switch (groupBy) {
-      case 'date':
-        return this.aggregateByDate(rawData, period);
-      case 'user':
-        return this.aggregateByUser(rawData);
-      case 'endpoint':
-        return this.aggregateByEndpoint(rawData);
-      case 'metric_type':
-        return this.aggregateByMetricType(rawData);
-      default:
-        return rawData;
-    }
-  }
-
-  /**
-   * Aggregate data by date periods
-   */
-  aggregateByDate(data, period) {
-    const aggregated = {};
-
-    data.forEach(record => {
-      const date = new Date(record.timestamp);
-      let key;
-
-      switch (period) {
-        case 'hourly':
-          key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:00`;
-          break;
-        case 'daily':
-          key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-          break;
-        case 'weekly':
-          const weekStart = new Date(date.setDate(date.getDate() - date.getDay()));
-          key = `${weekStart.getFullYear()}-W${String(Math.ceil(weekStart.getDate() / 7)).padStart(2, '0')}`;
-          break;
-        case 'monthly':
-          key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
-          break;
-        default:
-          key = record.timestamp.split('T')[0];
-      }
-
-      if (!aggregated[key]) {
-        aggregated[key] = {
-          period: key,
-          totalRequests: 0,
-          successfulRequests: 0,
-          errorRequests: 0,
-          totalDataProcessed: 0,
-          totalCostCredits: 0,
-          averageResponseTime: 0,
-          metricTypes: {},
-          endpoints: {}
-        };
-      }
-
-      const agg = aggregated[key];
-      agg.totalRequests++;
-      agg.totalDataProcessed += record.data_processed_mb || 0;
-      agg.totalCostCredits += record.cost_credits || 0;
-
-      // Response status categorization
-      if (record.response_status >= 200 && record.response_status < 300) {
-        agg.successfulRequests++;
-      } else if (record.response_status >= 400) {
-        agg.errorRequests++;
-      }
-
-      // Metric types
-      agg.metricTypes[record.metric_type] = (agg.metricTypes[record.metric_type] || 0) + 1;
-
-      // Endpoints
-      if (record.endpoint) {
-        agg.endpoints[record.endpoint] = (agg.endpoints[record.endpoint] || 0) + 1;
-      }
-    });
-
-    return Object.values(aggregated).sort((a, b) => a.period.localeCompare(b.period));
-  }
-
-  /**
-   * Get usage summaries from pre-aggregated table
-   */
-  async getUsageSummaries(organizationId, options = {}) {
-    try {
-      const { startDate, endDate, period } = options;
-
-      let query = this.supabase
-        .from('enterprise_usage_summaries')
-        .select('*')
-        .eq('organization_id', organizationId)
-        .eq('period_type', period);
-
-      if (startDate) query = query.gte('period_start', startDate);
-      if (endDate) query = query.lte('period_end', endDate);
-
-      const { data, error } = await query
-        .order('period_start', { ascending: true });
-
-      if (error) throw error;
-      return { success: true, data };
-    } catch (error) {
-      console.error('Error fetching usage summaries:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Calculate quota usage percentage
-   */
-  async calculateQuotaUsage(organizationId, startDate, endDate) {
-    try {
-      // Get organization quota
-      const { data: org, error: orgError } = await this.supabase
-        .from('organizations')
-        .select('api_quota_monthly')
-        .eq('id', organizationId)
-        .single();
-
-      if (orgError) throw orgError;
-
-      // Get current month usage
-      const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
-      const monthStart = `${currentMonth}-01T00:00:00.000Z`;
-      const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString();
-
-      const { data: usage, error: usageError } = await this.supabase
-        .from('enterprise_usage_analytics')
-        .select('metric_type')
-        .eq('organization_id', organizationId)
-        .eq('metric_type', 'api_call')
-        .gte('timestamp', monthStart)
-        .lte('timestamp', monthEnd);
-
-      if (usageError) throw usageError;
-
-      const currentUsage = usage.length;
-      const quotaPercentage = (currentUsage / org.api_quota_monthly) * 100;
-
-      return {
-        currentUsage,
-        monthlyQuota: org.api_quota_monthly,
-        quotaPercentage: Math.round(quotaPercentage * 100) / 100,
-        remainingQuota: org.api_quota_monthly - currentUsage
-      };
-    } catch (error) {
-      console.error('Error calculating quota usage:', error);
-      return null;
-    }
-  }
-
-  // =============================================================================
-  // HELPER METHODS
-  // =============================================================================
-
-  calculateAverageResponseTime(data) {
-    const validTimes = data.filter(d => d.response_time_ms).map(d => d.response_time_ms);
-    return validTimes.length > 0 ? validTimes.reduce((sum, time) => sum + time, 0) / validTimes.length : 0;
-  }
-
-  calculateStartDate(endDate, period, timeRange) {
-    const start = new Date(endDate);
-    switch (period) {
-      case 'hourly':
-        start.setHours(start.getHours() - timeRange);
-        break;
-      case 'daily':
-        start.setDate(start.getDate() - timeRange);
-        break;
-      case 'weekly':
-        start.setDate(start.getDate() - (timeRange * 7));
-        break;
-      case 'monthly':
-        start.setMonth(start.getMonth() - timeRange);
-        break;
-    }
-    return start;
-  }
-
-  calculateNextRunTime(frequency) {
-    const now = new Date();
-    switch (frequency) {
-      case 'daily':
-        return new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
-      case 'weekly':
-        return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
-      case 'monthly':
-        const nextMonth = new Date(now);
-        nextMonth.setMonth(nextMonth.getMonth() + 1);
-        return nextMonth.toISOString();
-      default:
-        return new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
-    }
-  }
-
-  generateReportSummary(usageData, realTimeData) {
-    return {
-      totalRequests: usageData.reduce((sum, d) => sum + (d.totalRequests || 0), 0),
-      successRate: this.calculateSuccessRate(usageData),
-      averageResponseTime: this.calculateOverallAverageResponseTime(usageData),
-      topMetricType: this.findTopMetricType(usageData),
-      growthRate: this.calculateGrowthRate(usageData),
-      currentStatus: realTimeData
-    };
-  }
-
-  calculateSuccessRate(data) {
-    const total = data.reduce((sum, d) => sum + (d.totalRequests || 0), 0);
-    const successful = data.reduce((sum, d) => sum + (d.successfulRequests || 0), 0);
-    return total > 0 ? (successful / total) * 100 : 0;
-  }
-
-  formatReportAsCSV(report) {
-    // Implement CSV formatting logic
-    return 'CSV format not yet implemented';
-  }
-
-  async formatReportAsPDF(report) {
-    // Implement PDF formatting logic
-    return 'PDF format not yet implemented';
-  }
-
-  aggregateByUser(data) {
-    // Implement user aggregation logic
-    return data;
-  }
-
-  aggregateByEndpoint(data) {
-    // Implement endpoint aggregation logic
-    return data;
-  }
-
-  aggregateByMetricType(data) {
-    // Implement metric type aggregation logic
-    return data;
-  }
-
-  async aggregateRawUsageData(organizationId, options) {
-    // Implement raw data aggregation as fallback
-    return { success: true, data: [] };
-  }
-
-  calculateOverallAverageResponseTime(data) {
-    // Implement overall average response time calculation
-    return 0;
-  }
-
-  findTopMetricType(data) {
-    // Implement top metric type calculation
-    return 'api_call';
-  }
-
-  calculateGrowthRate(data) {
-    // Implement growth rate calculation
-    return 0;
-  }
-}
-
-export default new AnalyticsService();
+/** * Enterprise Analytics Service * Handles usage analytics, reporting, and data visualization for enterprise customers */import { supabase } from '../config/supabase';class AnalyticsService {  constructor() {    this.supabase = supabase;  }  // =============================================================================  // USAGE ANALYTICS  // =============================================================================  /**   * Record detailed usage event   */  async recordUsageEvent(organizationId, eventData) {    try {      const {        userId,        apiKeyId,        eventType,        eventCategory,        endpoint,        method,        responseStatus,        responseTime,        dataProcessed,        costCredits,        metadata = {},        ipAddress,        userAgent      } = eventData;      const { data, error } = await this.supabase        .from('enterprise_usage_analytics')        .insert([{          organization_id: organizationId,          user_id: userId,          api_key_id: apiKeyId,          metric_type: eventType,          metric_category: eventCategory,          endpoint,          method,          response_status: responseStatus,          response_time_ms: responseTime,          data_processed_mb: dataProcessed,          cost_credits: costCredits,          metadata,          ip_address: ipAddress,          user_agent: userAgent        }])        .select()        .single();      if (error) throw error;      return { success: true, data };    } catch (error) {      console.error('Error recording usage event:', error);      return { success: false, error: error.message };    }  }  /**   * Get usage analytics with filtering and aggregation   */  async getUsageAnalytics(organizationId, options = {}) {    try {      const {        startDate,        endDate,        period = 'daily', // hourly, daily, weekly, monthly        metricType,        userId,        endpoint,        groupBy = 'date',        limit = 1000      } = options;      // Build base query      let query = this.supabase        .from('enterprise_usage_analytics')        .select('*')        .eq('organization_id', organizationId);      // Apply filters      if (startDate) {        query = query.gte('timestamp', startDate);      }      if (endDate) {        query = query.lte('timestamp', endDate);      }      if (metricType) {        query = query.eq('metric_type', metricType);      }      if (userId) {        query = query.eq('user_id', userId);      }      if (endpoint) {        query = query.eq('endpoint', endpoint);      }      const { data, error } = await query        .order('timestamp', { ascending: false })        .limit(limit);      if (error) throw error;      // Process and aggregate data based on groupBy and period      const processedData = this.processAnalyticsData(data, { period, groupBy });      return { success: true, data: processedData };    } catch (error) {      console.error('Error fetching usage analytics:', error);      return { success: false, error: error.message };    }  }  /**   * Get real-time usage metrics   */  async getRealTimeMetrics(organizationId) {    try {      const now = new Date();      const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);      const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);      // Get metrics for last hour      const { data: hourlyData, error: hourlyError } = await this.supabase        .from('enterprise_usage_analytics')        .select('metric_type, response_status')        .eq('organization_id', organizationId)        .gte('timestamp', oneHourAgo.toISOString());      if (hourlyError) throw hourlyError;      // Get metrics for last 24 hours      const { data: dailyData, error: dailyError } = await this.supabase        .from('enterprise_usage_analytics')        .select('metric_type, response_status, data_processed_mb, cost_credits')        .eq('organization_id', organizationId)        .gte('timestamp', oneDayAgo.toISOString());      if (dailyError) throw dailyError;      // Get active users count      const { data: activeUsers, error: usersError } = await this.supabase        .from('enterprise_usage_analytics')        .select('user_id')        .eq('organization_id', organizationId)        .gte('timestamp', oneHourAgo.toISOString());      if (usersError) throw usersError;      const metrics = {        lastHour: {          totalRequests: hourlyData.length,          successfulRequests: hourlyData.filter(d => d.response_status >= 200 && d.response_status < 300).length,          errorRequests: hourlyData.filter(d => d.response_status >= 400).length,          apiCalls: hourlyData.filter(d => d.metric_type === 'api_call').length,          scans: hourlyData.filter(d => d.metric_type === 'scan').length        },        last24Hours: {          totalRequests: dailyData.length,          totalDataProcessed: dailyData.reduce((sum, d) => sum + (d.data_processed_mb || 0), 0),          totalCostCredits: dailyData.reduce((sum, d) => sum + (d.cost_credits || 0), 0),          averageResponseTime: this.calculateAverageResponseTime(dailyData)        },        activeUsers: {          uniqueUsersLastHour: [...new Set(activeUsers.map(u => u.user_id))].length        }      };      return { success: true, data: metrics };    } catch (error) {      console.error('Error fetching real-time metrics:', error);      return { success: false, error: error.message };    }  }  /**   * Get usage trends over time   */  async getUsageTrends(organizationId, options = {}) {    try {      const {        period = 'daily', // hourly, daily, weekly, monthly        timeRange = 30, // number of periods to look back        metricTypes = ['api_call', 'scan', 'analysis']      } = options;      const endDate = new Date();      const startDate = this.calculateStartDate(endDate, period, timeRange);      // Get usage summaries if available, otherwise aggregate from raw data      const summaries = await this.getUsageSummaries(organizationId, {        startDate: startDate.toISOString(),        endDate: endDate.toISOString(),        period      });      if (summaries.success && summaries.data.length > 0) {        return summaries;      }      // Fallback to raw data aggregation      return await this.aggregateRawUsageData(organizationId, {        startDate: startDate.toISOString(),        endDate: endDate.toISOString(),        period,        metricTypes      });    } catch (error) {      console.error('Error fetching usage trends:', error);      return { success: false, error: error.message };    }  }  /**   * Get top endpoints by usage   */  async getTopEndpoints(organizationId, options = {}) {    try {      const {        startDate,        endDate,        limit = 10,        sortBy = 'count' // count, response_time, error_rate      } = options;      let query = this.supabase        .from('enterprise_usage_analytics')        .select('endpoint, response_status, response_time_ms')        .eq('organization_id', organizationId);      if (startDate) query = query.gte('timestamp', startDate);      if (endDate) query = query.lte('timestamp', endDate);      const { data, error } = await query;      if (error) throw error;      // Aggregate by endpoint      const endpointStats = {};      data.forEach(record => {        if (!endpointStats[record.endpoint]) {          endpointStats[record.endpoint] = {            endpoint: record.endpoint,            count: 0,            totalResponseTime: 0,            successCount: 0,            errorCount: 0          };        }        const stats = endpointStats[record.endpoint];        stats.count++;        stats.totalResponseTime += record.response_time_ms || 0;        if (record.response_status >= 200 && record.response_status < 300) {          stats.successCount++;        } else if (record.response_status >= 400) {          stats.errorCount++;        }      });      // Calculate derived metrics and sort      const results = Object.values(endpointStats)        .map(stats => ({          ...stats,          averageResponseTime: stats.count > 0 ? stats.totalResponseTime / stats.count : 0,          errorRate: stats.count > 0 ? (stats.errorCount / stats.count) * 100 : 0,          successRate: stats.count > 0 ? (stats.successCount / stats.count) * 100 : 0        }))        .sort((a, b) => {          switch (sortBy) {            case 'response_time':              return b.averageResponseTime - a.averageResponseTime;            case 'error_rate':              return b.errorRate - a.errorRate;            default:              return b.count - a.count;          }        })        .slice(0, limit);      return { success: true, data: results };    } catch (error) {      console.error('Error fetching top endpoints:', error);      return { success: false, error: error.message };    }  }  /**   * Get user activity analytics   */  async getUserActivity(organizationId, options = {}) {    try {      const {        startDate,        endDate,        userId,        includeInactive = false      } = options;      let query = this.supabase        .from('enterprise_usage_analytics')        .select('user_id, metric_type, timestamp, response_status')        .eq('organization_id', organizationId);      if (startDate) query = query.gte('timestamp', startDate);      if (endDate) query = query.lte('timestamp', endDate);      if (userId) query = query.eq('user_id', userId);      const { data, error } = await query;      if (error) throw error;      // Aggregate by user      const userStats = {};      data.forEach(record => {        if (!userStats[record.user_id]) {          userStats[record.user_id] = {            userId: record.user_id,            totalRequests: 0,            successfulRequests: 0,            lastActivity: null,            activityByType: {},            dailyActivity: {}          };        }        const stats = userStats[record.user_id];        stats.totalRequests++;        if (record.response_status >= 200 && record.response_status < 300) {          stats.successfulRequests++;        }        // Update last activity        if (!stats.lastActivity || record.timestamp > stats.lastActivity) {          stats.lastActivity = record.timestamp;        }        // Activity by type        stats.activityByType[record.metric_type] = (stats.activityByType[record.metric_type] || 0) + 1;        // Daily activity        const date = record.timestamp.split('T')[0];        stats.dailyActivity[date] = (stats.dailyActivity[date] || 0) + 1;      });      let results = Object.values(userStats);      // Filter inactive users if requested      if (!includeInactive) {        const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();        results = results.filter(user => user.lastActivity >= threeDaysAgo);      }      // Sort by total requests      results.sort((a, b) => b.totalRequests - a.totalRequests);      return { success: true, data: results };    } catch (error) {      console.error('Error fetching user activity:', error);      return { success: false, error: error.message };    }  }  // =============================================================================  // REPORTING & EXPORTS  // =============================================================================  /**   * Generate comprehensive usage report   */  async generateUsageReport(organizationId, options = {}) {    try {      const {        startDate,        endDate,        format = 'json', // json, csv, pdf        includeUserDetails = false,        includeEndpointBreakdown = true      } = options;      // Gather all necessary data      const [        usageData,        trendsData,        topEndpoints,        userActivity,        realTimeMetrics      ] = await Promise.all([        this.getUsageAnalytics(organizationId, { startDate, endDate }),        this.getUsageTrends(organizationId, { period: 'daily' }),        this.getTopEndpoints(organizationId, { startDate, endDate }),        includeUserDetails ? this.getUserActivity(organizationId, { startDate, endDate }) : null,        this.getRealTimeMetrics(organizationId)      ]);      const report = {        organizationId,        reportPeriod: {          startDate,          endDate,          generatedAt: new Date().toISOString()        },        summary: this.generateReportSummary(usageData.data, realTimeMetrics.data),        trends: trendsData.data,        topEndpoints: includeEndpointBreakdown ? topEndpoints.data : null,        userActivity: includeUserDetails ? userActivity?.data : null,        quotaUsage: await this.calculateQuotaUsage(organizationId, startDate, endDate)      };      // Format based on requested format      switch (format) {        case 'csv':          return { success: true, data: this.formatReportAsCSV(report) };        case 'pdf':          return { success: true, data: await this.formatReportAsPDF(report) };        default:          return { success: true, data: report };      }    } catch (error) {      console.error('Error generating usage report:', error);      return { success: false, error: error.message };    }  }  /**   * Schedule automated reports   */  async scheduleReport(organizationId, reportConfig) {    try {      const {        name,        frequency, // daily, weekly, monthly        format,        recipients,        includeUserDetails,        includeEndpointBreakdown,        customFilters      } = reportConfig;      const { data, error } = await this.supabase        .from('enterprise_scheduled_reports')        .insert([{          organization_id: organizationId,          name,          frequency,          format,          recipients,          config: {            includeUserDetails,            includeEndpointBreakdown,            customFilters          },          status: 'active',          next_run: this.calculateNextRunTime(frequency)        }])        .select()        .single();      if (error) throw error;      return { success: true, data };    } catch (error) {      console.error('Error scheduling report:', error);      return { success: false, error: error.message };    }  }  // =============================================================================  // DATA PROCESSING & AGGREGATION  // =============================================================================  /**   * Process and aggregate raw analytics data   */  processAnalyticsData(rawData, options = {}) {    const { period = 'daily', groupBy = 'date' } = options;    switch (groupBy) {      case 'date':        return this.aggregateByDate(rawData, period);      case 'user':        return this.aggregateByUser(rawData);      case 'endpoint':        return this.aggregateByEndpoint(rawData);      case 'metric_type':        return this.aggregateByMetricType(rawData);      default:        return rawData;    }  }  /**   * Aggregate data by date periods   */  aggregateByDate(data, period) {    const aggregated = {};    data.forEach(record => {      const date = new Date(record.timestamp);      let key;      switch (period) {        case 'hourly':          key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')} ${String(date.getHours()).padStart(2, '0')}:00`;          break;        case 'daily':          key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;          break;        case 'weekly':          const weekStart = new Date(date.setDate(date.getDate() - date.getDay()));          key = `${weekStart.getFullYear()}-W${String(Math.ceil(weekStart.getDate() / 7)).padStart(2, '0')}`;          break;        case 'monthly':          key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;          break;        default:          key = record.timestamp.split('T')[0];      }      if (!aggregated[key]) {        aggregated[key] = {          period: key,          totalRequests: 0,          successfulRequests: 0,          errorRequests: 0,          totalDataProcessed: 0,          totalCostCredits: 0,          averageResponseTime: 0,          metricTypes: {},          endpoints: {}        };      }      const agg = aggregated[key];      agg.totalRequests++;      agg.totalDataProcessed += record.data_processed_mb || 0;      agg.totalCostCredits += record.cost_credits || 0;      // Response status categorization      if (record.response_status >= 200 && record.response_status < 300) {        agg.successfulRequests++;      } else if (record.response_status >= 400) {        agg.errorRequests++;      }      // Metric types      agg.metricTypes[record.metric_type] = (agg.metricTypes[record.metric_type] || 0) + 1;      // Endpoints      if (record.endpoint) {        agg.endpoints[record.endpoint] = (agg.endpoints[record.endpoint] || 0) + 1;      }    });    return Object.values(aggregated).sort((a, b) => a.period.localeCompare(b.period));  }  /**   * Get usage summaries from pre-aggregated table   */  async getUsageSummaries(organizationId, options = {}) {    try {      const { startDate, endDate, period } = options;      let query = this.supabase        .from('enterprise_usage_summaries')        .select('*')        .eq('organization_id', organizationId)        .eq('period_type', period);      if (startDate) query = query.gte('period_start', startDate);      if (endDate) query = query.lte('period_end', endDate);      const { data, error } = await query        .order('period_start', { ascending: true });      if (error) throw error;      return { success: true, data };    } catch (error) {      console.error('Error fetching usage summaries:', error);      return { success: false, error: error.message };    }  }  /**   * Calculate quota usage percentage   */  async calculateQuotaUsage(organizationId, startDate, endDate) {    try {      // Get organization quota      const { data: org, error: orgError } = await this.supabase        .from('organizations')        .select('api_quota_monthly')        .eq('id', organizationId)        .single();      if (orgError) throw orgError;      // Get current month usage      const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM      const monthStart = `${currentMonth}-01T00:00:00.000Z`;      const monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString();      const { data: usage, error: usageError } = await this.supabase        .from('enterprise_usage_analytics')        .select('metric_type')        .eq('organization_id', organizationId)        .eq('metric_type', 'api_call')        .gte('timestamp', monthStart)        .lte('timestamp', monthEnd);      if (usageError) throw usageError;      const currentUsage = usage.length;      const quotaPercentage = (currentUsage / org.api_quota_monthly) * 100;      return {        currentUsage,        monthlyQuota: org.api_quota_monthly,        quotaPercentage: Math.round(quotaPercentage * 100) / 100,        remainingQuota: org.api_quota_monthly - currentUsage      };    } catch (error) {      console.error('Error calculating quota usage:', error);      return null;    }  }  // =============================================================================  // HELPER METHODS  // =============================================================================  calculateAverageResponseTime(data) {    const validTimes = data.filter(d => d.response_time_ms).map(d => d.response_time_ms);    return validTimes.length > 0 ? validTimes.reduce((sum, time) => sum + time, 0) / validTimes.length : 0;  }  calculateStartDate(endDate, period, timeRange) {    const start = new Date(endDate);    switch (period) {      case 'hourly':        start.setHours(start.getHours() - timeRange);        break;      case 'daily':        start.setDate(start.getDate() - timeRange);        break;      case 'weekly':        start.setDate(start.getDate() - (timeRange * 7));        break;      case 'monthly':        start.setMonth(start.getMonth() - timeRange);        break;    }    return start;  }  calculateNextRunTime(frequency) {    const now = new Date();    switch (frequency) {      case 'daily':        return new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();      case 'weekly':        return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();      case 'monthly':        const nextMonth = new Date(now);        nextMonth.setMonth(nextMonth.getMonth() + 1);        return nextMonth.toISOString();      default:        return new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();    }  }  generateReportSummary(usageData, realTimeData) {    return {      totalRequests: usageData.reduce((sum, d) => sum + (d.totalRequests || 0), 0),      successRate: this.calculateSuccessRate(usageData),      averageResponseTime: this.calculateOverallAverageResponseTime(usageData),      topMetricType: this.findTopMetricType(usageData),      growthRate: this.calculateGrowthRate(usageData),      currentStatus: realTimeData    };  }  calculateSuccessRate(data) {    const total = data.reduce((sum, d) => sum + (d.totalRequests || 0), 0);    const successful = data.reduce((sum, d) => sum + (d.successfulRequests || 0), 0);    return total > 0 ? (successful / total) * 100 : 0;  }  formatReportAsCSV(report) {    // Implement CSV formatting logic    return 'CSV format not yet implemented';  }  async formatReportAsPDF(report) {    // Implement PDF formatting logic    return 'PDF format not yet implemented';  }  aggregateByUser(data) {    // Implement user aggregation logic    return data;  }  aggregateByEndpoint(data) {    // Implement endpoint aggregation logic    return data;  }  aggregateByMetricType(data) {    // Implement metric type aggregation logic    return data;  }  async aggregateRawUsageData(organizationId, options) {    // Implement raw data aggregation as fallback    return { success: true, data: [] };  }  calculateOverallAverageResponseTime(data) {    // Implement overall average response time calculation    return 0;  }  findTopMetricType(data) {    // Implement top metric type calculation    return 'api_call';  }  calculateGrowthRate(data) {    // Implement growth rate calculation    return 0;  }}export default new AnalyticsService();

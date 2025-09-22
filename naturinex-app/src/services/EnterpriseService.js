@@ -1,941 +1,1 @@
-/**
- * Enterprise Service for NaturineX B2B Platform
- * Handles multi-tenant organizations, user provisioning, SSO, billing, and analytics
- */
-
-import { supabase } from '../config/supabase';
-import CryptoJS from 'crypto-js';
-
-class EnterpriseService {
-  constructor() {
-    this.supabase = supabase;
-    this.encryptionKey = process.env.REACT_APP_ENTERPRISE_ENCRYPTION_KEY || 'default-key-change-in-production';
-  }
-
-  // =============================================================================
-  // ORGANIZATION MANAGEMENT
-  // =============================================================================
-
-  /**
-   * Create a new enterprise organization
-   */
-  async createOrganization(organizationData) {
-    try {
-      const {
-        name,
-        domain,
-        emailDomain,
-        subscriptionTier = 'starter',
-        billingEmail,
-        billingAddress,
-        maxUsers = 50,
-        features = {},
-        customBranding = {}
-      } = organizationData;
-
-      // Validate domain uniqueness
-      const { data: existingOrg } = await this.supabase
-        .from('organizations')
-        .select('id')
-        .eq('domain', domain)
-        .single();
-
-      if (existingOrg) {
-        throw new Error('Domain already exists');
-      }
-
-      const { data, error } = await this.supabase
-        .from('organizations')
-        .insert([{
-          name,
-          domain,
-          email_domain: emailDomain,
-          subscription_tier: subscriptionTier,
-          billing_email: billingEmail,
-          billing_address: billingAddress,
-          max_users: maxUsers,
-          features,
-          custom_branding: customBranding,
-          status: 'active'
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Create audit log entry
-      await this.createAuditLog({
-        organizationId: data.id,
-        action: 'create_organization',
-        resourceType: 'organization',
-        resourceId: data.id,
-        details: { name, domain, subscriptionTier }
-      });
-
-      return { success: true, data };
-    } catch (error) {
-      console.error('Error creating organization:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Get organization by domain
-   */
-  async getOrganizationByDomain(domain) {
-    try {
-      const { data, error } = await this.supabase
-        .from('organizations')
-        .select(`
-          *,
-          enterprise_billing(*),
-          enterprise_white_label(*)
-        `)
-        .eq('domain', domain)
-        .eq('status', 'active')
-        .single();
-
-      if (error) throw error;
-      return { success: true, data };
-    } catch (error) {
-      console.error('Error fetching organization:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Update organization settings
-   */
-  async updateOrganization(organizationId, updates, updatedBy) {
-    try {
-      const { data, error } = await this.supabase
-        .from('organizations')
-        .update(updates)
-        .eq('id', organizationId)
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Create audit log entry
-      await this.createAuditLog({
-        organizationId,
-        userId: updatedBy,
-        action: 'update_organization',
-        resourceType: 'organization',
-        resourceId: organizationId,
-        details: updates
-      });
-
-      return { success: true, data };
-    } catch (error) {
-      console.error('Error updating organization:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  // =============================================================================
-  // USER PROVISIONING & MANAGEMENT
-  // =============================================================================
-
-  /**
-   * Bulk user provisioning
-   */
-  async bulkProvisionUsers(organizationId, users, invitedBy) {
-    try {
-      const results = [];
-
-      for (const user of users) {
-        const result = await this.inviteUser(organizationId, user, invitedBy);
-        results.push(result);
-      }
-
-      const successful = results.filter(r => r.success).length;
-      const failed = results.filter(r => !r.success).length;
-
-      return {
-        success: true,
-        data: {
-          total: users.length,
-          successful,
-          failed,
-          results
-        }
-      };
-    } catch (error) {
-      console.error('Error in bulk user provisioning:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Invite user to organization
-   */
-  async inviteUser(organizationId, userData, invitedBy) {
-    try {
-      const { email, role = 'member', permissions = {} } = userData;
-
-      // Check if user already exists in organization
-      const { data: existingUser } = await this.supabase
-        .from('organization_users')
-        .select('id, status')
-        .eq('organization_id', organizationId)
-        .eq('user_id', email) // Using email as user_id for now
-        .single();
-
-      if (existingUser) {
-        if (existingUser.status === 'active') {
-          throw new Error('User already active in organization');
-        }
-        // Reactivate if previously suspended
-        const { data, error } = await this.supabase
-          .from('organization_users')
-          .update({ status: 'active', role, permissions })
-          .eq('id', existingUser.id)
-          .select()
-          .single();
-
-        if (error) throw error;
-        return { success: true, data };
-      }
-
-      // Create new organization user
-      const { data, error } = await this.supabase
-        .from('organization_users')
-        .insert([{
-          organization_id: organizationId,
-          user_id: email,
-          role,
-          permissions,
-          status: 'invited',
-          invited_by: invitedBy,
-          invited_at: new Date().toISOString()
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Send invitation email (implement with your email service)
-      await this.sendInvitationEmail(email, organizationId, role);
-
-      // Create audit log
-      await this.createAuditLog({
-        organizationId,
-        userId: invitedBy,
-        action: 'invite_user',
-        resourceType: 'user',
-        resourceId: email,
-        details: { email, role }
-      });
-
-      return { success: true, data };
-    } catch (error) {
-      console.error('Error inviting user:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Get organization users with pagination
-   */
-  async getOrganizationUsers(organizationId, options = {}) {
-    try {
-      const {
-        page = 1,
-        limit = 50,
-        role,
-        status,
-        search
-      } = options;
-
-      let query = this.supabase
-        .from('organization_users')
-        .select('*', { count: 'exact' })
-        .eq('organization_id', organizationId);
-
-      if (role) query = query.eq('role', role);
-      if (status) query = query.eq('status', status);
-      if (search) query = query.ilike('user_id', `%${search}%`);
-
-      const { data, error, count } = await query
-        .range((page - 1) * limit, page * limit - 1)
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-
-      return {
-        success: true,
-        data: {
-          users: data,
-          pagination: {
-            page,
-            limit,
-            total: count,
-            totalPages: Math.ceil(count / limit)
-          }
-        }
-      };
-    } catch (error) {
-      console.error('Error fetching organization users:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Update user role and permissions
-   */
-  async updateUserRole(organizationId, userId, role, permissions, updatedBy) {
-    try {
-      const { data, error } = await this.supabase
-        .from('organization_users')
-        .update({ role, permissions })
-        .eq('organization_id', organizationId)
-        .eq('user_id', userId)
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Create audit log
-      await this.createAuditLog({
-        organizationId,
-        userId: updatedBy,
-        action: 'update_user_role',
-        resourceType: 'user',
-        resourceId: userId,
-        details: { newRole: role, permissions }
-      });
-
-      return { success: true, data };
-    } catch (error) {
-      console.error('Error updating user role:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Suspend or activate user
-   */
-  async updateUserStatus(organizationId, userId, status, updatedBy) {
-    try {
-      const { data, error } = await this.supabase
-        .from('organization_users')
-        .update({ status })
-        .eq('organization_id', organizationId)
-        .eq('user_id', userId)
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Create audit log
-      await this.createAuditLog({
-        organizationId,
-        userId: updatedBy,
-        action: status === 'suspended' ? 'suspend_user' : 'activate_user',
-        resourceType: 'user',
-        resourceId: userId,
-        details: { status }
-      });
-
-      return { success: true, data };
-    } catch (error) {
-      console.error('Error updating user status:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  // =============================================================================
-  // SSO (Single Sign-On) IMPLEMENTATION
-  // =============================================================================
-
-  /**
-   * Configure SSO for organization
-   */
-  async configureSSOProvider(organizationId, ssoConfig, configuredBy) {
-    try {
-      const encryptedConfig = this.encryptSensitiveData(ssoConfig);
-
-      const { data, error } = await this.supabase
-        .from('enterprise_integrations')
-        .insert([{
-          organization_id: organizationId,
-          integration_type: 'sso',
-          provider: ssoConfig.provider, // e.g., 'saml', 'oidc', 'oauth2'
-          name: ssoConfig.name,
-          configuration: ssoConfig.publicConfig, // Non-sensitive config
-          credentials_encrypted: encryptedConfig, // Encrypted sensitive data
-          status: 'configuring',
-          created_by: configuredBy
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Create audit log
-      await this.createAuditLog({
-        organizationId,
-        userId: configuredBy,
-        action: 'configure_sso',
-        resourceType: 'integration',
-        resourceId: data.id,
-        details: { provider: ssoConfig.provider, name: ssoConfig.name }
-      });
-
-      return { success: true, data };
-    } catch (error) {
-      console.error('Error configuring SSO:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Validate SSO login
-   */
-  async validateSSOLogin(organizationId, ssoToken, userInfo) {
-    try {
-      // Get organization SSO configuration
-      const { data: ssoConfig } = await this.supabase
-        .from('enterprise_integrations')
-        .select('*')
-        .eq('organization_id', organizationId)
-        .eq('integration_type', 'sso')
-        .eq('status', 'active')
-        .single();
-
-      if (!ssoConfig) {
-        throw new Error('SSO not configured for organization');
-      }
-
-      // Decrypt and validate token (implement according to your SSO provider)
-      const isValid = await this.validateSSOToken(ssoToken, ssoConfig);
-
-      if (!isValid) {
-        throw new Error('Invalid SSO token');
-      }
-
-      // Check if user exists in organization
-      const { data: orgUser } = await this.supabase
-        .from('organization_users')
-        .select('*')
-        .eq('organization_id', organizationId)
-        .eq('user_id', userInfo.email)
-        .single();
-
-      if (!orgUser) {
-        // Auto-provision user if allowed
-        const autoProvision = ssoConfig.configuration?.autoProvision || false;
-        if (autoProvision) {
-          await this.inviteUser(organizationId, {
-            email: userInfo.email,
-            role: ssoConfig.configuration?.defaultRole || 'member'
-          }, 'sso-system');
-        } else {
-          throw new Error('User not authorized for this organization');
-        }
-      }
-
-      // Update last login
-      await this.supabase
-        .from('organization_users')
-        .update({ last_login_at: new Date().toISOString() })
-        .eq('organization_id', organizationId)
-        .eq('user_id', userInfo.email);
-
-      // Create audit log
-      await this.createAuditLog({
-        organizationId,
-        userId: userInfo.email,
-        action: 'sso_login',
-        resourceType: 'authentication',
-        details: { provider: ssoConfig.provider }
-      });
-
-      return { success: true, data: { user: orgUser, organization: organizationId } };
-    } catch (error) {
-      console.error('Error validating SSO login:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  // =============================================================================
-  // BILLING & SUBSCRIPTION MANAGEMENT
-  // =============================================================================
-
-  /**
-   * Create or update billing subscription
-   */
-  async updateBillingSubscription(organizationId, subscriptionData) {
-    try {
-      const {
-        subscriptionId,
-        customerId,
-        planId,
-        planName,
-        seatsIncluded,
-        monthlyFee,
-        perSeatFee = 0,
-        apiQuotaMonthly,
-        billingCycle = 'monthly',
-        currentPeriodStart,
-        currentPeriodEnd
-      } = subscriptionData;
-
-      const { data, error } = await this.supabase
-        .from('enterprise_billing')
-        .upsert([{
-          organization_id: organizationId,
-          subscription_id: subscriptionId,
-          customer_id: customerId,
-          plan_id: planId,
-          plan_name: planName,
-          seats_included: seatsIncluded,
-          additional_seats: 0,
-          monthly_fee: monthlyFee,
-          per_seat_fee: perSeatFee,
-          api_quota_monthly: apiQuotaMonthly,
-          billing_cycle: billingCycle,
-          status: 'active',
-          current_period_start: currentPeriodStart,
-          current_period_end: currentPeriodEnd
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Update organization quota
-      await this.supabase
-        .from('organizations')
-        .update({
-          api_quota_monthly: apiQuotaMonthly,
-          max_users: seatsIncluded
-        })
-        .eq('id', organizationId);
-
-      return { success: true, data };
-    } catch (error) {
-      console.error('Error updating billing subscription:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Generate invoice
-   */
-  async generateInvoice(organizationId, invoiceData) {
-    try {
-      const {
-        billingId,
-        amountDue,
-        taxAmount = 0,
-        currency = 'USD',
-        dueDate,
-        lineItems = [],
-        stripeInvoiceId
-      } = invoiceData;
-
-      const { data, error } = await this.supabase
-        .from('enterprise_invoices')
-        .insert([{
-          organization_id: organizationId,
-          billing_id: billingId,
-          stripe_invoice_id: stripeInvoiceId,
-          amount_due: amountDue,
-          tax_amount: taxAmount,
-          currency,
-          status: 'open',
-          due_date: dueDate,
-          line_items: lineItems
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      return { success: true, data };
-    } catch (error) {
-      console.error('Error generating invoice:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Get billing dashboard data
-   */
-  async getBillingDashboard(organizationId) {
-    try {
-      // Get current billing info
-      const { data: billing } = await this.supabase
-        .from('enterprise_billing')
-        .select('*')
-        .eq('organization_id', organizationId)
-        .eq('status', 'active')
-        .single();
-
-      // Get recent invoices
-      const { data: invoices } = await this.supabase
-        .from('enterprise_invoices')
-        .select('*')
-        .eq('organization_id', organizationId)
-        .order('created_at', { ascending: false })
-        .limit(10);
-
-      // Get current month usage
-      const { data: usage } = await this.supabase
-        .from('enterprise_usage_summaries')
-        .select('*')
-        .eq('organization_id', organizationId)
-        .eq('period_type', 'monthly')
-        .gte('period_start', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString())
-        .single();
-
-      return {
-        success: true,
-        data: {
-          billing,
-          invoices,
-          usage,
-          quotaUsage: usage ? (usage.total_api_calls / billing?.api_quota_monthly * 100) : 0
-        }
-      };
-    } catch (error) {
-      console.error('Error fetching billing dashboard:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  // =============================================================================
-  // API KEY MANAGEMENT
-  // =============================================================================
-
-  /**
-   * Generate new API key
-   */
-  async generateAPIKey(organizationId, keyData, createdBy) {
-    try {
-      const {
-        name,
-        permissions = {},
-        rateLimitPerMinute = 100,
-        rateLimitPerHour = 5000,
-        rateLimitPerDay = 50000,
-        expiresAt
-      } = keyData;
-
-      // Generate API key
-      const apiKey = this.generateSecureAPIKey();
-      const keyHash = CryptoJS.SHA256(apiKey).toString();
-      const keyPrefix = apiKey.substring(0, 8);
-
-      const { data, error } = await this.supabase
-        .from('enterprise_api_keys')
-        .insert([{
-          organization_id: organizationId,
-          name,
-          key_hash: keyHash,
-          key_prefix: keyPrefix,
-          permissions,
-          rate_limit_per_minute: rateLimitPerMinute,
-          rate_limit_per_hour: rateLimitPerHour,
-          rate_limit_per_day: rateLimitPerDay,
-          expires_at: expiresAt,
-          created_by: createdBy,
-          status: 'active'
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Create audit log
-      await this.createAuditLog({
-        organizationId,
-        userId: createdBy,
-        action: 'create_api_key',
-        resourceType: 'api_key',
-        resourceId: data.id,
-        details: { name, permissions }
-      });
-
-      return { success: true, data: { ...data, api_key: apiKey } };
-    } catch (error) {
-      console.error('Error generating API key:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Validate API key
-   */
-  async validateAPIKey(apiKey) {
-    try {
-      const keyHash = CryptoJS.SHA256(apiKey).toString();
-
-      const { data, error } = await this.supabase
-        .from('enterprise_api_keys')
-        .select(`
-          *,
-          organizations(*)
-        `)
-        .eq('key_hash', keyHash)
-        .eq('status', 'active')
-        .single();
-
-      if (error || !data) {
-        throw new Error('Invalid API key');
-      }
-
-      // Check expiration
-      if (data.expires_at && new Date(data.expires_at) < new Date()) {
-        throw new Error('API key expired');
-      }
-
-      // Update last used
-      await this.supabase
-        .from('enterprise_api_keys')
-        .update({
-          last_used_at: new Date().toISOString(),
-          last_used_ip: '0.0.0.0' // Get from request headers
-        })
-        .eq('id', data.id);
-
-      return { success: true, data };
-    } catch (error) {
-      console.error('Error validating API key:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Revoke API key
-   */
-  async revokeAPIKey(organizationId, keyId, revokedBy) {
-    try {
-      const { data, error } = await this.supabase
-        .from('enterprise_api_keys')
-        .update({ status: 'revoked' })
-        .eq('id', keyId)
-        .eq('organization_id', organizationId)
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Create audit log
-      await this.createAuditLog({
-        organizationId,
-        userId: revokedBy,
-        action: 'revoke_api_key',
-        resourceType: 'api_key',
-        resourceId: keyId,
-        details: { name: data.name }
-      });
-
-      return { success: true, data };
-    } catch (error) {
-      console.error('Error revoking API key:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  // =============================================================================
-  // USAGE ANALYTICS & TRACKING
-  // =============================================================================
-
-  /**
-   * Record API usage
-   */
-  async recordUsage(organizationId, usageData) {
-    try {
-      const {
-        userId,
-        apiKeyId,
-        metricType,
-        metricCategory,
-        endpoint,
-        method,
-        responseStatus,
-        responseTimeMs,
-        dataProcessedMb = 0,
-        costCredits = 0,
-        metadata = {},
-        ipAddress,
-        userAgent
-      } = usageData;
-
-      const { data, error } = await this.supabase
-        .from('enterprise_usage_analytics')
-        .insert([{
-          organization_id: organizationId,
-          user_id: userId,
-          api_key_id: apiKeyId,
-          metric_type: metricType,
-          metric_category: metricCategory,
-          endpoint,
-          method,
-          response_status: responseStatus,
-          response_time_ms: responseTimeMs,
-          data_processed_mb: dataProcessedMb,
-          cost_credits: costCredits,
-          metadata,
-          ip_address: ipAddress,
-          user_agent: userAgent
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
-      return { success: true, data };
-    } catch (error) {
-      console.error('Error recording usage:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Get usage analytics
-   */
-  async getUsageAnalytics(organizationId, options = {}) {
-    try {
-      const {
-        period = 'daily', // daily, weekly, monthly
-        startDate,
-        endDate,
-        metricType,
-        groupBy
-      } = options;
-
-      let query = this.supabase
-        .from('enterprise_usage_analytics')
-        .select('*')
-        .eq('organization_id', organizationId);
-
-      if (startDate) query = query.gte('timestamp', startDate);
-      if (endDate) query = query.lte('timestamp', endDate);
-      if (metricType) query = query.eq('metric_type', metricType);
-
-      const { data, error } = await query
-        .order('timestamp', { ascending: false })
-        .limit(1000);
-
-      if (error) throw error;
-
-      // Process data based on groupBy
-      const processedData = this.processAnalyticsData(data, groupBy, period);
-
-      return { success: true, data: processedData };
-    } catch (error) {
-      console.error('Error fetching usage analytics:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  // =============================================================================
-  // HELPER METHODS
-  // =============================================================================
-
-  /**
-   * Create audit log entry
-   */
-  async createAuditLog(logData) {
-    try {
-      const {
-        organizationId,
-        userId,
-        action,
-        resourceType,
-        resourceId,
-        details = {},
-        ipAddress = '0.0.0.0',
-        userAgent = '',
-        success = true,
-        errorMessage
-      } = logData;
-
-      await this.supabase
-        .from('enterprise_audit_log')
-        .insert([{
-          organization_id: organizationId,
-          user_id: userId,
-          action,
-          resource_type: resourceType,
-          resource_id: resourceId,
-          details,
-          ip_address: ipAddress,
-          user_agent: userAgent,
-          success,
-          error_message: errorMessage
-        }]);
-    } catch (error) {
-      console.error('Error creating audit log:', error);
-    }
-  }
-
-  /**
-   * Encrypt sensitive data
-   */
-  encryptSensitiveData(data) {
-    try {
-      return CryptoJS.AES.encrypt(JSON.stringify(data), this.encryptionKey).toString();
-    } catch (error) {
-      console.error('Error encrypting data:', error);
-      throw new Error('Encryption failed');
-    }
-  }
-
-  /**
-   * Decrypt sensitive data
-   */
-  decryptSensitiveData(encryptedData) {
-    try {
-      const bytes = CryptoJS.AES.decrypt(encryptedData, this.encryptionKey);
-      return JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
-    } catch (error) {
-      console.error('Error decrypting data:', error);
-      throw new Error('Decryption failed');
-    }
-  }
-
-  /**
-   * Generate secure API key
-   */
-  generateSecureAPIKey() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    let result = 'ntrx_'; // NaturineX prefix
-    for (let i = 0; i < 32; i++) {
-      result += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return result;
-  }
-
-  /**
-   * Validate SSO token (implement based on your SSO provider)
-   */
-  async validateSSOToken(token, ssoConfig) {
-    // Implement SSO token validation logic here
-    // This will vary based on your SSO provider (SAML, OIDC, etc.)
-    return true; // Placeholder
-  }
-
-  /**
-   * Send invitation email
-   */
-  async sendInvitationEmail(email, organizationId, role) {
-    // Implement email sending logic here
-    console.log(`Sending invitation email to ${email} for organization ${organizationId} with role ${role}`);
-  }
-
-  /**
-   * Process analytics data for dashboard
-   */
-  processAnalyticsData(data, groupBy, period) {
-    // Implement data processing logic based on groupBy and period
-    // This would typically aggregate data by time periods, metric types, etc.
-    return data;
-  }
-}
-
-export default new EnterpriseService();
+/** * Enterprise Service for NaturineX B2B Platform * Handles multi-tenant organizations, user provisioning, SSO, billing, and analytics */import { supabase } from '../config/supabase';import CryptoJS from 'crypto-js';class EnterpriseService {  constructor() {    this.supabase = supabase;    this.encryptionKey = process.env.REACT_APP_ENTERPRISE_ENCRYPTION_KEY || 'default-key-change-in-production';  }  // =============================================================================  // ORGANIZATION MANAGEMENT  // =============================================================================  /**   * Create a new enterprise organization   */  async createOrganization(organizationData) {    try {      const {        name,        domain,        emailDomain,        subscriptionTier = 'starter',        billingEmail,        billingAddress,        maxUsers = 50,        features = {},        customBranding = {}      } = organizationData;      // Validate domain uniqueness      const { data: existingOrg } = await this.supabase        .from('organizations')        .select('id')        .eq('domain', domain)        .single();      if (existingOrg) {        throw new Error('Domain already exists');      }      const { data, error } = await this.supabase        .from('organizations')        .insert([{          name,          domain,          email_domain: emailDomain,          subscription_tier: subscriptionTier,          billing_email: billingEmail,          billing_address: billingAddress,          max_users: maxUsers,          features,          custom_branding: customBranding,          status: 'active'        }])        .select()        .single();      if (error) throw error;      // Create audit log entry      await this.createAuditLog({        organizationId: data.id,        action: 'create_organization',        resourceType: 'organization',        resourceId: data.id,        details: { name, domain, subscriptionTier }      });      return { success: true, data };    } catch (error) {      console.error('Error creating organization:', error);      return { success: false, error: error.message };    }  }  /**   * Get organization by domain   */  async getOrganizationByDomain(domain) {    try {      const { data, error } = await this.supabase        .from('organizations')        .select(`          *,          enterprise_billing(*),          enterprise_white_label(*)        `)        .eq('domain', domain)        .eq('status', 'active')        .single();      if (error) throw error;      return { success: true, data };    } catch (error) {      console.error('Error fetching organization:', error);      return { success: false, error: error.message };    }  }  /**   * Update organization settings   */  async updateOrganization(organizationId, updates, updatedBy) {    try {      const { data, error } = await this.supabase        .from('organizations')        .update(updates)        .eq('id', organizationId)        .select()        .single();      if (error) throw error;      // Create audit log entry      await this.createAuditLog({        organizationId,        userId: updatedBy,        action: 'update_organization',        resourceType: 'organization',        resourceId: organizationId,        details: updates      });      return { success: true, data };    } catch (error) {      console.error('Error updating organization:', error);      return { success: false, error: error.message };    }  }  // =============================================================================  // USER PROVISIONING & MANAGEMENT  // =============================================================================  /**   * Bulk user provisioning   */  async bulkProvisionUsers(organizationId, users, invitedBy) {    try {      const results = [];      for (const user of users) {        const result = await this.inviteUser(organizationId, user, invitedBy);        results.push(result);      }      const successful = results.filter(r => r.success).length;      const failed = results.filter(r => !r.success).length;      return {        success: true,        data: {          total: users.length,          successful,          failed,          results        }      };    } catch (error) {      console.error('Error in bulk user provisioning:', error);      return { success: false, error: error.message };    }  }  /**   * Invite user to organization   */  async inviteUser(organizationId, userData, invitedBy) {    try {      const { email, role = 'member', permissions = {} } = userData;      // Check if user already exists in organization      const { data: existingUser } = await this.supabase        .from('organization_users')        .select('id, status')        .eq('organization_id', organizationId)        .eq('user_id', email) // Using email as user_id for now        .single();      if (existingUser) {        if (existingUser.status === 'active') {          throw new Error('User already active in organization');        }        // Reactivate if previously suspended        const { data, error } = await this.supabase          .from('organization_users')          .update({ status: 'active', role, permissions })          .eq('id', existingUser.id)          .select()          .single();        if (error) throw error;        return { success: true, data };      }      // Create new organization user      const { data, error } = await this.supabase        .from('organization_users')        .insert([{          organization_id: organizationId,          user_id: email,          role,          permissions,          status: 'invited',          invited_by: invitedBy,          invited_at: new Date().toISOString()        }])        .select()        .single();      if (error) throw error;      // Send invitation email (implement with your email service)      await this.sendInvitationEmail(email, organizationId, role);      // Create audit log      await this.createAuditLog({        organizationId,        userId: invitedBy,        action: 'invite_user',        resourceType: 'user',        resourceId: email,        details: { email, role }      });      return { success: true, data };    } catch (error) {      console.error('Error inviting user:', error);      return { success: false, error: error.message };    }  }  /**   * Get organization users with pagination   */  async getOrganizationUsers(organizationId, options = {}) {    try {      const {        page = 1,        limit = 50,        role,        status,        search      } = options;      let query = this.supabase        .from('organization_users')        .select('*', { count: 'exact' })        .eq('organization_id', organizationId);      if (role) query = query.eq('role', role);      if (status) query = query.eq('status', status);      if (search) query = query.ilike('user_id', `%${search}%`);      const { data, error, count } = await query        .range((page - 1) * limit, page * limit - 1)        .order('created_at', { ascending: false });      if (error) throw error;      return {        success: true,        data: {          users: data,          pagination: {            page,            limit,            total: count,            totalPages: Math.ceil(count / limit)          }        }      };    } catch (error) {      console.error('Error fetching organization users:', error);      return { success: false, error: error.message };    }  }  /**   * Update user role and permissions   */  async updateUserRole(organizationId, userId, role, permissions, updatedBy) {    try {      const { data, error } = await this.supabase        .from('organization_users')        .update({ role, permissions })        .eq('organization_id', organizationId)        .eq('user_id', userId)        .select()        .single();      if (error) throw error;      // Create audit log      await this.createAuditLog({        organizationId,        userId: updatedBy,        action: 'update_user_role',        resourceType: 'user',        resourceId: userId,        details: { newRole: role, permissions }      });      return { success: true, data };    } catch (error) {      console.error('Error updating user role:', error);      return { success: false, error: error.message };    }  }  /**   * Suspend or activate user   */  async updateUserStatus(organizationId, userId, status, updatedBy) {    try {      const { data, error } = await this.supabase        .from('organization_users')        .update({ status })        .eq('organization_id', organizationId)        .eq('user_id', userId)        .select()        .single();      if (error) throw error;      // Create audit log      await this.createAuditLog({        organizationId,        userId: updatedBy,        action: status === 'suspended' ? 'suspend_user' : 'activate_user',        resourceType: 'user',        resourceId: userId,        details: { status }      });      return { success: true, data };    } catch (error) {      console.error('Error updating user status:', error);      return { success: false, error: error.message };    }  }  // =============================================================================  // SSO (Single Sign-On) IMPLEMENTATION  // =============================================================================  /**   * Configure SSO for organization   */  async configureSSOProvider(organizationId, ssoConfig, configuredBy) {    try {      const encryptedConfig = this.encryptSensitiveData(ssoConfig);      const { data, error } = await this.supabase        .from('enterprise_integrations')        .insert([{          organization_id: organizationId,          integration_type: 'sso',          provider: ssoConfig.provider, // e.g., 'saml', 'oidc', 'oauth2'          name: ssoConfig.name,          configuration: ssoConfig.publicConfig, // Non-sensitive config          credentials_encrypted: encryptedConfig, // Encrypted sensitive data          status: 'configuring',          created_by: configuredBy        }])        .select()        .single();      if (error) throw error;      // Create audit log      await this.createAuditLog({        organizationId,        userId: configuredBy,        action: 'configure_sso',        resourceType: 'integration',        resourceId: data.id,        details: { provider: ssoConfig.provider, name: ssoConfig.name }      });      return { success: true, data };    } catch (error) {      console.error('Error configuring SSO:', error);      return { success: false, error: error.message };    }  }  /**   * Validate SSO login   */  async validateSSOLogin(organizationId, ssoToken, userInfo) {    try {      // Get organization SSO configuration      const { data: ssoConfig } = await this.supabase        .from('enterprise_integrations')        .select('*')        .eq('organization_id', organizationId)        .eq('integration_type', 'sso')        .eq('status', 'active')        .single();      if (!ssoConfig) {        throw new Error('SSO not configured for organization');      }      // Decrypt and validate token (implement according to your SSO provider)      const isValid = await this.validateSSOToken(ssoToken, ssoConfig);      if (!isValid) {        throw new Error('Invalid SSO token');      }      // Check if user exists in organization      const { data: orgUser } = await this.supabase        .from('organization_users')        .select('*')        .eq('organization_id', organizationId)        .eq('user_id', userInfo.email)        .single();      if (!orgUser) {        // Auto-provision user if allowed        const autoProvision = ssoConfig.configuration?.autoProvision || false;        if (autoProvision) {          await this.inviteUser(organizationId, {            email: userInfo.email,            role: ssoConfig.configuration?.defaultRole || 'member'          }, 'sso-system');        } else {          throw new Error('User not authorized for this organization');        }      }      // Update last login      await this.supabase        .from('organization_users')        .update({ last_login_at: new Date().toISOString() })        .eq('organization_id', organizationId)        .eq('user_id', userInfo.email);      // Create audit log      await this.createAuditLog({        organizationId,        userId: userInfo.email,        action: 'sso_login',        resourceType: 'authentication',        details: { provider: ssoConfig.provider }      });      return { success: true, data: { user: orgUser, organization: organizationId } };    } catch (error) {      console.error('Error validating SSO login:', error);      return { success: false, error: error.message };    }  }  // =============================================================================  // BILLING & SUBSCRIPTION MANAGEMENT  // =============================================================================  /**   * Create or update billing subscription   */  async updateBillingSubscription(organizationId, subscriptionData) {    try {      const {        subscriptionId,        customerId,        planId,        planName,        seatsIncluded,        monthlyFee,        perSeatFee = 0,        apiQuotaMonthly,        billingCycle = 'monthly',        currentPeriodStart,        currentPeriodEnd      } = subscriptionData;      const { data, error } = await this.supabase        .from('enterprise_billing')        .upsert([{          organization_id: organizationId,          subscription_id: subscriptionId,          customer_id: customerId,          plan_id: planId,          plan_name: planName,          seats_included: seatsIncluded,          additional_seats: 0,          monthly_fee: monthlyFee,          per_seat_fee: perSeatFee,          api_quota_monthly: apiQuotaMonthly,          billing_cycle: billingCycle,          status: 'active',          current_period_start: currentPeriodStart,          current_period_end: currentPeriodEnd        }])        .select()        .single();      if (error) throw error;      // Update organization quota      await this.supabase        .from('organizations')        .update({          api_quota_monthly: apiQuotaMonthly,          max_users: seatsIncluded        })        .eq('id', organizationId);      return { success: true, data };    } catch (error) {      console.error('Error updating billing subscription:', error);      return { success: false, error: error.message };    }  }  /**   * Generate invoice   */  async generateInvoice(organizationId, invoiceData) {    try {      const {        billingId,        amountDue,        taxAmount = 0,        currency = 'USD',        dueDate,        lineItems = [],        stripeInvoiceId      } = invoiceData;      const { data, error } = await this.supabase        .from('enterprise_invoices')        .insert([{          organization_id: organizationId,          billing_id: billingId,          stripe_invoice_id: stripeInvoiceId,          amount_due: amountDue,          tax_amount: taxAmount,          currency,          status: 'open',          due_date: dueDate,          line_items: lineItems        }])        .select()        .single();      if (error) throw error;      return { success: true, data };    } catch (error) {      console.error('Error generating invoice:', error);      return { success: false, error: error.message };    }  }  /**   * Get billing dashboard data   */  async getBillingDashboard(organizationId) {    try {      // Get current billing info      const { data: billing } = await this.supabase        .from('enterprise_billing')        .select('*')        .eq('organization_id', organizationId)        .eq('status', 'active')        .single();      // Get recent invoices      const { data: invoices } = await this.supabase        .from('enterprise_invoices')        .select('*')        .eq('organization_id', organizationId)        .order('created_at', { ascending: false })        .limit(10);      // Get current month usage      const { data: usage } = await this.supabase        .from('enterprise_usage_summaries')        .select('*')        .eq('organization_id', organizationId)        .eq('period_type', 'monthly')        .gte('period_start', new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString())        .single();      return {        success: true,        data: {          billing,          invoices,          usage,          quotaUsage: usage ? (usage.total_api_calls / billing?.api_quota_monthly * 100) : 0        }      };    } catch (error) {      console.error('Error fetching billing dashboard:', error);      return { success: false, error: error.message };    }  }  // =============================================================================  // API KEY MANAGEMENT  // =============================================================================  /**   * Generate new API key   */  async generateAPIKey(organizationId, keyData, createdBy) {    try {      const {        name,        permissions = {},        rateLimitPerMinute = 100,        rateLimitPerHour = 5000,        rateLimitPerDay = 50000,        expiresAt      } = keyData;      // Generate API key      const apiKey = this.generateSecureAPIKey();      const keyHash = CryptoJS.SHA256(apiKey).toString();      const keyPrefix = apiKey.substring(0, 8);      const { data, error } = await this.supabase        .from('enterprise_api_keys')        .insert([{          organization_id: organizationId,          name,          key_hash: keyHash,          key_prefix: keyPrefix,          permissions,          rate_limit_per_minute: rateLimitPerMinute,          rate_limit_per_hour: rateLimitPerHour,          rate_limit_per_day: rateLimitPerDay,          expires_at: expiresAt,          created_by: createdBy,          status: 'active'        }])        .select()        .single();      if (error) throw error;      // Create audit log      await this.createAuditLog({        organizationId,        userId: createdBy,        action: 'create_api_key',        resourceType: 'api_key',        resourceId: data.id,        details: { name, permissions }      });      return { success: true, data: { ...data, api_key: apiKey } };    } catch (error) {      console.error('Error generating API key:', error);      return { success: false, error: error.message };    }  }  /**   * Validate API key   */  async validateAPIKey(apiKey) {    try {      const keyHash = CryptoJS.SHA256(apiKey).toString();      const { data, error } = await this.supabase        .from('enterprise_api_keys')        .select(`          *,          organizations(*)        `)        .eq('key_hash', keyHash)        .eq('status', 'active')        .single();      if (error || !data) {        throw new Error('Invalid API key');      }      // Check expiration      if (data.expires_at && new Date(data.expires_at) < new Date()) {        throw new Error('API key expired');      }      // Update last used      await this.supabase        .from('enterprise_api_keys')        .update({          last_used_at: new Date().toISOString(),          last_used_ip: '0.0.0.0' // Get from request headers        })        .eq('id', data.id);      return { success: true, data };    } catch (error) {      console.error('Error validating API key:', error);      return { success: false, error: error.message };    }  }  /**   * Revoke API key   */  async revokeAPIKey(organizationId, keyId, revokedBy) {    try {      const { data, error } = await this.supabase        .from('enterprise_api_keys')        .update({ status: 'revoked' })        .eq('id', keyId)        .eq('organization_id', organizationId)        .select()        .single();      if (error) throw error;      // Create audit log      await this.createAuditLog({        organizationId,        userId: revokedBy,        action: 'revoke_api_key',        resourceType: 'api_key',        resourceId: keyId,        details: { name: data.name }      });      return { success: true, data };    } catch (error) {      console.error('Error revoking API key:', error);      return { success: false, error: error.message };    }  }  // =============================================================================  // USAGE ANALYTICS & TRACKING  // =============================================================================  /**   * Record API usage   */  async recordUsage(organizationId, usageData) {    try {      const {        userId,        apiKeyId,        metricType,        metricCategory,        endpoint,        method,        responseStatus,        responseTimeMs,        dataProcessedMb = 0,        costCredits = 0,        metadata = {},        ipAddress,        userAgent      } = usageData;      const { data, error } = await this.supabase        .from('enterprise_usage_analytics')        .insert([{          organization_id: organizationId,          user_id: userId,          api_key_id: apiKeyId,          metric_type: metricType,          metric_category: metricCategory,          endpoint,          method,          response_status: responseStatus,          response_time_ms: responseTimeMs,          data_processed_mb: dataProcessedMb,          cost_credits: costCredits,          metadata,          ip_address: ipAddress,          user_agent: userAgent        }])        .select()        .single();      if (error) throw error;      return { success: true, data };    } catch (error) {      console.error('Error recording usage:', error);      return { success: false, error: error.message };    }  }  /**   * Get usage analytics   */  async getUsageAnalytics(organizationId, options = {}) {    try {      const {        period = 'daily', // daily, weekly, monthly        startDate,        endDate,        metricType,        groupBy      } = options;      let query = this.supabase        .from('enterprise_usage_analytics')        .select('*')        .eq('organization_id', organizationId);      if (startDate) query = query.gte('timestamp', startDate);      if (endDate) query = query.lte('timestamp', endDate);      if (metricType) query = query.eq('metric_type', metricType);      const { data, error } = await query        .order('timestamp', { ascending: false })        .limit(1000);      if (error) throw error;      // Process data based on groupBy      const processedData = this.processAnalyticsData(data, groupBy, period);      return { success: true, data: processedData };    } catch (error) {      console.error('Error fetching usage analytics:', error);      return { success: false, error: error.message };    }  }  // =============================================================================  // HELPER METHODS  // =============================================================================  /**   * Create audit log entry   */  async createAuditLog(logData) {    try {      const {        organizationId,        userId,        action,        resourceType,        resourceId,        details = {},        ipAddress = '0.0.0.0',        userAgent = '',        success = true,        errorMessage      } = logData;      await this.supabase        .from('enterprise_audit_log')        .insert([{          organization_id: organizationId,          user_id: userId,          action,          resource_type: resourceType,          resource_id: resourceId,          details,          ip_address: ipAddress,          user_agent: userAgent,          success,          error_message: errorMessage        }]);    } catch (error) {      console.error('Error creating audit log:', error);    }  }  /**   * Encrypt sensitive data   */  encryptSensitiveData(data) {    try {      return CryptoJS.AES.encrypt(JSON.stringify(data), this.encryptionKey).toString();    } catch (error) {      console.error('Error encrypting data:', error);      throw new Error('Encryption failed');    }  }  /**   * Decrypt sensitive data   */  decryptSensitiveData(encryptedData) {    try {      const bytes = CryptoJS.AES.decrypt(encryptedData, this.encryptionKey);      return JSON.parse(bytes.toString(CryptoJS.enc.Utf8));    } catch (error) {      console.error('Error decrypting data:', error);      throw new Error('Decryption failed');    }  }  /**   * Generate secure API key   */  generateSecureAPIKey() {    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';    let result = 'ntrx_'; // NaturineX prefix    for (let i = 0; i < 32; i++) {      result += chars.charAt(Math.floor(Math.random() * chars.length));    }    return result;  }  /**   * Validate SSO token (implement based on your SSO provider)   */  async validateSSOToken(token, ssoConfig) {    // Implement SSO token validation logic here    // This will vary based on your SSO provider (SAML, OIDC, etc.)    return true; // Placeholder  }  /**   * Send invitation email   */  async sendInvitationEmail(email, organizationId, role) {    // Implement email sending logic here  }  /**   * Process analytics data for dashboard   */  processAnalyticsData(data, groupBy, period) {    // Implement data processing logic based on groupBy and period    // This would typically aggregate data by time periods, metric types, etc.    return data;  }}export default new EnterpriseService();

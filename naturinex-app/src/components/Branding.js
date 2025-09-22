@@ -1,103 +1,1 @@
-// Logo and branding assets for Naturinex
-import NaturinexLogo from '../assets/logos/NaturinexLogo.png';
-import NaturinexLogoFull from '../assets/logos/Naturinex Logo.png';
-import NaturinexMono from '../assets/logos/Naturinex Mono.png';
-import NaturinexBlack from '../assets/logos/Naturinex black.png';
-
-export const logos = {
-  // Main logo - color version
-  main: NaturinexLogo,
-  
-  // Full logo with text
-  full: NaturinexLogoFull,
-  
-  // Monochrome version for dark backgrounds
-  mono: NaturinexMono,
-  
-  // Black version for light backgrounds
-  black: NaturinexBlack
-};
-
-// Logo component for consistent usage across the app
-export const Logo = ({ 
-  variant = 'main', 
-  size = 'medium', 
-  className = '',
-  alt = 'Naturinex Logo',
-  style = {} 
-}) => {
-  const sizeMap = {
-    small: { width: '120px', height: 'auto' },
-    medium: { width: '180px', height: 'auto' },
-    large: { width: '240px', height: 'auto' },
-    header: { width: '140px', height: 'auto' },
-    favicon: { width: '32px', height: '32px' }
-  };
-
-  const logoSrc = logos[variant] || logos.main;
-  const logoSize = typeof size === 'string' ? sizeMap[size] : size;
-
-  return (
-    <img
-      src={logoSrc}
-      alt={alt}
-      className={className}
-      style={{
-        ...logoSize,
-        objectFit: 'contain',
-        ...style
-      }}
-      loading="lazy"
-    />
-  );
-};
-
-// Brand colors for consistent theming
-export const brandColors = {
-  primary: '#2c5530',     // Forest green
-  secondary: '#4a7c59',   // Light forest green
-  accent: '#8bc34a',      // Light green
-  text: '#2c5530',        // Primary text
-  textLight: '#666666',   // Secondary text
-  background: '#ffffff',  // Background
-  surface: '#f8f9fa',     // Surface/card backgrounds
-  border: '#e0e0e0'       // Borders
-};
-
-// Typography scale
-export const typography = {
-  h1: {
-    fontSize: '2.5rem',
-    fontWeight: '700',
-    lineHeight: '1.2',
-    color: brandColors.primary
-  },
-  h2: {
-    fontSize: '2rem',
-    fontWeight: '600',
-    lineHeight: '1.3',
-    color: brandColors.primary
-  },
-  h3: {
-    fontSize: '1.5rem',
-    fontWeight: '600',
-    lineHeight: '1.4',
-    color: brandColors.text
-  },
-  body: {
-    fontSize: '1rem',
-    fontWeight: '400',
-    lineHeight: '1.6',
-    color: brandColors.text
-  },
-  caption: {
-    fontSize: '0.875rem',
-    fontWeight: '400',
-    lineHeight: '1.4',
-    color: brandColors.textLight
-  }
-};
-
-const brandingExports = { logos, Logo, brandColors, typography };
-
-export default brandingExports;
+// Logo and branding assets for Naturineximport NaturinexLogo from '../assets/logos/NaturinexLogo.png';import NaturinexLogoFull from '../assets/logos/Naturinex Logo.png';import NaturinexMono from '../assets/logos/Naturinex Mono.png';import NaturinexBlack from '../assets/logos/Naturinex black.png';export const logos = {  // Main logo - color version  main: NaturinexLogo,  // Full logo with text  full: NaturinexLogoFull,  // Monochrome version for dark backgrounds  mono: NaturinexMono,  // Black version for light backgrounds  black: NaturinexBlack};// Logo component for consistent usage across the appexport const Logo = ({   variant = 'main',   size = 'medium',   className = '',  alt = 'Naturinex Logo',  style = {} }) => {  const sizeMap = {    small: { width: '120px', height: 'auto' },    medium: { width: '180px', height: 'auto' },    large: { width: '240px', height: 'auto' },    header: { width: '140px', height: 'auto' },    favicon: { width: '32px', height: '32px' }  };  const logoSrc = logos[variant] || logos.main;  const logoSize = typeof size === 'string' ? sizeMap[size] : size;  return (    <img      src={logoSrc}      alt={alt}      className={className}      style={{        ...logoSize,        objectFit: 'contain',        ...style      }}      loading="lazy"    />  );};// Brand colors for consistent themingexport const brandColors = {  primary: '#2c5530',     // Forest green  secondary: '#4a7c59',   // Light forest green  accent: '#8bc34a',      // Light green  text: '#2c5530',        // Primary text  textLight: '#666666',   // Secondary text  background: '#ffffff',  // Background  surface: '#f8f9fa',     // Surface/card backgrounds  border: '#e0e0e0'       // Borders};// Typography scaleexport const typography = {  h1: {    fontSize: '2.5rem',    fontWeight: '700',    lineHeight: '1.2',    color: brandColors.primary  },  h2: {    fontSize: '2rem',    fontWeight: '600',    lineHeight: '1.3',    color: brandColors.primary  },  h3: {    fontSize: '1.5rem',    fontWeight: '600',    lineHeight: '1.4',    color: brandColors.text  },  body: {    fontSize: '1rem',    fontWeight: '400',    lineHeight: '1.6',    color: brandColors.text  },  caption: {    fontSize: '0.875rem',    fontWeight: '400',    lineHeight: '1.4',    color: brandColors.textLight  }};const brandingExports = { logos, Logo, brandColors, typography };export default brandingExports;

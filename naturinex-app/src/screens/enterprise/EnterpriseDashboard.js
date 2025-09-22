@@ -1,520 +1,1 @@
-/**
- * Enterprise Admin Dashboard - Main Overview Screen
- * Provides comprehensive view of organization metrics, usage, and management
- */
-
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Alert,
-  RefreshControl,
-  Dimensions
-} from 'react-native';
-import { LineChart, BarChart, PieChart } from 'react-native-chart-kit';
-import { Ionicons } from '@expo/vector-icons';
-import EnterpriseService from '../../services/EnterpriseService';
-
-const { width: screenWidth } = Dimensions.get('window');
-
-const EnterpriseDashboard = ({ navigation, route }) => {
-  const [dashboardData, setDashboardData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [selectedPeriod, setSelectedPeriod] = useState('monthly');
-  const { organizationId } = route.params;
-
-  useEffect(() => {
-    loadDashboardData();
-  }, [organizationId, selectedPeriod]);
-
-  const loadDashboardData = async () => {
-    try {
-      const [orgResult, billingResult, usageResult, usersResult] = await Promise.all([
-        EnterpriseService.getOrganizationByDomain(organizationId),
-        EnterpriseService.getBillingDashboard(organizationId),
-        EnterpriseService.getUsageAnalytics(organizationId, { period: selectedPeriod }),
-        EnterpriseService.getOrganizationUsers(organizationId, { limit: 5 })
-      ]);
-
-      if (orgResult.success && billingResult.success) {
-        setDashboardData({
-          organization: orgResult.data,
-          billing: billingResult.data,
-          usage: usageResult.success ? usageResult.data : [],
-          recentUsers: usersResult.success ? usersResult.data.users : []
-        });
-      }
-    } catch (error) {
-      console.error('Error loading dashboard data:', error);
-      Alert.alert('Error', 'Failed to load dashboard data');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  const onRefresh = () => {
-    setRefreshing(true);
-    loadDashboardData();
-  };
-
-  const renderMetricCard = (title, value, icon, color, onPress) => (
-    <TouchableOpacity style={[styles.metricCard, { borderLeftColor: color }]} onPress={onPress}>
-      <View style={styles.metricHeader}>
-        <Ionicons name={icon} size={24} color={color} />
-        <Text style={styles.metricTitle}>{title}</Text>
-      </View>
-      <Text style={styles.metricValue}>{value}</Text>
-    </TouchableOpacity>
-  );
-
-  const renderUsageChart = () => {
-    if (!dashboardData?.usage || dashboardData.usage.length === 0) {
-      return (
-        <View style={styles.chartContainer}>
-          <Text style={styles.chartTitle}>API Usage Trends</Text>
-          <View style={styles.noDataContainer}>
-            <Text style={styles.noDataText}>No usage data available</Text>
-          </View>
-        </View>
-      );
-    }
-
-    const chartData = {
-      labels: dashboardData.usage.slice(-7).map(item =>
-        new Date(item.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-      ),
-      datasets: [{
-        data: dashboardData.usage.slice(-7).map(item => item.total_api_calls || 0),
-        color: (opacity = 1) => `rgba(134, 65, 244, ${opacity})`,
-        strokeWidth: 2
-      }]
-    };
-
-    return (
-      <View style={styles.chartContainer}>
-        <Text style={styles.chartTitle}>API Usage Trends</Text>
-        <LineChart
-          data={chartData}
-          width={screenWidth - 40}
-          height={220}
-          chartConfig={{
-            backgroundColor: '#ffffff',
-            backgroundGradientFrom: '#ffffff',
-            backgroundGradientTo: '#ffffff',
-            decimalPlaces: 0,
-            color: (opacity = 1) => `rgba(134, 65, 244, ${opacity})`,
-            labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
-            style: { borderRadius: 16 },
-            propsForDots: {
-              r: '6',
-              strokeWidth: '2',
-              stroke: '#8641f4'
-            }
-          }}
-          bezier
-          style={styles.chart}
-        />
-      </View>
-    );
-  };
-
-  const renderQuickActions = () => (
-    <View style={styles.quickActionsContainer}>
-      <Text style={styles.sectionTitle}>Quick Actions</Text>
-      <View style={styles.actionsGrid}>
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => navigation.navigate('UserManagement', { organizationId })}
-        >
-          <Ionicons name="people" size={24} color="#4CAF50" />
-          <Text style={styles.actionText}>Manage Users</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => navigation.navigate('APIKeyManagement', { organizationId })}
-        >
-          <Ionicons name="key" size={24} color="#FF9800" />
-          <Text style={styles.actionText}>API Keys</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => navigation.navigate('BillingManagement', { organizationId })}
-        >
-          <Ionicons name="card" size={24} color="#2196F3" />
-          <Text style={styles.actionText}>Billing</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => navigation.navigate('AnalyticsReports', { organizationId })}
-        >
-          <Ionicons name="analytics" size={24} color="#9C27B0" />
-          <Text style={styles.actionText}>Analytics</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => navigation.navigate('IntegrationManagement', { organizationId })}
-        >
-          <Ionicons name="link" size={24} color="#607D8B" />
-          <Text style={styles.actionText}>Integrations</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => navigation.navigate('WhiteLabelConfig', { organizationId })}
-        >
-          <Ionicons name="brush" size={24} color="#E91E63" />
-          <Text style={styles.actionText}>Branding</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  const renderRecentActivity = () => (
-    <View style={styles.recentActivityContainer}>
-      <Text style={styles.sectionTitle}>Recent Users</Text>
-      {dashboardData?.recentUsers?.map((user, index) => (
-        <View key={index} style={styles.userItem}>
-          <View style={styles.userInfo}>
-            <Ionicons name="person-circle" size={32} color="#8641f4" />
-            <View style={styles.userDetails}>
-              <Text style={styles.userName}>{user.user_id}</Text>
-              <Text style={styles.userRole}>{user.role}</Text>
-            </View>
-          </View>
-          <View style={[styles.statusBadge, { backgroundColor: user.status === 'active' ? '#4CAF50' : '#FF9800' }]}>
-            <Text style={styles.statusText}>{user.status}</Text>
-          </View>
-        </View>
-      ))}
-
-      <TouchableOpacity
-        style={styles.viewAllButton}
-        onPress={() => navigation.navigate('UserManagement', { organizationId })}
-      >
-        <Text style={styles.viewAllText}>View All Users</Text>
-        <Ionicons name="chevron-forward" size={16} color="#8641f4" />
-      </TouchableOpacity>
-    </View>
-  );
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <Text>Loading dashboard...</Text>
-      </View>
-    );
-  }
-
-  const organization = dashboardData?.organization;
-  const billing = dashboardData?.billing;
-
-  return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <Text style={styles.organizationName}>{organization?.name}</Text>
-        <Text style={styles.organizationDomain}>@{organization?.domain}</Text>
-      </View>
-
-      {/* Key Metrics */}
-      <View style={styles.metricsContainer}>
-        {renderMetricCard(
-          'Active Users',
-          dashboardData?.recentUsers?.length || 0,
-          'people',
-          '#4CAF50',
-          () => navigation.navigate('UserManagement', { organizationId })
-        )}
-
-        {renderMetricCard(
-          'API Calls',
-          billing?.usage?.total_api_calls || 0,
-          'pulse',
-          '#2196F3',
-          () => navigation.navigate('AnalyticsReports', { organizationId })
-        )}
-
-        {renderMetricCard(
-          'Quota Usage',
-          `${billing?.quotaUsage?.toFixed(1) || 0}%`,
-          'speedometer',
-          billing?.quotaUsage > 80 ? '#FF5722' : '#FF9800',
-          () => navigation.navigate('BillingManagement', { organizationId })
-        )}
-
-        {renderMetricCard(
-          'Monthly Cost',
-          `$${billing?.billing?.monthly_fee || 0}`,
-          'card',
-          '#9C27B0',
-          () => navigation.navigate('BillingManagement', { organizationId })
-        )}
-      </View>
-
-      {/* Period Selector */}
-      <View style={styles.periodSelector}>
-        {['daily', 'weekly', 'monthly'].map(period => (
-          <TouchableOpacity
-            key={period}
-            style={[
-              styles.periodButton,
-              selectedPeriod === period && styles.periodButtonActive
-            ]}
-            onPress={() => setSelectedPeriod(period)}
-          >
-            <Text style={[
-              styles.periodText,
-              selectedPeriod === period && styles.periodTextActive
-            ]}>
-              {period.charAt(0).toUpperCase() + period.slice(1)}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* Usage Chart */}
-      {renderUsageChart()}
-
-      {/* Quick Actions */}
-      {renderQuickActions()}
-
-      {/* Recent Activity */}
-      {renderRecentActivity()}
-    </ScrollView>
-  );
-};
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5'
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  header: {
-    backgroundColor: '#8641f4',
-    padding: 20,
-    paddingTop: 40
-  },
-  organizationName: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: 'white',
-    marginBottom: 4
-  },
-  organizationDomain: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.8)'
-  },
-  metricsContainer: {
-    padding: 20,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between'
-  },
-  metricCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    width: '48%',
-    marginBottom: 16,
-    borderLeftWidth: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3
-  },
-  metricHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8
-  },
-  metricTitle: {
-    fontSize: 14,
-    color: '#666',
-    marginLeft: 8,
-    fontWeight: '500'
-  },
-  metricValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333'
-  },
-  periodSelector: {
-    flexDirection: 'row',
-    paddingHorizontal: 20,
-    marginBottom: 20
-  },
-  periodButton: {
-    backgroundColor: 'white',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 12,
-    borderWidth: 1,
-    borderColor: '#ddd'
-  },
-  periodButtonActive: {
-    backgroundColor: '#8641f4',
-    borderColor: '#8641f4'
-  },
-  periodText: {
-    color: '#666',
-    fontSize: 14,
-    fontWeight: '500'
-  },
-  periodTextActive: {
-    color: 'white'
-  },
-  chartContainer: {
-    backgroundColor: 'white',
-    marginHorizontal: 20,
-    marginBottom: 20,
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3
-  },
-  chartTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 16
-  },
-  chart: {
-    marginVertical: 8,
-    borderRadius: 16
-  },
-  noDataContainer: {
-    height: 200,
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  noDataText: {
-    color: '#666',
-    fontSize: 16
-  },
-  quickActionsContainer: {
-    backgroundColor: 'white',
-    marginHorizontal: 20,
-    marginBottom: 20,
-    borderRadius: 12,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 16
-  },
-  actionsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between'
-  },
-  actionButton: {
-    width: '48%',
-    backgroundColor: '#f8f9fa',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#e9ecef'
-  },
-  actionText: {
-    marginTop: 8,
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#333',
-    textAlign: 'center'
-  },
-  recentActivityContainer: {
-    backgroundColor: 'white',
-    marginHorizontal: 20,
-    marginBottom: 20,
-    borderRadius: 12,
-    padding: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3
-  },
-  userItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0'
-  },
-  userInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1
-  },
-  userDetails: {
-    marginLeft: 12,
-    flex: 1
-  },
-  userName: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#333'
-  },
-  userRole: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 2
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12
-  },
-  statusText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: '500'
-  },
-  viewAllButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 16,
-    paddingVertical: 12
-  },
-  viewAllText: {
-    color: '#8641f4',
-    fontSize: 16,
-    fontWeight: '500',
-    marginRight: 4
-  }
-});
-
-export default EnterpriseDashboard;
+/** * Enterprise Admin Dashboard - Main Overview Screen * Provides comprehensive view of organization metrics, usage, and management */import React, { useState, useEffect } from 'react';import {  View,  Text,  StyleSheet,  ScrollView,  TouchableOpacity,  Alert,  RefreshControl,  Dimensions} from 'react-native';import { LineChart, BarChart, PieChart } from 'react-native-chart-kit';import { Ionicons } from '@expo/vector-icons';import EnterpriseService from '../../services/EnterpriseService';const { width: screenWidth } = Dimensions.get('window');const EnterpriseDashboard = ({ navigation, route }) => {  const [dashboardData, setDashboardData] = useState(null);  const [loading, setLoading] = useState(true);  const [refreshing, setRefreshing] = useState(false);  const [selectedPeriod, setSelectedPeriod] = useState('monthly');  const { organizationId } = route.params;  useEffect(() => {    loadDashboardData();  }, [organizationId, selectedPeriod]);  const loadDashboardData = async () => {    try {      const [orgResult, billingResult, usageResult, usersResult] = await Promise.all([        EnterpriseService.getOrganizationByDomain(organizationId),        EnterpriseService.getBillingDashboard(organizationId),        EnterpriseService.getUsageAnalytics(organizationId, { period: selectedPeriod }),        EnterpriseService.getOrganizationUsers(organizationId, { limit: 5 })      ]);      if (orgResult.success && billingResult.success) {        setDashboardData({          organization: orgResult.data,          billing: billingResult.data,          usage: usageResult.success ? usageResult.data : [],          recentUsers: usersResult.success ? usersResult.data.users : []        });      }    } catch (error) {      console.error('Error loading dashboard data:', error);      Alert.alert('Error', 'Failed to load dashboard data');    } finally {      setLoading(false);      setRefreshing(false);    }  };  const onRefresh = () => {    setRefreshing(true);    loadDashboardData();  };  const renderMetricCard = (title, value, icon, color, onPress) => (    <TouchableOpacity style={[styles.metricCard, { borderLeftColor: color }]} onPress={onPress}>      <View style={styles.metricHeader}>        <Ionicons name={icon} size={24} color={color} />        <Text style={styles.metricTitle}>{title}</Text>      </View>      <Text style={styles.metricValue}>{value}</Text>    </TouchableOpacity>  );  const renderUsageChart = () => {    if (!dashboardData?.usage || dashboardData.usage.length === 0) {      return (        <View style={styles.chartContainer}>          <Text style={styles.chartTitle}>API Usage Trends</Text>          <View style={styles.noDataContainer}>            <Text style={styles.noDataText}>No usage data available</Text>          </View>        </View>      );    }    const chartData = {      labels: dashboardData.usage.slice(-7).map(item =>        new Date(item.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })      ),      datasets: [{        data: dashboardData.usage.slice(-7).map(item => item.total_api_calls || 0),        color: (opacity = 1) => `rgba(134, 65, 244, ${opacity})`,        strokeWidth: 2      }]    };    return (      <View style={styles.chartContainer}>        <Text style={styles.chartTitle}>API Usage Trends</Text>        <LineChart          data={chartData}          width={screenWidth - 40}          height={220}          chartConfig={{            backgroundColor: '#ffffff',            backgroundGradientFrom: '#ffffff',            backgroundGradientTo: '#ffffff',            decimalPlaces: 0,            color: (opacity = 1) => `rgba(134, 65, 244, ${opacity})`,            labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,            style: { borderRadius: 16 },            propsForDots: {              r: '6',              strokeWidth: '2',              stroke: '#8641f4'            }          }}          bezier          style={styles.chart}        />      </View>    );  };  const renderQuickActions = () => (    <View style={styles.quickActionsContainer}>      <Text style={styles.sectionTitle}>Quick Actions</Text>      <View style={styles.actionsGrid}>        <TouchableOpacity          style={styles.actionButton}          onPress={() => navigation.navigate('UserManagement', { organizationId })}        >          <Ionicons name="people" size={24} color="#4CAF50" />          <Text style={styles.actionText}>Manage Users</Text>        </TouchableOpacity>        <TouchableOpacity          style={styles.actionButton}          onPress={() => navigation.navigate('APIKeyManagement', { organizationId })}        >          <Ionicons name="key" size={24} color="#FF9800" />          <Text style={styles.actionText}>API Keys</Text>        </TouchableOpacity>        <TouchableOpacity          style={styles.actionButton}          onPress={() => navigation.navigate('BillingManagement', { organizationId })}        >          <Ionicons name="card" size={24} color="#2196F3" />          <Text style={styles.actionText}>Billing</Text>        </TouchableOpacity>        <TouchableOpacity          style={styles.actionButton}          onPress={() => navigation.navigate('AnalyticsReports', { organizationId })}        >          <Ionicons name="analytics" size={24} color="#9C27B0" />          <Text style={styles.actionText}>Analytics</Text>        </TouchableOpacity>        <TouchableOpacity          style={styles.actionButton}          onPress={() => navigation.navigate('IntegrationManagement', { organizationId })}        >          <Ionicons name="link" size={24} color="#607D8B" />          <Text style={styles.actionText}>Integrations</Text>        </TouchableOpacity>        <TouchableOpacity          style={styles.actionButton}          onPress={() => navigation.navigate('WhiteLabelConfig', { organizationId })}        >          <Ionicons name="brush" size={24} color="#E91E63" />          <Text style={styles.actionText}>Branding</Text>        </TouchableOpacity>      </View>    </View>  );  const renderRecentActivity = () => (    <View style={styles.recentActivityContainer}>      <Text style={styles.sectionTitle}>Recent Users</Text>      {dashboardData?.recentUsers?.map((user, index) => (        <View key={index} style={styles.userItem}>          <View style={styles.userInfo}>            <Ionicons name="person-circle" size={32} color="#8641f4" />            <View style={styles.userDetails}>              <Text style={styles.userName}>{user.user_id}</Text>              <Text style={styles.userRole}>{user.role}</Text>            </View>          </View>          <View style={[styles.statusBadge, { backgroundColor: user.status === 'active' ? '#4CAF50' : '#FF9800' }]}>            <Text style={styles.statusText}>{user.status}</Text>          </View>        </View>      ))}      <TouchableOpacity        style={styles.viewAllButton}        onPress={() => navigation.navigate('UserManagement', { organizationId })}      >        <Text style={styles.viewAllText}>View All Users</Text>        <Ionicons name="chevron-forward" size={16} color="#8641f4" />      </TouchableOpacity>    </View>  );  if (loading) {    return (      <View style={styles.loadingContainer}>        <Text>Loading dashboard...</Text>      </View>    );  }  const organization = dashboardData?.organization;  const billing = dashboardData?.billing;  return (    <ScrollView      style={styles.container}      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}    >      {/* Header */}      <View style={styles.header}>        <Text style={styles.organizationName}>{organization?.name}</Text>        <Text style={styles.organizationDomain}>@{organization?.domain}</Text>      </View>      {/* Key Metrics */}      <View style={styles.metricsContainer}>        {renderMetricCard(          'Active Users',          dashboardData?.recentUsers?.length || 0,          'people',          '#4CAF50',          () => navigation.navigate('UserManagement', { organizationId })        )}        {renderMetricCard(          'API Calls',          billing?.usage?.total_api_calls || 0,          'pulse',          '#2196F3',          () => navigation.navigate('AnalyticsReports', { organizationId })        )}        {renderMetricCard(          'Quota Usage',          `${billing?.quotaUsage?.toFixed(1) || 0}%`,          'speedometer',          billing?.quotaUsage > 80 ? '#FF5722' : '#FF9800',          () => navigation.navigate('BillingManagement', { organizationId })        )}        {renderMetricCard(          'Monthly Cost',          `$${billing?.billing?.monthly_fee || 0}`,          'card',          '#9C27B0',          () => navigation.navigate('BillingManagement', { organizationId })        )}      </View>      {/* Period Selector */}      <View style={styles.periodSelector}>        {['daily', 'weekly', 'monthly'].map(period => (          <TouchableOpacity            key={period}            style={[              styles.periodButton,              selectedPeriod === period && styles.periodButtonActive            ]}            onPress={() => setSelectedPeriod(period)}          >            <Text style={[              styles.periodText,              selectedPeriod === period && styles.periodTextActive            ]}>              {period.charAt(0).toUpperCase() + period.slice(1)}            </Text>          </TouchableOpacity>        ))}      </View>      {/* Usage Chart */}      {renderUsageChart()}      {/* Quick Actions */}      {renderQuickActions()}      {/* Recent Activity */}      {renderRecentActivity()}    </ScrollView>  );};const styles = StyleSheet.create({  container: {    flex: 1,    backgroundColor: '#f5f5f5'  },  loadingContainer: {    flex: 1,    justifyContent: 'center',    alignItems: 'center'  },  header: {    backgroundColor: '#8641f4',    padding: 20,    paddingTop: 40  },  organizationName: {    fontSize: 24,    fontWeight: 'bold',    color: 'white',    marginBottom: 4  },  organizationDomain: {    fontSize: 16,    color: 'rgba(255, 255, 255, 0.8)'  },  metricsContainer: {    padding: 20,    flexDirection: 'row',    flexWrap: 'wrap',    justifyContent: 'space-between'  },  metricCard: {    backgroundColor: 'white',    borderRadius: 12,    padding: 16,    width: '48%',    marginBottom: 16,    borderLeftWidth: 4,    shadowColor: '#000',    shadowOffset: { width: 0, height: 2 },    shadowOpacity: 0.1,    shadowRadius: 4,    elevation: 3  },  metricHeader: {    flexDirection: 'row',    alignItems: 'center',    marginBottom: 8  },  metricTitle: {    fontSize: 14,    color: '#666',    marginLeft: 8,    fontWeight: '500'  },  metricValue: {    fontSize: 24,    fontWeight: 'bold',    color: '#333'  },  periodSelector: {    flexDirection: 'row',    paddingHorizontal: 20,    marginBottom: 20  },  periodButton: {    backgroundColor: 'white',    paddingHorizontal: 16,    paddingVertical: 8,    borderRadius: 20,    marginRight: 12,    borderWidth: 1,    borderColor: '#ddd'  },  periodButtonActive: {    backgroundColor: '#8641f4',    borderColor: '#8641f4'  },  periodText: {    color: '#666',    fontSize: 14,    fontWeight: '500'  },  periodTextActive: {    color: 'white'  },  chartContainer: {    backgroundColor: 'white',    marginHorizontal: 20,    marginBottom: 20,    borderRadius: 12,    padding: 16,    shadowColor: '#000',    shadowOffset: { width: 0, height: 2 },    shadowOpacity: 0.1,    shadowRadius: 4,    elevation: 3  },  chartTitle: {    fontSize: 18,    fontWeight: 'bold',    color: '#333',    marginBottom: 16  },  chart: {    marginVertical: 8,    borderRadius: 16  },  noDataContainer: {    height: 200,    justifyContent: 'center',    alignItems: 'center'  },  noDataText: {    color: '#666',    fontSize: 16  },  quickActionsContainer: {    backgroundColor: 'white',    marginHorizontal: 20,    marginBottom: 20,    borderRadius: 12,    padding: 20,    shadowColor: '#000',    shadowOffset: { width: 0, height: 2 },    shadowOpacity: 0.1,    shadowRadius: 4,    elevation: 3  },  sectionTitle: {    fontSize: 18,    fontWeight: 'bold',    color: '#333',    marginBottom: 16  },  actionsGrid: {    flexDirection: 'row',    flexWrap: 'wrap',    justifyContent: 'space-between'  },  actionButton: {    width: '48%',    backgroundColor: '#f8f9fa',    borderRadius: 12,    padding: 16,    alignItems: 'center',    marginBottom: 12,    borderWidth: 1,    borderColor: '#e9ecef'  },  actionText: {    marginTop: 8,    fontSize: 14,    fontWeight: '500',    color: '#333',    textAlign: 'center'  },  recentActivityContainer: {    backgroundColor: 'white',    marginHorizontal: 20,    marginBottom: 20,    borderRadius: 12,    padding: 20,    shadowColor: '#000',    shadowOffset: { width: 0, height: 2 },    shadowOpacity: 0.1,    shadowRadius: 4,    elevation: 3  },  userItem: {    flexDirection: 'row',    alignItems: 'center',    justifyContent: 'space-between',    paddingVertical: 12,    borderBottomWidth: 1,    borderBottomColor: '#f0f0f0'  },  userInfo: {    flexDirection: 'row',    alignItems: 'center',    flex: 1  },  userDetails: {    marginLeft: 12,    flex: 1  },  userName: {    fontSize: 16,    fontWeight: '500',    color: '#333'  },  userRole: {    fontSize: 14,    color: '#666',    marginTop: 2  },  statusBadge: {    paddingHorizontal: 8,    paddingVertical: 4,    borderRadius: 12  },  statusText: {    color: 'white',    fontSize: 12,    fontWeight: '500'  },  viewAllButton: {    flexDirection: 'row',    alignItems: 'center',    justifyContent: 'center',    marginTop: 16,    paddingVertical: 12  },  viewAllText: {    color: '#8641f4',    fontSize: 16,    fontWeight: '500',    marginRight: 4  }});export default EnterpriseDashboard;

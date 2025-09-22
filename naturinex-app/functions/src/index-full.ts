@@ -1,260 +1,1 @@
-import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
-import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import { handleStripeWebhook } from './stripeWebhook';
-import { createEnhancedCheckoutSession, applyPromoCode } from './enhancedCheckoutHandler';
-import { 
-  generateReferralCode, 
-  getReferralStats, 
-  cashOutReferralEarnings 
-} from './referralSystem';
-import { 
-  scheduleReEngagementCampaigns, 
-  handleEmailWebhook 
-} from './emailCampaigns';
-import { 
-  getGamificationProfile, 
-  getLeaderboard, 
-  claimDailyBonus 
-} from './gamificationFeatures';
-
-// Load environment variables
-dotenv.config();
-
-// Initialize Firebase Admin
-admin.initializeApp();
-
-// Create Express app
-const app = express();
-
-// Enable CORS
-app.use(cors({ origin: true }));
-
-// Middleware to handle JSON/raw body parsing
-app.use((req, res, next) => {
-  if (req.path === '/webhooks/stripe' || req.path === '/webhooks/email') {
-    // Use raw body for webhooks
-    express.raw({ type: 'application/json' })(req, res, next);
-  } else {
-    // Use JSON parser for other routes
-    express.json()(req, res, next);
-  }
-});
-
-// ====================
-// Health & Status
-// ====================
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(),
-    features: {
-      stripe: !!process.env.STRIPE_SECRET_KEY,
-      referrals: true,
-      gamification: true,
-      emails: !!process.env.SENDGRID_API_KEY
-    }
-  });
-});
-
-// ====================
-// Checkout & Payments
-// ====================
-app.post('/create-checkout-session', createEnhancedCheckoutSession);
-app.post('/apply-promo-code', applyPromoCode);
-
-// ====================
-// Referral System
-// ====================
-app.post('/referrals/generate', generateReferralCode);
-app.get('/referrals/stats/:userId', getReferralStats);
-app.post('/referrals/cashout', cashOutReferralEarnings);
-
-// ====================
-// Gamification
-// ====================
-app.get('/gamification/profile/:userId', getGamificationProfile);
-app.get('/gamification/leaderboard', getLeaderboard);
-app.post('/gamification/daily-bonus', claimDailyBonus);
-
-// ====================
-// Webhooks
-// ====================
-app.post('/webhooks/stripe', handleStripeWebhook);
-app.post('/webhooks/email', handleEmailWebhook);
-
-// ====================
-// Stripe Configuration
-// ====================
-app.get('/stripe-config', (req, res) => {
-  res.json({
-    publicKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
-    prices: {
-      basic_monthly: process.env.STRIPE_PRICE_BASIC_MONTHLY,
-      premium_monthly: process.env.STRIPE_PRICE_PREMIUM_MONTHLY,
-      professional_monthly: process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY,
-      basic_yearly: process.env.STRIPE_PRICE_BASIC_YEARLY,
-      premium_yearly: process.env.STRIPE_PRICE_PREMIUM_YEARLY,
-      professional_yearly: process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY,
-    },
-    features: {
-      referrals: true,
-      gamification: true,
-      freeTrialDays: 7
-    }
-  });
-});
-
-// ====================
-// Export Functions
-// ====================
-
-// Main API
-export const api = functions.https.onRequest(app);
-
-// Scheduled Functions
-export const checkSubscriptions = functions.pubsub
-  .schedule('every 24 hours')
-  .onRun(async (context) => {
-    console.log('Running daily subscription check...');
-    // Existing subscription check logic...
-    return null;
-  });
-
-export const runEmailCampaigns = functions.pubsub
-  .schedule('every day 09:00')
-  .timeZone('America/New_York')
-  .onRun(async (context) => {
-    console.log('Running email campaigns...');
-    await scheduleReEngagementCampaigns();
-    return null;
-  });
-
-// Event-triggered Functions
-export const onUserCreate = functions.auth.user().onCreate(async (user) => {
-  console.log('New user created:', user.uid);
-  
-  // Initialize user document with gamification data
-  await admin.firestore().collection('users').doc(user.uid).set({
-    email: user.email,
-    createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    gamification: {
-      points: 10, // Welcome bonus
-      level: 1,
-      achievements: [],
-      currentStreak: 0,
-      longestStreak: 0,
-      totalScans: 0
-    },
-    referralStats: {
-      totalReferrals: 0,
-      activeReferrals: 0,
-      pendingReferrals: 0,
-      totalEarnings: 0
-    },
-    preferences: {
-      emailNotifications: true,
-      pushNotifications: true,
-      weeklyDigest: true
-    }
-  }, { merge: true });
-  
-  // Send welcome notification
-  await admin.firestore().collection('notifications').add({
-    userId: user.uid,
-    type: 'welcome',
-    title: 'Welcome to Naturinex! 🌿',
-    message: 'Start your health journey with a 7-day free trial!',
-    data: {
-      action: 'complete_profile',
-      points: 10
-    },
-    read: false,
-    createdAt: admin.firestore.FieldValue.serverTimestamp()
-  });
-  
-  return null;
-});
-
-export const onPaymentSuccess = functions.firestore
-  .document('payments/{paymentId}')
-  .onCreate(async (snap, context) => {
-    const payment = snap.data();
-    
-    if (payment.status === 'succeeded') {
-      // Track gamification action
-      const { trackUserAction } = require('./gamificationFeatures');
-      await trackUserAction(payment.userId, 'subscription_purchased', {
-        plan: payment.plan,
-        amount: payment.amount
-      });
-      
-      // Process referral if applicable
-      if (payment.metadata?.referralCode) {
-        const { completeReferral } = require('./referralSystem');
-        await completeReferral(
-          payment.userId,
-          payment.subscriptionId,
-          payment.amount
-        );
-      }
-    }
-    
-    return null;
-  });
-
-// ====================
-// Testing Endpoint (remove in production)
-// ====================
-if (process.env.NODE_ENV !== 'production') {
-  app.post('/test/run-all', async (req, res) => {
-    try {
-      const { runAllTests } = require('./testAllFeatures');
-      await runAllTests();
-      res.json({ success: true, message: 'Tests completed' });
-    } catch (error) {
-      res.status(500).json({ error: 'Tests failed', details: error });
-    }
-  });
-}
-
-/**
- * Initialize required Firestore collections and indexes
- */
-export const initializeDatabase = functions.https.onRequest(async (req, res) => {
-  try {
-    const collections = [
-      'users',
-      'payments',
-      'referrals',
-      'referral_signups',
-      'referral_rewards',
-      'notifications',
-      'analytics',
-      'email_logs',
-      'email_events',
-      'user_actions',
-      'payout_requests'
-    ];
-    
-    // Create collections with sample documents
-    for (const collection of collections) {
-      const docRef = admin.firestore().collection(collection).doc('_init');
-      await docRef.set({
-        initialized: true,
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-      await docRef.delete();
-    }
-    
-    res.json({ 
-      success: true, 
-      message: 'Database initialized',
-      collections 
-    });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to initialize database' });
-  }
-});
+import * as functions from 'firebase-functions';import * as admin from 'firebase-admin';import express from 'express';import cors from 'cors';import dotenv from 'dotenv';import { handleStripeWebhook } from './stripeWebhook';import { createEnhancedCheckoutSession, applyPromoCode } from './enhancedCheckoutHandler';import {   generateReferralCode,   getReferralStats,   cashOutReferralEarnings } from './referralSystem';import {   scheduleReEngagementCampaigns,   handleEmailWebhook } from './emailCampaigns';import {   getGamificationProfile,   getLeaderboard,   claimDailyBonus } from './gamificationFeatures';// Load environment variablesdotenv.config();// Initialize Firebase Adminadmin.initializeApp();// Create Express appconst app = express();// Enable CORSapp.use(cors({ origin: true }));// Middleware to handle JSON/raw body parsingapp.use((req, res, next) => {  if (req.path === '/webhooks/stripe' || req.path === '/webhooks/email') {    // Use raw body for webhooks    express.raw({ type: 'application/json' })(req, res, next);  } else {    // Use JSON parser for other routes    express.json()(req, res, next);  }});// ====================// Health & Status// ====================app.get('/health', (req, res) => {  res.json({     status: 'ok',     timestamp: new Date().toISOString(),    features: {      stripe: !!process.env.STRIPE_SECRET_KEY,      referrals: true,      gamification: true,      emails: !!process.env.SENDGRID_API_KEY    }  });});// ====================// Checkout & Payments// ====================app.post('/create-checkout-session', createEnhancedCheckoutSession);app.post('/apply-promo-code', applyPromoCode);// ====================// Referral System// ====================app.post('/referrals/generate', generateReferralCode);app.get('/referrals/stats/:userId', getReferralStats);app.post('/referrals/cashout', cashOutReferralEarnings);// ====================// Gamification// ====================app.get('/gamification/profile/:userId', getGamificationProfile);app.get('/gamification/leaderboard', getLeaderboard);app.post('/gamification/daily-bonus', claimDailyBonus);// ====================// Webhooks// ====================app.post('/webhooks/stripe', handleStripeWebhook);app.post('/webhooks/email', handleEmailWebhook);// ====================// Stripe Configuration// ====================app.get('/stripe-config', (req, res) => {  res.json({    publicKey: process.env.STRIPE_PUBLISHABLE_KEY || '',    prices: {      basic_monthly: process.env.STRIPE_PRICE_BASIC_MONTHLY,      premium_monthly: process.env.STRIPE_PRICE_PREMIUM_MONTHLY,      professional_monthly: process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY,      basic_yearly: process.env.STRIPE_PRICE_BASIC_YEARLY,      premium_yearly: process.env.STRIPE_PRICE_PREMIUM_YEARLY,      professional_yearly: process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY,    },    features: {      referrals: true,      gamification: true,      freeTrialDays: 7    }  });});// ====================// Export Functions// ====================// Main APIexport const api = functions.https.onRequest(app);// Scheduled Functionsexport const checkSubscriptions = functions.pubsub  .schedule('every 24 hours')  .onRun(async (context) => {    // Existing subscription check logic...    return null;  });export const runEmailCampaigns = functions.pubsub  .schedule('every day 09:00')  .timeZone('America/New_York')  .onRun(async (context) => {    await scheduleReEngagementCampaigns();    return null;  });// Event-triggered Functionsexport const onUserCreate = functions.auth.user().onCreate(async (user) => {  // Initialize user document with gamification data  await admin.firestore().collection('users').doc(user.uid).set({    email: user.email,    createdAt: admin.firestore.FieldValue.serverTimestamp(),    gamification: {      points: 10, // Welcome bonus      level: 1,      achievements: [],      currentStreak: 0,      longestStreak: 0,      totalScans: 0    },    referralStats: {      totalReferrals: 0,      activeReferrals: 0,      pendingReferrals: 0,      totalEarnings: 0    },    preferences: {      emailNotifications: true,      pushNotifications: true,      weeklyDigest: true    }  }, { merge: true });  // Send welcome notification  await admin.firestore().collection('notifications').add({    userId: user.uid,    type: 'welcome',    title: 'Welcome to Naturinex! 🌿',    message: 'Start your health journey with a 7-day free trial!',    data: {      action: 'complete_profile',      points: 10    },    read: false,    createdAt: admin.firestore.FieldValue.serverTimestamp()  });  return null;});export const onPaymentSuccess = functions.firestore  .document('payments/{paymentId}')  .onCreate(async (snap, context) => {    const payment = snap.data();    if (payment.status === 'succeeded') {      // Track gamification action      const { trackUserAction } = require('./gamificationFeatures');      await trackUserAction(payment.userId, 'subscription_purchased', {        plan: payment.plan,        amount: payment.amount      });      // Process referral if applicable      if (payment.metadata?.referralCode) {        const { completeReferral } = require('./referralSystem');        await completeReferral(          payment.userId,          payment.subscriptionId,          payment.amount        );      }    }    return null;  });// ====================// Testing Endpoint (remove in production)// ====================if (process.env.NODE_ENV !== 'production') {  app.post('/test/run-all', async (req, res) => {    try {      const { runAllTests } = require('./testAllFeatures');      await runAllTests();      res.json({ success: true, message: 'Tests completed' });    } catch (error) {      res.status(500).json({ error: 'Tests failed', details: error });    }  });}/** * Initialize required Firestore collections and indexes */export const initializeDatabase = functions.https.onRequest(async (req, res) => {  try {    const collections = [      'users',      'payments',      'referrals',      'referral_signups',      'referral_rewards',      'notifications',      'analytics',      'email_logs',      'email_events',      'user_actions',      'payout_requests'    ];    // Create collections with sample documents    for (const collection of collections) {      const docRef = admin.firestore().collection(collection).doc('_init');      await docRef.set({        initialized: true,        createdAt: admin.firestore.FieldValue.serverTimestamp()      });      await docRef.delete();    }    res.json({       success: true,       message: 'Database initialized',      collections     });  } catch (error) {    res.status(500).json({ error: 'Failed to initialize database' });  }});

@@ -1,468 +1,1 @@
-/**
- * Offline Service for Caching and Offline Functionality
- * Provides offline support for medication suggestions and data
- */
-
-class OfflineService {
-  constructor() {
-    this.dbName = 'naturinex-offline';
-    this.dbVersion = 1;
-    this.db = null;
-    this.isOnline = navigator.onLine;
-    
-    // Common medications database for offline suggestions
-    this.offlineMedications = {
-      'pain': {
-        conventional: ['ibuprofen', 'aspirin', 'acetaminophen', 'naproxen'],
-        natural: {
-          'turmeric': {
-            description: 'Natural anti-inflammatory compound',
-            dosage: '500-2000mg curcumin daily',
-            precautions: 'May interact with blood thinners'
-          },
-          'ginger': {
-            description: 'Anti-inflammatory and pain relief',
-            dosage: '250-1000mg daily',
-            precautions: 'May increase bleeding risk'
-          },
-          'willow bark': {
-            description: 'Natural aspirin precursor',
-            dosage: '240mg daily',
-            precautions: 'Similar side effects to aspirin'
-          },
-          'boswellia': {
-            description: 'Reduces inflammation in joints',
-            dosage: '300-500mg 2-3 times daily',
-            precautions: 'May cause stomach upset'
-          }
-        }
-      },
-      'anxiety': {
-        conventional: ['alprazolam', 'lorazepam', 'diazepam', 'escitalopram'],
-        natural: {
-          'ashwagandha': {
-            description: 'Adaptogen for stress and anxiety',
-            dosage: '300-600mg daily',
-            precautions: 'May affect thyroid hormones'
-          },
-          'l-theanine': {
-            description: 'Promotes relaxation without drowsiness',
-            dosage: '100-200mg 1-2 times daily',
-            precautions: 'Generally well tolerated'
-          },
-          'passionflower': {
-            description: 'Calming herb for anxiety',
-            dosage: '45-90 drops tincture daily',
-            precautions: 'May cause drowsiness'
-          },
-          'valerian': {
-            description: 'Sedative herb for anxiety and sleep',
-            dosage: '300-600mg before bed',
-            precautions: 'Do not combine with sedatives'
-          }
-        }
-      },
-      'diabetes': {
-        conventional: ['metformin', 'glipizide', 'insulin', 'sitagliptin'],
-        natural: {
-          'berberine': {
-            description: 'Natural metformin alternative',
-            dosage: '500mg 2-3 times daily',
-            precautions: 'Monitor blood sugar closely'
-          },
-          'cinnamon': {
-            description: 'Helps improve insulin sensitivity',
-            dosage: '1-6g Ceylon cinnamon daily',
-            precautions: 'Use Ceylon, not Cassia variety'
-          },
-          'bitter melon': {
-            description: 'Traditional blood sugar support',
-            dosage: '50-100ml juice daily',
-            precautions: 'May cause hypoglycemia'
-          },
-          'gymnema': {
-            description: 'Reduces sugar absorption',
-            dosage: '200-400mg daily',
-            precautions: 'Take with meals'
-          }
-        }
-      },
-      'hypertension': {
-        conventional: ['lisinopril', 'amlodipine', 'metoprolol', 'losartan'],
-        natural: {
-          'hawthorn': {
-            description: 'Cardiovascular tonic',
-            dosage: '160-900mg extract daily',
-            precautions: 'May enhance heart medications'
-          },
-          'garlic': {
-            description: 'Natural blood pressure reducer',
-            dosage: '600-1200mg aged extract daily',
-            precautions: 'May increase bleeding risk'
-          },
-          'hibiscus': {
-            description: 'ACE inhibitor-like effects',
-            dosage: '1-2 cups tea daily',
-            precautions: 'May affect estrogen levels'
-          },
-          'coq10': {
-            description: 'Supports heart health',
-            dosage: '100-200mg daily',
-            precautions: 'May interact with warfarin'
-          }
-        }
-      },
-      'cholesterol': {
-        conventional: ['atorvastatin', 'simvastatin', 'rosuvastatin', 'pravastatin'],
-        natural: {
-          'red yeast rice': {
-            description: 'Natural statin compound',
-            dosage: '1200-2400mg daily',
-            precautions: 'Monitor liver function'
-          },
-          'plant sterols': {
-            description: 'Blocks cholesterol absorption',
-            dosage: '2g daily with meals',
-            precautions: 'May reduce vitamin absorption'
-          },
-          'psyllium': {
-            description: 'Soluble fiber for cholesterol',
-            dosage: '5-10g daily',
-            precautions: 'Increase water intake'
-          },
-          'bergamot': {
-            description: 'Citrus extract for lipids',
-            dosage: '500-1000mg daily',
-            precautions: 'May interact with statins'
-          }
-        }
-      },
-      'digestion': {
-        conventional: ['omeprazole', 'ranitidine', 'famotidine', 'pantoprazole'],
-        natural: {
-          'dgl licorice': {
-            description: 'Soothes digestive tract',
-            dosage: '380-760mg before meals',
-            precautions: 'Use DGL form only'
-          },
-          'slippery elm': {
-            description: 'Protective coating for stomach',
-            dosage: '400-500mg 3-4 times daily',
-            precautions: 'Take separately from medications'
-          },
-          'probiotics': {
-            description: 'Restore gut flora balance',
-            dosage: '10-50 billion CFU daily',
-            precautions: 'Refrigerate if required'
-          },
-          'digestive enzymes': {
-            description: 'Support digestion',
-            dosage: 'With each meal',
-            precautions: 'Not for ulcers'
-          }
-        }
-      }
-    };
-
-    this.initializeDB();
-    this.setupEventListeners();
-  }
-
-  async initializeDB() {
-    try {
-      const request = indexedDB.open(this.dbName, this.dbVersion);
-
-      request.onerror = () => {
-        console.error('Failed to open offline database');
-      };
-
-      request.onsuccess = (event) => {
-        this.db = event.target.result;
-        console.log('Offline database initialized');
-      };
-
-      request.onupgradeneeded = (event) => {
-        const db = event.target.result;
-
-        // Create object stores
-        if (!db.objectStoreNames.contains('cachedSuggestions')) {
-          const suggestionsStore = db.createObjectStore('cachedSuggestions', { keyPath: 'medicationName' });
-          suggestionsStore.createIndex('timestamp', 'timestamp', { unique: false });
-        }
-
-        if (!db.objectStoreNames.contains('pendingScans')) {
-          const pendingStore = db.createObjectStore('pendingScans', { keyPath: 'id', autoIncrement: true });
-          pendingStore.createIndex('timestamp', 'timestamp', { unique: false });
-        }
-
-        if (!db.objectStoreNames.contains('userPreferences')) {
-          db.createObjectStore('userPreferences', { keyPath: 'key' });
-        }
-      };
-    } catch (error) {
-      console.error('Error initializing offline database:', error);
-    }
-  }
-
-  setupEventListeners() {
-    window.addEventListener('online', () => {
-      this.isOnline = true;
-      this.syncPendingScans();
-    });
-
-    window.addEventListener('offline', () => {
-      this.isOnline = false;
-    });
-  }
-
-  // Cache medication suggestions
-  async cacheSuggestion(medicationName, suggestionData) {
-    if (!this.db) return;
-
-    try {
-      const transaction = this.db.transaction(['cachedSuggestions'], 'readwrite');
-      const store = transaction.objectStore('cachedSuggestions');
-
-      const cacheData = {
-        medicationName: medicationName.toLowerCase(),
-        data: suggestionData,
-        timestamp: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 days
-      };
-
-      await store.put(cacheData);
-    } catch (error) {
-      console.error('Error caching suggestion:', error);
-    }
-  }
-
-  // Get cached suggestion
-  async getCachedSuggestion(medicationName) {
-    if (!this.db) return null;
-
-    try {
-      const transaction = this.db.transaction(['cachedSuggestions'], 'readonly');
-      const store = transaction.objectStore('cachedSuggestions');
-      
-      return new Promise((resolve, reject) => {
-        const request = store.get(medicationName.toLowerCase());
-        
-        request.onsuccess = () => {
-          const result = request.result;
-          
-          if (result && new Date(result.expiresAt) > new Date()) {
-            resolve(result.data);
-          } else {
-            resolve(null);
-          }
-        };
-        
-        request.onerror = () => reject(request.error);
-      });
-    } catch (error) {
-      console.error('Error getting cached suggestion:', error);
-      return null;
-    }
-  }
-
-  // Get offline suggestions based on condition
-  getOfflineSuggestions(medicationName) {
-    const medication = medicationName.toLowerCase();
-    let suggestions = {
-      found: false,
-      medication: medicationName,
-      alternatives: [],
-      message: 'Offline mode - showing limited suggestions'
-    };
-
-    // Search through categories
-    for (const [condition, data] of Object.entries(this.offlineMedications)) {
-      if (data.conventional.some(med => medication.includes(med) || med.includes(medication))) {
-        suggestions.found = true;
-        suggestions.condition = condition;
-        suggestions.alternatives = Object.entries(data.natural).map(([name, info]) => ({
-          name: name.charAt(0).toUpperCase() + name.slice(1),
-          ...info
-        }));
-        break;
-      }
-    }
-
-    // If not found in conventional, search natural remedies
-    if (!suggestions.found) {
-      for (const [condition, data] of Object.entries(this.offlineMedications)) {
-        const naturalMeds = Object.keys(data.natural);
-        if (naturalMeds.some(med => medication.includes(med) || med.includes(medication))) {
-          const matchedMed = naturalMeds.find(med => medication.includes(med) || med.includes(medication));
-          suggestions.found = true;
-          suggestions.condition = condition;
-          suggestions.isNaturalRemedy = true;
-          suggestions.remedyInfo = {
-            name: matchedMed,
-            ...data.natural[matchedMed]
-          };
-          break;
-        }
-      }
-    }
-
-    return suggestions;
-  }
-
-  // Save scan for later processing
-  async savePendingScan(scanData) {
-    if (!this.db) return;
-
-    try {
-      const transaction = this.db.transaction(['pendingScans'], 'readwrite');
-      const store = transaction.objectStore('pendingScans');
-
-      const pendingData = {
-        ...scanData,
-        timestamp: new Date().toISOString(),
-        status: 'pending'
-      };
-
-      await store.add(pendingData);
-      console.log('Scan saved for offline processing');
-    } catch (error) {
-      console.error('Error saving pending scan:', error);
-    }
-  }
-
-  // Sync pending scans when online
-  async syncPendingScans() {
-    if (!this.db || !this.isOnline) return;
-
-    try {
-      const transaction = this.db.transaction(['pendingScans'], 'readwrite');
-      const store = transaction.objectStore('pendingScans');
-      
-      const request = store.getAll();
-      
-      request.onsuccess = async () => {
-        const pendingScans = request.result;
-        
-        for (const scan of pendingScans) {
-          try {
-            // Process the scan (this would call your API)
-            // For now, we'll just mark it as synced
-            scan.status = 'synced';
-            scan.syncedAt = new Date().toISOString();
-            
-            // Remove from pending
-            await store.delete(scan.id);
-            
-            console.log('Synced pending scan:', scan.id);
-          } catch (error) {
-            console.error('Error syncing scan:', scan.id, error);
-          }
-        }
-      };
-    } catch (error) {
-      console.error('Error syncing pending scans:', error);
-    }
-  }
-
-  // Clear old cache entries
-  async clearExpiredCache() {
-    if (!this.db) return;
-
-    try {
-      const transaction = this.db.transaction(['cachedSuggestions'], 'readwrite');
-      const store = transaction.objectStore('cachedSuggestions');
-      const index = store.index('timestamp');
-      
-      const now = new Date();
-      const request = index.openCursor();
-      
-      request.onsuccess = (event) => {
-        const cursor = event.target.result;
-        
-        if (cursor) {
-          const data = cursor.value;
-          if (new Date(data.expiresAt) < now) {
-            cursor.delete();
-          }
-          cursor.continue();
-        }
-      };
-    } catch (error) {
-      console.error('Error clearing expired cache:', error);
-    }
-  }
-
-  // Save user preferences for offline access
-  async saveUserPreference(key, value) {
-    if (!this.db) return;
-
-    try {
-      const transaction = this.db.transaction(['userPreferences'], 'readwrite');
-      const store = transaction.objectStore('userPreferences');
-
-      await store.put({ key, value, timestamp: new Date().toISOString() });
-    } catch (error) {
-      console.error('Error saving user preference:', error);
-    }
-  }
-
-  // Get user preference
-  async getUserPreference(key) {
-    if (!this.db) return null;
-
-    try {
-      const transaction = this.db.transaction(['userPreferences'], 'readonly');
-      const store = transaction.objectStore('userPreferences');
-      
-      return new Promise((resolve, reject) => {
-        const request = store.get(key);
-        request.onsuccess = () => resolve(request.result?.value || null);
-        request.onerror = () => reject(request.error);
-      });
-    } catch (error) {
-      console.error('Error getting user preference:', error);
-      return null;
-    }
-  }
-
-  // Check if offline mode is available
-  isOfflineModeAvailable() {
-    return 'indexedDB' in window && 'serviceWorker' in navigator;
-  }
-
-  // Get cache statistics
-  async getCacheStats() {
-    if (!this.db) return null;
-
-    try {
-      const transaction = this.db.transaction(['cachedSuggestions', 'pendingScans'], 'readonly');
-      const suggestionsStore = transaction.objectStore('cachedSuggestions');
-      const pendingStore = transaction.objectStore('pendingScans');
-
-      const stats = {
-        cachedSuggestions: 0,
-        pendingScans: 0
-      };
-
-      return new Promise((resolve, reject) => {
-        suggestionsStore.count().onsuccess = (event) => {
-          stats.cachedSuggestions = event.target.result;
-        };
-
-        pendingStore.count().onsuccess = (event) => {
-          stats.pendingScans = event.target.result;
-        };
-
-        transaction.oncomplete = () => resolve(stats);
-        transaction.onerror = () => reject(transaction.error);
-      });
-    } catch (error) {
-      console.error('Error getting cache stats:', error);
-      return null;
-    }
-  }
-}
-
-// Export singleton instance
-const offlineService = new OfflineService();
-export default offlineService;
+/** * Offline Service for Caching and Offline Functionality * Provides offline support for medication suggestions and data */class OfflineService {  constructor() {    this.dbName = 'naturinex-offline';    this.dbVersion = 1;    this.db = null;    this.isOnline = navigator.onLine;    // Common medications database for offline suggestions    this.offlineMedications = {      'pain': {        conventional: ['ibuprofen', 'aspirin', 'acetaminophen', 'naproxen'],        natural: {          'turmeric': {            description: 'Natural anti-inflammatory compound',            dosage: '500-2000mg curcumin daily',            precautions: 'May interact with blood thinners'          },          'ginger': {            description: 'Anti-inflammatory and pain relief',            dosage: '250-1000mg daily',            precautions: 'May increase bleeding risk'          },          'willow bark': {            description: 'Natural aspirin precursor',            dosage: '240mg daily',            precautions: 'Similar side effects to aspirin'          },          'boswellia': {            description: 'Reduces inflammation in joints',            dosage: '300-500mg 2-3 times daily',            precautions: 'May cause stomach upset'          }        }      },      'anxiety': {        conventional: ['alprazolam', 'lorazepam', 'diazepam', 'escitalopram'],        natural: {          'ashwagandha': {            description: 'Adaptogen for stress and anxiety',            dosage: '300-600mg daily',            precautions: 'May affect thyroid hormones'          },          'l-theanine': {            description: 'Promotes relaxation without drowsiness',            dosage: '100-200mg 1-2 times daily',            precautions: 'Generally well tolerated'          },          'passionflower': {            description: 'Calming herb for anxiety',            dosage: '45-90 drops tincture daily',            precautions: 'May cause drowsiness'          },          'valerian': {            description: 'Sedative herb for anxiety and sleep',            dosage: '300-600mg before bed',            precautions: 'Do not combine with sedatives'          }        }      },      'diabetes': {        conventional: ['metformin', 'glipizide', 'insulin', 'sitagliptin'],        natural: {          'berberine': {            description: 'Natural metformin alternative',            dosage: '500mg 2-3 times daily',            precautions: 'Monitor blood sugar closely'          },          'cinnamon': {            description: 'Helps improve insulin sensitivity',            dosage: '1-6g Ceylon cinnamon daily',            precautions: 'Use Ceylon, not Cassia variety'          },          'bitter melon': {            description: 'Traditional blood sugar support',            dosage: '50-100ml juice daily',            precautions: 'May cause hypoglycemia'          },          'gymnema': {            description: 'Reduces sugar absorption',            dosage: '200-400mg daily',            precautions: 'Take with meals'          }        }      },      'hypertension': {        conventional: ['lisinopril', 'amlodipine', 'metoprolol', 'losartan'],        natural: {          'hawthorn': {            description: 'Cardiovascular tonic',            dosage: '160-900mg extract daily',            precautions: 'May enhance heart medications'          },          'garlic': {            description: 'Natural blood pressure reducer',            dosage: '600-1200mg aged extract daily',            precautions: 'May increase bleeding risk'          },          'hibiscus': {            description: 'ACE inhibitor-like effects',            dosage: '1-2 cups tea daily',            precautions: 'May affect estrogen levels'          },          'coq10': {            description: 'Supports heart health',            dosage: '100-200mg daily',            precautions: 'May interact with warfarin'          }        }      },      'cholesterol': {        conventional: ['atorvastatin', 'simvastatin', 'rosuvastatin', 'pravastatin'],        natural: {          'red yeast rice': {            description: 'Natural statin compound',            dosage: '1200-2400mg daily',            precautions: 'Monitor liver function'          },          'plant sterols': {            description: 'Blocks cholesterol absorption',            dosage: '2g daily with meals',            precautions: 'May reduce vitamin absorption'          },          'psyllium': {            description: 'Soluble fiber for cholesterol',            dosage: '5-10g daily',            precautions: 'Increase water intake'          },          'bergamot': {            description: 'Citrus extract for lipids',            dosage: '500-1000mg daily',            precautions: 'May interact with statins'          }        }      },      'digestion': {        conventional: ['omeprazole', 'ranitidine', 'famotidine', 'pantoprazole'],        natural: {          'dgl licorice': {            description: 'Soothes digestive tract',            dosage: '380-760mg before meals',            precautions: 'Use DGL form only'          },          'slippery elm': {            description: 'Protective coating for stomach',            dosage: '400-500mg 3-4 times daily',            precautions: 'Take separately from medications'          },          'probiotics': {            description: 'Restore gut flora balance',            dosage: '10-50 billion CFU daily',            precautions: 'Refrigerate if required'          },          'digestive enzymes': {            description: 'Support digestion',            dosage: 'With each meal',            precautions: 'Not for ulcers'          }        }      }    };    this.initializeDB();    this.setupEventListeners();  }  async initializeDB() {    try {      const request = indexedDB.open(this.dbName, this.dbVersion);      request.onerror = () => {        console.error('Failed to open offline database');      };      request.onsuccess = (event) => {        this.db = event.target.result;      };      request.onupgradeneeded = (event) => {        const db = event.target.result;        // Create object stores        if (!db.objectStoreNames.contains('cachedSuggestions')) {          const suggestionsStore = db.createObjectStore('cachedSuggestions', { keyPath: 'medicationName' });          suggestionsStore.createIndex('timestamp', 'timestamp', { unique: false });        }        if (!db.objectStoreNames.contains('pendingScans')) {          const pendingStore = db.createObjectStore('pendingScans', { keyPath: 'id', autoIncrement: true });          pendingStore.createIndex('timestamp', 'timestamp', { unique: false });        }        if (!db.objectStoreNames.contains('userPreferences')) {          db.createObjectStore('userPreferences', { keyPath: 'key' });        }      };    } catch (error) {      console.error('Error initializing offline database:', error);    }  }  setupEventListeners() {    window.addEventListener('online', () => {      this.isOnline = true;      this.syncPendingScans();    });    window.addEventListener('offline', () => {      this.isOnline = false;    });  }  // Cache medication suggestions  async cacheSuggestion(medicationName, suggestionData) {    if (!this.db) return;    try {      const transaction = this.db.transaction(['cachedSuggestions'], 'readwrite');      const store = transaction.objectStore('cachedSuggestions');      const cacheData = {        medicationName: medicationName.toLowerCase(),        data: suggestionData,        timestamp: new Date().toISOString(),        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString() // 7 days      };      await store.put(cacheData);    } catch (error) {      console.error('Error caching suggestion:', error);    }  }  // Get cached suggestion  async getCachedSuggestion(medicationName) {    if (!this.db) return null;    try {      const transaction = this.db.transaction(['cachedSuggestions'], 'readonly');      const store = transaction.objectStore('cachedSuggestions');      return new Promise((resolve, reject) => {        const request = store.get(medicationName.toLowerCase());        request.onsuccess = () => {          const result = request.result;          if (result && new Date(result.expiresAt) > new Date()) {            resolve(result.data);          } else {            resolve(null);          }        };        request.onerror = () => reject(request.error);      });    } catch (error) {      console.error('Error getting cached suggestion:', error);      return null;    }  }  // Get offline suggestions based on condition  getOfflineSuggestions(medicationName) {    const medication = medicationName.toLowerCase();    let suggestions = {      found: false,      medication: medicationName,      alternatives: [],      message: 'Offline mode - showing limited suggestions'    };    // Search through categories    for (const [condition, data] of Object.entries(this.offlineMedications)) {      if (data.conventional.some(med => medication.includes(med) || med.includes(medication))) {        suggestions.found = true;        suggestions.condition = condition;        suggestions.alternatives = Object.entries(data.natural).map(([name, info]) => ({          name: name.charAt(0).toUpperCase() + name.slice(1),          ...info        }));        break;      }    }    // If not found in conventional, search natural remedies    if (!suggestions.found) {      for (const [condition, data] of Object.entries(this.offlineMedications)) {        const naturalMeds = Object.keys(data.natural);        if (naturalMeds.some(med => medication.includes(med) || med.includes(medication))) {          const matchedMed = naturalMeds.find(med => medication.includes(med) || med.includes(medication));          suggestions.found = true;          suggestions.condition = condition;          suggestions.isNaturalRemedy = true;          suggestions.remedyInfo = {            name: matchedMed,            ...data.natural[matchedMed]          };          break;        }      }    }    return suggestions;  }  // Save scan for later processing  async savePendingScan(scanData) {    if (!this.db) return;    try {      const transaction = this.db.transaction(['pendingScans'], 'readwrite');      const store = transaction.objectStore('pendingScans');      const pendingData = {        ...scanData,        timestamp: new Date().toISOString(),        status: 'pending'      };      await store.add(pendingData);    } catch (error) {      console.error('Error saving pending scan:', error);    }  }  // Sync pending scans when online  async syncPendingScans() {    if (!this.db || !this.isOnline) return;    try {      const transaction = this.db.transaction(['pendingScans'], 'readwrite');      const store = transaction.objectStore('pendingScans');      const request = store.getAll();      request.onsuccess = async () => {        const pendingScans = request.result;        for (const scan of pendingScans) {          try {            // Process the scan (this would call your API)            // For now, we'll just mark it as synced            scan.status = 'synced';            scan.syncedAt = new Date().toISOString();            // Remove from pending            await store.delete(scan.id);          } catch (error) {            console.error('Error syncing scan:', scan.id, error);          }        }      };    } catch (error) {      console.error('Error syncing pending scans:', error);    }  }  // Clear old cache entries  async clearExpiredCache() {    if (!this.db) return;    try {      const transaction = this.db.transaction(['cachedSuggestions'], 'readwrite');      const store = transaction.objectStore('cachedSuggestions');      const index = store.index('timestamp');      const now = new Date();      const request = index.openCursor();      request.onsuccess = (event) => {        const cursor = event.target.result;        if (cursor) {          const data = cursor.value;          if (new Date(data.expiresAt) < now) {            cursor.delete();          }          cursor.continue();        }      };    } catch (error) {      console.error('Error clearing expired cache:', error);    }  }  // Save user preferences for offline access  async saveUserPreference(key, value) {    if (!this.db) return;    try {      const transaction = this.db.transaction(['userPreferences'], 'readwrite');      const store = transaction.objectStore('userPreferences');      await store.put({ key, value, timestamp: new Date().toISOString() });    } catch (error) {      console.error('Error saving user preference:', error);    }  }  // Get user preference  async getUserPreference(key) {    if (!this.db) return null;    try {      const transaction = this.db.transaction(['userPreferences'], 'readonly');      const store = transaction.objectStore('userPreferences');      return new Promise((resolve, reject) => {        const request = store.get(key);        request.onsuccess = () => resolve(request.result?.value || null);        request.onerror = () => reject(request.error);      });    } catch (error) {      console.error('Error getting user preference:', error);      return null;    }  }  // Check if offline mode is available  isOfflineModeAvailable() {    return 'indexedDB' in window && 'serviceWorker' in navigator;  }  // Get cache statistics  async getCacheStats() {    if (!this.db) return null;    try {      const transaction = this.db.transaction(['cachedSuggestions', 'pendingScans'], 'readonly');      const suggestionsStore = transaction.objectStore('cachedSuggestions');      const pendingStore = transaction.objectStore('pendingScans');      const stats = {        cachedSuggestions: 0,        pendingScans: 0      };      return new Promise((resolve, reject) => {        suggestionsStore.count().onsuccess = (event) => {          stats.cachedSuggestions = event.target.result;        };        pendingStore.count().onsuccess = (event) => {          stats.pendingScans = event.target.result;        };        transaction.oncomplete = () => resolve(stats);        transaction.onerror = () => reject(transaction.error);      });    } catch (error) {      console.error('Error getting cache stats:', error);      return null;    }  }}// Export singleton instanceconst offlineService = new OfflineService();export default offlineService;

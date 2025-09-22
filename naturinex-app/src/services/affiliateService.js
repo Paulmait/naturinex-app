@@ -1,423 +1,1 @@
-// Affiliate Service - Tracking and Commission Management
-// Handles affiliate link generation, tracking, and revenue attribution
-
-import { AFFILIATE_PROGRAMS, PricingUtils } from '../config/pricing';
-
-class AffiliateService {
-  constructor() {
-    this.sessionId = this.getSessionId();
-    this.userId = null;
-    this.trackingEnabled = true;
-  }
-
-  // Initialize affiliate tracking
-  init(userId) {
-    this.userId = userId;
-    this.loadAffiliateData();
-    this.setupClickTracking();
-    this.checkReferralSource();
-  }
-
-  // Generate affiliate link for product
-  generateAffiliateLink(product, program = 'AMAZON') {
-    const affiliate = AFFILIATE_PROGRAMS[program];
-    if (!affiliate) return product.originalUrl;
-
-    switch (program) {
-      case 'AMAZON':
-        return this.generateAmazonLink(product, affiliate);
-
-      case 'IHERB':
-        return this.generateIHerbLink(product, affiliate);
-
-      case 'VITACOST':
-        return this.generateVitacostLink(product, affiliate);
-
-      case 'THORNE':
-        return this.generateThorneLink(product, affiliate);
-
-      case 'FULLSCRIPT':
-        return this.generateFullscriptLink(product, affiliate);
-
-      default:
-        return product.originalUrl;
-    }
-  }
-
-  // Amazon affiliate link generator
-  generateAmazonLink(product, affiliate) {
-    const baseUrl = 'https://www.amazon.com/dp/';
-    const asin = this.extractASIN(product.url || product.asin);
-
-    if (!asin) return product.originalUrl;
-
-    const params = new URLSearchParams({
-      tag: affiliate.trackingId,
-      linkCode: 'as2',
-      camp: '1789',
-      creative: '9325',
-      creativeASIN: asin,
-    });
-
-    // Track click
-    this.trackClick('AMAZON', product, asin);
-
-    return `${baseUrl}${asin}?${params.toString()}`;
-  }
-
-  // iHerb affiliate link generator
-  generateIHerbLink(product, affiliate) {
-    const baseUrl = 'https://www.iherb.com/';
-    const productPath = product.iherbPath || this.searchIHerbProduct(product.name);
-
-    const params = new URLSearchParams({
-      rcode: affiliate.referralCode,
-    });
-
-    // Track click
-    this.trackClick('IHERB', product, productPath);
-
-    return `${baseUrl}${productPath}?${params.toString()}`;
-  }
-
-  // Vitacost affiliate link generator
-  generateVitacostLink(product, affiliate) {
-    const baseUrl = 'https://www.vitacost.com/';
-    const productId = product.vitacostId || this.searchVitacostProduct(product.name);
-
-    // Track click
-    this.trackClick('VITACOST', product, productId);
-
-    return `${baseUrl}${productId}?csrc=naturinex`;
-  }
-
-  // Thorne affiliate link generator
-  generateThorneLink(product, affiliate) {
-    const baseUrl = 'https://www.thorne.com/products/dp/';
-    const productSku = product.thorneSku || this.searchThorneProduct(product.name);
-
-    // Track click
-    this.trackClick('THORNE', product, productSku);
-
-    return `${baseUrl}${productSku}?ref=naturinex`;
-  }
-
-  // Fullscript affiliate link generator
-  generateFullscriptLink(product, affiliate) {
-    if (!this.hasFullscriptAccess()) {
-      return null; // Requires practitioner certification
-    }
-
-    const baseUrl = 'https://us.fullscript.com/products/';
-    const productId = product.fullscriptId;
-
-    // Track click
-    this.trackClick('FULLSCRIPT', product, productId);
-
-    return `${baseUrl}${productId}?ref=naturinex`;
-  }
-
-  // Extract Amazon ASIN from URL or string
-  extractASIN(input) {
-    if (!input) return null;
-
-    // Check if it's already an ASIN (10 characters)
-    if (/^[A-Z0-9]{10}$/.test(input)) {
-      return input;
-    }
-
-    // Extract from Amazon URL
-    const asinMatch = input.match(/\/dp\/([A-Z0-9]{10})/);
-    if (asinMatch) {
-      return asinMatch[1];
-    }
-
-    // Extract from Amazon short URL
-    const shortMatch = input.match(/amzn\.to\/([A-Z0-9]+)/);
-    if (shortMatch) {
-      return this.resolveShortUrl(shortMatch[0]);
-    }
-
-    return null;
-  }
-
-  // Search for product on iHerb
-  async searchIHerbProduct(productName) {
-    try {
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/affiliate/search`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          platform: 'iherb',
-          query: productName,
-        }),
-      });
-
-      const data = await response.json();
-      return data.productPath || 'search?kw=' + encodeURIComponent(productName);
-    } catch (error) {
-      console.error('iHerb search error:', error);
-      return 'search?kw=' + encodeURIComponent(productName);
-    }
-  }
-
-  // Search for product on Vitacost
-  async searchVitacostProduct(productName) {
-    // Similar implementation
-    return 'searchresults?q=' + encodeURIComponent(productName);
-  }
-
-  // Search for product on Thorne
-  async searchThorneProduct(productName) {
-    // Similar implementation
-    return 'search?q=' + encodeURIComponent(productName);
-  }
-
-  // Track affiliate click
-  async trackClick(program, product, identifier) {
-    if (!this.trackingEnabled) return;
-
-    const clickData = {
-      program,
-      productId: product.id,
-      productName: product.name,
-      identifier,
-      userId: this.userId,
-      sessionId: this.sessionId,
-      timestamp: Date.now(),
-      referrer: document.referrer,
-      userAgent: navigator.userAgent,
-    };
-
-    // Store in local storage for attribution
-    this.storeClickData(clickData);
-
-    // Send to backend
-    try {
-      await fetch(`${process.env.REACT_APP_API_URL}/api/affiliate/track`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(clickData),
-      });
-    } catch (error) {
-      console.error('Affiliate tracking error:', error);
-    }
-  }
-
-  // Store click data for later attribution
-  storeClickData(clickData) {
-    const clicks = JSON.parse(localStorage.getItem('affiliateClicks') || '[]');
-    clicks.push(clickData);
-
-    // Keep only last 30 days of data
-    const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
-    const recentClicks = clicks.filter(click => click.timestamp > thirtyDaysAgo);
-
-    localStorage.setItem('affiliateClicks', JSON.stringify(recentClicks));
-  }
-
-  // Check if user came from affiliate link
-  checkReferralSource() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const ref = urlParams.get('ref');
-    const source = urlParams.get('utm_source');
-
-    if (ref || source === 'affiliate') {
-      this.trackReferral(ref || source);
-    }
-  }
-
-  // Track referral
-  async trackReferral(referralCode) {
-    try {
-      await fetch(`${process.env.REACT_APP_API_URL}/api/affiliate/referral`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          referralCode,
-          userId: this.userId,
-          sessionId: this.sessionId,
-          landingPage: window.location.pathname,
-          timestamp: Date.now(),
-        }),
-      });
-
-      // Store referral in cookie for 30 days
-      document.cookie = `referral=${referralCode}; max-age=2592000; path=/`;
-    } catch (error) {
-      console.error('Referral tracking error:', error);
-    }
-  }
-
-  // Calculate potential commission
-  calculateCommission(program, saleAmount) {
-    return PricingUtils.calculateCommission(program, saleAmount);
-  }
-
-  // Get user's affiliate earnings
-  async getAffiliateEarnings() {
-    if (!this.userId) return null;
-
-    try {
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/affiliate/earnings`, {
-        headers: {
-          'Authorization': `Bearer ${await this.getUserToken()}`,
-        },
-      });
-
-      return await response.json();
-    } catch (error) {
-      console.error('Error fetching earnings:', error);
-      return null;
-    }
-  }
-
-  // Generate user's referral link
-  generateUserReferralLink() {
-    const baseUrl = 'https://naturinex.com';
-    const referralCode = this.getUserReferralCode();
-
-    return `${baseUrl}?ref=${referralCode}`;
-  }
-
-  // Get user's referral code
-  getUserReferralCode() {
-    if (!this.userId) return null;
-
-    // Generate code based on user ID
-    const code = btoa(this.userId).substring(0, 8).toUpperCase();
-    return `NAT${code}`;
-  }
-
-  // Setup click tracking on affiliate links
-  setupClickTracking() {
-    document.addEventListener('click', (event) => {
-      const link = event.target.closest('a[data-affiliate]');
-      if (link) {
-        const program = link.dataset.affiliate;
-        const product = {
-          id: link.dataset.productId,
-          name: link.dataset.productName,
-        };
-        const identifier = link.dataset.identifier;
-
-        this.trackClick(program, product, identifier);
-      }
-    });
-  }
-
-  // Load affiliate data
-  async loadAffiliateData() {
-    // Load user's affiliate preferences and history
-    try {
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/affiliate/user-data`, {
-        headers: {
-          'Authorization': `Bearer ${await this.getUserToken()}`,
-        },
-      });
-
-      const data = await response.json();
-      this.affiliateData = data;
-    } catch (error) {
-      console.error('Error loading affiliate data:', error);
-    }
-  }
-
-  // Check if user has Fullscript access
-  hasFullscriptAccess() {
-    return this.affiliateData?.certifications?.includes('practitioner');
-  }
-
-  // Get session ID
-  getSessionId() {
-    let sessionId = sessionStorage.getItem('affiliateSessionId');
-    if (!sessionId) {
-      sessionId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-      sessionStorage.setItem('affiliateSessionId', sessionId);
-    }
-    return sessionId;
-  }
-
-  // Get user token
-  async getUserToken() {
-    // Implement based on your auth system
-    return localStorage.getItem('userToken');
-  }
-
-  // Format affiliate link for display
-  formatAffiliateLink(link, program) {
-    const affiliate = AFFILIATE_PROGRAMS[program];
-
-    return {
-      url: link,
-      program: affiliate.name,
-      commission: `${(affiliate.commission * 100).toFixed(0)}%`,
-      cookieDuration: `${affiliate.cookieDuration / 24} days`,
-      trusted: affiliate.tier === 'professional',
-    };
-  }
-
-  // Get recommended products with affiliate links
-  async getRecommendedProducts(medication) {
-    try {
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/recommendations`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          medication,
-          includeAffiliate: true,
-        }),
-      });
-
-      const products = await response.json();
-
-      // Add affiliate links to products
-      return products.map(product => ({
-        ...product,
-        affiliateLinks: this.generateAllAffiliateLinks(product),
-      }));
-    } catch (error) {
-      console.error('Error getting recommendations:', error);
-      return [];
-    }
-  }
-
-  // Generate all available affiliate links for a product
-  generateAllAffiliateLinks(product) {
-    const links = {};
-
-    Object.keys(AFFILIATE_PROGRAMS).forEach(program => {
-      const link = this.generateAffiliateLink(product, program);
-      if (link && link !== product.originalUrl) {
-        links[program] = this.formatAffiliateLink(link, program);
-      }
-    });
-
-    return links;
-  }
-
-  // Disable tracking (for privacy)
-  disableTracking() {
-    this.trackingEnabled = false;
-    localStorage.setItem('affiliateTrackingDisabled', 'true');
-  }
-
-  // Enable tracking
-  enableTracking() {
-    this.trackingEnabled = true;
-    localStorage.removeItem('affiliateTrackingDisabled');
-  }
-}
-
-// Create singleton instance
-const affiliateService = new AffiliateService();
-
-export default affiliateService;
+// Affiliate Service - Tracking and Commission Management// Handles affiliate link generation, tracking, and revenue attributionimport { AFFILIATE_PROGRAMS, PricingUtils } from '../config/pricing';class AffiliateService {  constructor() {    this.sessionId = this.getSessionId();    this.userId = null;    this.trackingEnabled = true;  }  // Initialize affiliate tracking  init(userId) {    this.userId = userId;    this.loadAffiliateData();    this.setupClickTracking();    this.checkReferralSource();  }  // Generate affiliate link for product  generateAffiliateLink(product, program = 'AMAZON') {    const affiliate = AFFILIATE_PROGRAMS[program];    if (!affiliate) return product.originalUrl;    switch (program) {      case 'AMAZON':        return this.generateAmazonLink(product, affiliate);      case 'IHERB':        return this.generateIHerbLink(product, affiliate);      case 'VITACOST':        return this.generateVitacostLink(product, affiliate);      case 'THORNE':        return this.generateThorneLink(product, affiliate);      case 'FULLSCRIPT':        return this.generateFullscriptLink(product, affiliate);      default:        return product.originalUrl;    }  }  // Amazon affiliate link generator  generateAmazonLink(product, affiliate) {    const baseUrl = 'https://www.amazon.com/dp/';    const asin = this.extractASIN(product.url || product.asin);    if (!asin) return product.originalUrl;    const params = new URLSearchParams({      tag: affiliate.trackingId,      linkCode: 'as2',      camp: '1789',      creative: '9325',      creativeASIN: asin,    });    // Track click    this.trackClick('AMAZON', product, asin);    return `${baseUrl}${asin}?${params.toString()}`;  }  // iHerb affiliate link generator  generateIHerbLink(product, affiliate) {    const baseUrl = 'https://www.iherb.com/';    const productPath = product.iherbPath || this.searchIHerbProduct(product.name);    const params = new URLSearchParams({      rcode: affiliate.referralCode,    });    // Track click    this.trackClick('IHERB', product, productPath);    return `${baseUrl}${productPath}?${params.toString()}`;  }  // Vitacost affiliate link generator  generateVitacostLink(product, affiliate) {    const baseUrl = 'https://www.vitacost.com/';    const productId = product.vitacostId || this.searchVitacostProduct(product.name);    // Track click    this.trackClick('VITACOST', product, productId);    return `${baseUrl}${productId}?csrc=naturinex`;  }  // Thorne affiliate link generator  generateThorneLink(product, affiliate) {    const baseUrl = 'https://www.thorne.com/products/dp/';    const productSku = product.thorneSku || this.searchThorneProduct(product.name);    // Track click    this.trackClick('THORNE', product, productSku);    return `${baseUrl}${productSku}?ref=naturinex`;  }  // Fullscript affiliate link generator  generateFullscriptLink(product, affiliate) {    if (!this.hasFullscriptAccess()) {      return null; // Requires practitioner certification    }    const baseUrl = 'https://us.fullscript.com/products/';    const productId = product.fullscriptId;    // Track click    this.trackClick('FULLSCRIPT', product, productId);    return `${baseUrl}${productId}?ref=naturinex`;  }  // Extract Amazon ASIN from URL or string  extractASIN(input) {    if (!input) return null;    // Check if it's already an ASIN (10 characters)    if (/^[A-Z0-9]{10}$/.test(input)) {      return input;    }    // Extract from Amazon URL    const asinMatch = input.match(/\/dp\/([A-Z0-9]{10})/);    if (asinMatch) {      return asinMatch[1];    }    // Extract from Amazon short URL    const shortMatch = input.match(/amzn\.to\/([A-Z0-9]+)/);    if (shortMatch) {      return this.resolveShortUrl(shortMatch[0]);    }    return null;  }  // Search for product on iHerb  async searchIHerbProduct(productName) {    try {      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/affiliate/search`, {        method: 'POST',        headers: {          'Content-Type': 'application/json',        },        body: JSON.stringify({          platform: 'iherb',          query: productName,        }),      });      const data = await response.json();      return data.productPath || 'search?kw=' + encodeURIComponent(productName);    } catch (error) {      console.error('iHerb search error:', error);      return 'search?kw=' + encodeURIComponent(productName);    }  }  // Search for product on Vitacost  async searchVitacostProduct(productName) {    // Similar implementation    return 'searchresults?q=' + encodeURIComponent(productName);  }  // Search for product on Thorne  async searchThorneProduct(productName) {    // Similar implementation    return 'search?q=' + encodeURIComponent(productName);  }  // Track affiliate click  async trackClick(program, product, identifier) {    if (!this.trackingEnabled) return;    const clickData = {      program,      productId: product.id,      productName: product.name,      identifier,      userId: this.userId,      sessionId: this.sessionId,      timestamp: Date.now(),      referrer: document.referrer,      userAgent: navigator.userAgent,    };    // Store in local storage for attribution    this.storeClickData(clickData);    // Send to backend    try {      await fetch(`${process.env.REACT_APP_API_URL}/api/affiliate/track`, {        method: 'POST',        headers: {          'Content-Type': 'application/json',        },        body: JSON.stringify(clickData),      });    } catch (error) {      console.error('Affiliate tracking error:', error);    }  }  // Store click data for later attribution  storeClickData(clickData) {    const clicks = JSON.parse(localStorage.getItem('affiliateClicks') || '[]');    clicks.push(clickData);    // Keep only last 30 days of data    const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);    const recentClicks = clicks.filter(click => click.timestamp > thirtyDaysAgo);    localStorage.setItem('affiliateClicks', JSON.stringify(recentClicks));  }  // Check if user came from affiliate link  checkReferralSource() {    const urlParams = new URLSearchParams(window.location.search);    const ref = urlParams.get('ref');    const source = urlParams.get('utm_source');    if (ref || source === 'affiliate') {      this.trackReferral(ref || source);    }  }  // Track referral  async trackReferral(referralCode) {    try {      await fetch(`${process.env.REACT_APP_API_URL}/api/affiliate/referral`, {        method: 'POST',        headers: {          'Content-Type': 'application/json',        },        body: JSON.stringify({          referralCode,          userId: this.userId,          sessionId: this.sessionId,          landingPage: window.location.pathname,          timestamp: Date.now(),        }),      });      // Store referral in cookie for 30 days      document.cookie = `referral=${referralCode}; max-age=2592000; path=/`;    } catch (error) {      console.error('Referral tracking error:', error);    }  }  // Calculate potential commission  calculateCommission(program, saleAmount) {    return PricingUtils.calculateCommission(program, saleAmount);  }  // Get user's affiliate earnings  async getAffiliateEarnings() {    if (!this.userId) return null;    try {      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/affiliate/earnings`, {        headers: {          'Authorization': `Bearer ${await this.getUserToken()}`,        },      });      return await response.json();    } catch (error) {      console.error('Error fetching earnings:', error);      return null;    }  }  // Generate user's referral link  generateUserReferralLink() {    const baseUrl = 'https://naturinex.com';    const referralCode = this.getUserReferralCode();    return `${baseUrl}?ref=${referralCode}`;  }  // Get user's referral code  getUserReferralCode() {    if (!this.userId) return null;    // Generate code based on user ID    const code = btoa(this.userId).substring(0, 8).toUpperCase();    return `NAT${code}`;  }  // Setup click tracking on affiliate links  setupClickTracking() {    document.addEventListener('click', (event) => {      const link = event.target.closest('a[data-affiliate]');      if (link) {        const program = link.dataset.affiliate;        const product = {          id: link.dataset.productId,          name: link.dataset.productName,        };        const identifier = link.dataset.identifier;        this.trackClick(program, product, identifier);      }    });  }  // Load affiliate data  async loadAffiliateData() {    // Load user's affiliate preferences and history    try {      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/affiliate/user-data`, {        headers: {          'Authorization': `Bearer ${await this.getUserToken()}`,        },      });      const data = await response.json();      this.affiliateData = data;    } catch (error) {      console.error('Error loading affiliate data:', error);    }  }  // Check if user has Fullscript access  hasFullscriptAccess() {    return this.affiliateData?.certifications?.includes('practitioner');  }  // Get session ID  getSessionId() {    let sessionId = sessionStorage.getItem('affiliateSessionId');    if (!sessionId) {      sessionId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;      sessionStorage.setItem('affiliateSessionId', sessionId);    }    return sessionId;  }  // Get user token  async getUserToken() {    // Implement based on your auth system    return localStorage.getItem('userToken');  }  // Format affiliate link for display  formatAffiliateLink(link, program) {    const affiliate = AFFILIATE_PROGRAMS[program];    return {      url: link,      program: affiliate.name,      commission: `${(affiliate.commission * 100).toFixed(0)}%`,      cookieDuration: `${affiliate.cookieDuration / 24} days`,      trusted: affiliate.tier === 'professional',    };  }  // Get recommended products with affiliate links  async getRecommendedProducts(medication) {    try {      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/recommendations`, {        method: 'POST',        headers: {          'Content-Type': 'application/json',        },        body: JSON.stringify({          medication,          includeAffiliate: true,        }),      });      const products = await response.json();      // Add affiliate links to products      return products.map(product => ({        ...product,        affiliateLinks: this.generateAllAffiliateLinks(product),      }));    } catch (error) {      console.error('Error getting recommendations:', error);      return [];    }  }  // Generate all available affiliate links for a product  generateAllAffiliateLinks(product) {    const links = {};    Object.keys(AFFILIATE_PROGRAMS).forEach(program => {      const link = this.generateAffiliateLink(product, program);      if (link && link !== product.originalUrl) {        links[program] = this.formatAffiliateLink(link, program);      }    });    return links;  }  // Disable tracking (for privacy)  disableTracking() {    this.trackingEnabled = false;    localStorage.setItem('affiliateTrackingDisabled', 'true');  }  // Enable tracking  enableTracking() {    this.trackingEnabled = true;    localStorage.removeItem('affiliateTrackingDisabled');  }}// Create singleton instanceconst affiliateService = new AffiliateService();export default affiliateService;

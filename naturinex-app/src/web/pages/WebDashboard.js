@@ -25,7 +25,6 @@ import { useNavigate } from 'react-router-dom';
 import { } from 'firebase/auth';
 import { doc, getDoc, collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
 import { auth, db } from '../../firebase.web';
-
 function WebDashboard() {
   const [userData, setUserData] = useState(null);
   const [recentScans, setRecentScans] = useState([]);
@@ -35,24 +34,19 @@ function WebDashboard() {
     scansThisMonth: 0,
   });
   const [loading, setLoading] = useState(true);
-  
   const navigate = useNavigate();
   const user = auth.currentUser;
-
   useEffect(() => {
     loadDashboardData();
   }, [user]);
-
   const loadDashboardData = async () => {
     if (!user) return;
-    
     try {
       // Load user data
       const userDoc = await getDoc(doc(db, 'users', user.uid));
       if (userDoc.exists()) {
         setUserData(userDoc.data());
       }
-
       // Load recent scans
       const scansQuery = query(
         collection(db, 'scans'),
@@ -66,27 +60,22 @@ function WebDashboard() {
         ...doc.data()
       }));
       setRecentScans(scansData);
-
       // Calculate stats
       const allScansQuery = query(
         collection(db, 'scans'),
         where('userId', '==', user.uid)
       );
       const allScansSnapshot = await getDocs(allScansQuery);
-      
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const thisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      
       let scansToday = 0;
       let scansThisMonth = 0;
-      
       allScansSnapshot.docs.forEach(doc => {
         const scanDate = doc.data().timestamp?.toDate() || new Date(doc.data().timestamp);
         if (scanDate >= today) scansToday++;
         if (scanDate >= thisMonth) scansThisMonth++;
       });
-      
       setStats({
         totalScans: allScansSnapshot.size,
         scansToday,
@@ -98,16 +87,13 @@ function WebDashboard() {
       setLoading(false);
     }
   };
-
   const getSubscriptionColor = (type) => {
     return type === 'premium' ? 'success' : 'default';
   };
-
   const getScanLimit = () => {
     if (userData?.subscriptionType === 'premium') return 'Unlimited';
     return `${userData?.dailyScans || 0}/5`;
   };
-
   if (loading) {
     return (
       <Box sx={{ width: '100%' }}>
@@ -115,7 +101,6 @@ function WebDashboard() {
       </Box>
     );
   }
-
   return (
     <Container maxWidth="lg" sx={{ py: 4 }}>
       {/* Welcome Section */}
@@ -127,7 +112,6 @@ function WebDashboard() {
           Your wellness journey continues here
         </Typography>
       </Box>
-
       {/* Stats Cards */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} sm={6} md={3}>
@@ -147,7 +131,6 @@ function WebDashboard() {
             </CardContent>
           </Card>
         </Grid>
-        
         <Grid item xs={12} sm={6} md={3}>
           <Card>
             <CardContent>
@@ -165,7 +148,6 @@ function WebDashboard() {
             </CardContent>
           </Card>
         </Grid>
-        
         <Grid item xs={12} sm={6} md={3}>
           <Card>
             <CardContent>
@@ -183,7 +165,6 @@ function WebDashboard() {
             </CardContent>
           </Card>
         </Grid>
-        
         <Grid item xs={12} sm={6} md={3}>
           <Card>
             <CardContent>
@@ -204,7 +185,6 @@ function WebDashboard() {
           </Card>
         </Grid>
       </Grid>
-
       {/* Quick Actions */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
         <Grid item xs={12} md={6}>
@@ -235,7 +215,6 @@ function WebDashboard() {
             </CardContent>
           </Card>
         </Grid>
-        
         {userData?.subscriptionType !== 'premium' && (
           <Grid item xs={12} md={6}>
             <Card
@@ -267,7 +246,6 @@ function WebDashboard() {
           </Grid>
         )}
       </Grid>
-
       {/* Recent Scans */}
       <Paper sx={{ p: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
@@ -286,7 +264,6 @@ function WebDashboard() {
             </Button>
           </Box>
         </Box>
-        
         {recentScans.length > 0 ? (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             {recentScans.map((scan) => (
@@ -320,5 +297,4 @@ function WebDashboard() {
     </Container>
   );
 }
-
 export default WebDashboard;

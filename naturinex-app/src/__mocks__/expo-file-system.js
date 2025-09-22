@@ -1,19 +1,1 @@
-// Mock for expo-file-system
-const FileSystem = {
-  documentDirectory: '/mock/documents/',
-  cacheDirectory: '/mock/cache/',
-  bundleDirectory: '/mock/bundle/',
-  readAsStringAsync: jest.fn().mockResolvedValue('mock-file-content'),
-  writeAsStringAsync: jest.fn().mockResolvedValue(undefined),
-  deleteAsync: jest.fn().mockResolvedValue(undefined),
-  makeDirectoryAsync: jest.fn().mockResolvedValue(undefined),
-  readDirectoryAsync: jest.fn().mockResolvedValue(['mock-file.txt']),
-  getInfoAsync: jest.fn().mockResolvedValue({
-    exists: true,
-    size: 1024,
-    isDirectory: false,
-    modificationTime: Date.now(),
-  }),
-};
-
-export default FileSystem; 
+// Mock for expo-file-systemconst FileSystem = {  documentDirectory: '/mock/documents/',  cacheDirectory: '/mock/cache/',  bundleDirectory: '/mock/bundle/',  readAsStringAsync: jest.fn().mockResolvedValue('mock-file-content'),  writeAsStringAsync: jest.fn().mockResolvedValue(undefined),  deleteAsync: jest.fn().mockResolvedValue(undefined),  makeDirectoryAsync: jest.fn().mockResolvedValue(undefined),  readDirectoryAsync: jest.fn().mockResolvedValue(['mock-file.txt']),  getInfoAsync: jest.fn().mockResolvedValue({    exists: true,    size: 1024,    isDirectory: false,    modificationTime: Date.now(),  }),};export default FileSystem; 

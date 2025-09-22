@@ -1,420 +1,1 @@
-// Monitoring and Analytics Configuration
-// Integrates Sentry, Vercel Analytics, and custom tracking
-
-import * as Sentry from '@sentry/react';
-import { BrowserTracing } from '@sentry/tracing';
-import { Analytics } from '@vercel/analytics/react';
-import { SpeedInsights } from '@vercel/speed-insights/react';
-
-// Initialize Sentry for error tracking
-export function initSentry() {
-  if (process.env.REACT_APP_SENTRY_DSN) {
-    Sentry.init({
-      dsn: process.env.REACT_APP_SENTRY_DSN,
-      integrations: [
-        new BrowserTracing(),
-        new Sentry.Replay({
-          maskAllText: false,
-          blockAllMedia: false,
-        }),
-      ],
-      environment: process.env.NODE_ENV,
-
-      // Performance Monitoring
-      tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
-
-      // Session Replay
-      replaysSessionSampleRate: 0.1,
-      replaysOnErrorSampleRate: 1.0,
-
-      // Release tracking
-      release: process.env.REACT_APP_VERSION || '1.0.0',
-
-      // Filtering
-      beforeSend(event, hint) {
-        // Filter out non-critical errors
-        if (event.exception) {
-          const error = hint.originalException;
-
-          // Ignore network errors that are expected
-          if (error?.message?.includes('Network request failed')) {
-            return null;
-          }
-
-          // Ignore third-party script errors
-          if (event.exception.values?.[0]?.stacktrace?.frames?.some(
-            frame => frame.filename?.includes('stripe.com')
-          )) {
-            return null;
-          }
-        }
-
-        // Remove sensitive data
-        if (event.request) {
-          if (event.request.headers) {
-            delete event.request.headers['Authorization'];
-            delete event.request.headers['Cookie'];
-          }
-          if (event.request.cookies) {
-            delete event.request.cookies;
-          }
-        }
-
-        return event;
-      },
-
-      // User context
-      initialScope: {
-        tags: {
-          component: 'frontend',
-        },
-      },
-    });
-  }
-}
-
-// Custom performance monitoring
-class PerformanceMonitor {
-  constructor() {
-    this.metrics = {};
-    this.timers = {};
-  }
-
-  // Start a timer
-  startTimer(name) {
-    this.timers[name] = performance.now();
-  }
-
-  // End a timer and record metric
-  endTimer(name, metadata = {}) {
-    if (this.timers[name]) {
-      const duration = performance.now() - this.timers[name];
-      delete this.timers[name];
-
-      this.recordMetric(name, duration, { ...metadata, unit: 'ms' });
-
-      // Send to Sentry
-      if (typeof Sentry !== 'undefined') {
-        Sentry.addBreadcrumb({
-          category: 'performance',
-          message: `${name}: ${duration.toFixed(2)}ms`,
-          level: 'info',
-          data: metadata,
-        });
-      }
-
-      return duration;
-    }
-  }
-
-  // Record a metric
-  recordMetric(name, value, metadata = {}) {
-    if (!this.metrics[name]) {
-      this.metrics[name] = [];
-    }
-
-    this.metrics[name].push({
-      value,
-      timestamp: Date.now(),
-      ...metadata,
-    });
-
-    // Send to analytics if significant
-    if (value > 1000 && metadata.unit === 'ms') {
-      this.sendToAnalytics('slow_operation', {
-        operation: name,
-        duration: value,
-        ...metadata,
-      });
-    }
-  }
-
-  // Send to analytics backend
-  async sendToAnalytics(eventName, data) {
-    try {
-      // Send to Vercel Analytics
-      if (window.va) {
-        window.va('event', { name: eventName, ...data });
-      }
-
-      // Send to custom backend
-      if (process.env.REACT_APP_API_URL) {
-        await fetch(`${process.env.REACT_APP_API_URL}/api/analytics`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            event: eventName,
-            data,
-            timestamp: Date.now(),
-            sessionId: this.getSessionId(),
-          }),
-        });
-      }
-    } catch (error) {
-      console.error('Analytics error:', error);
-    }
-  }
-
-  // Get or create session ID
-  getSessionId() {
-    let sessionId = sessionStorage.getItem('sessionId');
-    if (!sessionId) {
-      sessionId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      sessionStorage.setItem('sessionId', sessionId);
-    }
-    return sessionId;
-  }
-
-  // Get performance summary
-  getSummary() {
-    const summary = {};
-
-    for (const [metric, values] of Object.entries(this.metrics)) {
-      const nums = values.map(v => v.value);
-      summary[metric] = {
-        count: nums.length,
-        min: Math.min(...nums),
-        max: Math.max(...nums),
-        avg: nums.reduce((a, b) => a + b, 0) / nums.length,
-        last: nums[nums.length - 1],
-      };
-    }
-
-    return summary;
-  }
-
-  // Clear metrics
-  clear() {
-    this.metrics = {};
-    this.timers = {};
-  }
-}
-
-// Create singleton instance
-export const performanceMonitor = new PerformanceMonitor();
-
-// User behavior tracking
-export class UserTracker {
-  constructor() {
-    this.events = [];
-    this.session = {
-      startTime: Date.now(),
-      pageViews: 0,
-      interactions: 0,
-    };
-  }
-
-  // Track page view
-  trackPageView(page, metadata = {}) {
-    this.session.pageViews++;
-
-    const event = {
-      type: 'pageview',
-      page,
-      timestamp: Date.now(),
-      ...metadata,
-    };
-
-    this.events.push(event);
-    this.sendEvent(event);
-  }
-
-  // Track user interaction
-  trackInteraction(action, category, metadata = {}) {
-    this.session.interactions++;
-
-    const event = {
-      type: 'interaction',
-      action,
-      category,
-      timestamp: Date.now(),
-      ...metadata,
-    };
-
-    this.events.push(event);
-    this.sendEvent(event);
-  }
-
-  // Track conversion
-  trackConversion(type, value, metadata = {}) {
-    const event = {
-      type: 'conversion',
-      conversionType: type,
-      value,
-      timestamp: Date.now(),
-      ...metadata,
-    };
-
-    this.events.push(event);
-    this.sendEvent(event);
-
-    // Send to Sentry as well for important conversions
-    if (type === 'subscription' || type === 'purchase') {
-      Sentry.addBreadcrumb({
-        category: 'conversion',
-        message: `${type}: ${value}`,
-        level: 'info',
-        data: metadata,
-      });
-    }
-  }
-
-  // Track error
-  trackError(error, context = {}) {
-    const event = {
-      type: 'error',
-      error: error.message || error,
-      stack: error.stack,
-      timestamp: Date.now(),
-      ...context,
-    };
-
-    this.events.push(event);
-
-    // Send to Sentry
-    Sentry.captureException(error, {
-      contexts: {
-        custom: context,
-      },
-    });
-  }
-
-  // Send event to backend
-  async sendEvent(event) {
-    try {
-      // Add session info
-      const enrichedEvent = {
-        ...event,
-        sessionId: performanceMonitor.getSessionId(),
-        sessionDuration: Date.now() - this.session.startTime,
-        userId: this.getUserId(),
-      };
-
-      // Batch events for efficiency
-      if (!this.batchTimer) {
-        this.batchTimer = setTimeout(() => this.flushEvents(), 1000);
-      }
-
-      this.pendingEvents = this.pendingEvents || [];
-      this.pendingEvents.push(enrichedEvent);
-    } catch (error) {
-      console.error('Tracking error:', error);
-    }
-  }
-
-  // Flush pending events
-  async flushEvents() {
-    if (this.pendingEvents && this.pendingEvents.length > 0) {
-      const events = [...this.pendingEvents];
-      this.pendingEvents = [];
-
-      try {
-        await fetch(`${process.env.REACT_APP_API_URL}/api/analytics/batch`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ events }),
-        });
-      } catch (error) {
-        console.error('Failed to send analytics:', error);
-      }
-    }
-
-    this.batchTimer = null;
-  }
-
-  // Get user ID from auth
-  getUserId() {
-    // Try to get from localStorage or auth context
-    return localStorage.getItem('userId') || 'anonymous';
-  }
-
-  // Get session summary
-  getSessionSummary() {
-    return {
-      ...this.session,
-      duration: Date.now() - this.session.startTime,
-      eventsCount: this.events.length,
-    };
-  }
-}
-
-// Create tracker instance
-export const userTracker = new UserTracker();
-
-// React components for integration
-export function MonitoringProvider({ children }) {
-  return (
-    <>
-      <Analytics />
-      <SpeedInsights />
-      {children}
-    </>
-  );
-}
-
-// Hook for easy tracking
-export function useTracking() {
-  return {
-    trackPageView: userTracker.trackPageView.bind(userTracker),
-    trackInteraction: userTracker.trackInteraction.bind(userTracker),
-    trackConversion: userTracker.trackConversion.bind(userTracker),
-    trackError: userTracker.trackError.bind(userTracker),
-    startTimer: performanceMonitor.startTimer.bind(performanceMonitor),
-    endTimer: performanceMonitor.endTimer.bind(performanceMonitor),
-  };
-}
-
-// Initialize monitoring on app start
-export function initMonitoring() {
-  initSentry();
-
-  // Track core web vitals
-  if ('web-vitals' in window) {
-    import('web-vitals').then(({ getCLS, getFID, getFCP, getLCP, getTTFB }) => {
-      getCLS(metric => performanceMonitor.recordMetric('CLS', metric.value));
-      getFID(metric => performanceMonitor.recordMetric('FID', metric.value));
-      getFCP(metric => performanceMonitor.recordMetric('FCP', metric.value));
-      getLCP(metric => performanceMonitor.recordMetric('LCP', metric.value));
-      getTTFB(metric => performanceMonitor.recordMetric('TTFB', metric.value));
-    });
-  }
-
-  // Track unhandled promise rejections
-  window.addEventListener('unhandledrejection', event => {
-    userTracker.trackError(new Error(event.reason), {
-      type: 'unhandledRejection',
-    });
-  });
-
-  // Track resource timing
-  if (window.PerformanceObserver) {
-    const observer = new PerformanceObserver((list) => {
-      for (const entry of list.getEntries()) {
-        if (entry.entryType === 'resource') {
-          performanceMonitor.recordMetric('resource_load', entry.duration, {
-            name: entry.name,
-            type: entry.initiatorType,
-          });
-        }
-      }
-    });
-    observer.observe({ entryTypes: ['resource'] });
-  }
-
-  // Flush events on page unload
-  window.addEventListener('beforeunload', () => {
-    userTracker.flushEvents();
-  });
-}
-
-export default {
-  initMonitoring,
-  performanceMonitor,
-  userTracker,
-  useTracking,
-  MonitoringProvider,
-};
+// Monitoring and Analytics Configuration// Integrates Sentry, Vercel Analytics, and custom trackingimport * as Sentry from '@sentry/react';import { BrowserTracing } from '@sentry/tracing';import { Analytics } from '@vercel/analytics/react';import { SpeedInsights } from '@vercel/speed-insights/react';// Initialize Sentry for error trackingexport function initSentry() {  if (process.env.REACT_APP_SENTRY_DSN) {    Sentry.init({      dsn: process.env.REACT_APP_SENTRY_DSN,      integrations: [        new BrowserTracing(),        new Sentry.Replay({          maskAllText: false,          blockAllMedia: false,        }),      ],      environment: process.env.NODE_ENV,      // Performance Monitoring      tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,      // Session Replay      replaysSessionSampleRate: 0.1,      replaysOnErrorSampleRate: 1.0,      // Release tracking      release: process.env.REACT_APP_VERSION || '1.0.0',      // Filtering      beforeSend(event, hint) {        // Filter out non-critical errors        if (event.exception) {          const error = hint.originalException;          // Ignore network errors that are expected          if (error?.message?.includes('Network request failed')) {            return null;          }          // Ignore third-party script errors          if (event.exception.values?.[0]?.stacktrace?.frames?.some(            frame => frame.filename?.includes('stripe.com')          )) {            return null;          }        }        // Remove sensitive data        if (event.request) {          if (event.request.headers) {            delete event.request.headers['Authorization'];            delete event.request.headers['Cookie'];          }          if (event.request.cookies) {            delete event.request.cookies;          }        }        return event;      },      // User context      initialScope: {        tags: {          component: 'frontend',        },      },    });  }}// Custom performance monitoringclass PerformanceMonitor {  constructor() {    this.metrics = {};    this.timers = {};  }  // Start a timer  startTimer(name) {    this.timers[name] = performance.now();  }  // End a timer and record metric  endTimer(name, metadata = {}) {    if (this.timers[name]) {      const duration = performance.now() - this.timers[name];      delete this.timers[name];      this.recordMetric(name, duration, { ...metadata, unit: 'ms' });      // Send to Sentry      if (typeof Sentry !== 'undefined') {        Sentry.addBreadcrumb({          category: 'performance',          message: `${name}: ${duration.toFixed(2)}ms`,          level: 'info',          data: metadata,        });      }      return duration;    }  }  // Record a metric  recordMetric(name, value, metadata = {}) {    if (!this.metrics[name]) {      this.metrics[name] = [];    }    this.metrics[name].push({      value,      timestamp: Date.now(),      ...metadata,    });    // Send to analytics if significant    if (value > 1000 && metadata.unit === 'ms') {      this.sendToAnalytics('slow_operation', {        operation: name,        duration: value,        ...metadata,      });    }  }  // Send to analytics backend  async sendToAnalytics(eventName, data) {    try {      // Send to Vercel Analytics      if (window.va) {        window.va('event', { name: eventName, ...data });      }      // Send to custom backend      if (process.env.REACT_APP_API_URL) {        await fetch(`${process.env.REACT_APP_API_URL}/api/analytics`, {          method: 'POST',          headers: {            'Content-Type': 'application/json',          },          body: JSON.stringify({            event: eventName,            data,            timestamp: Date.now(),            sessionId: this.getSessionId(),          }),        });      }    } catch (error) {      console.error('Analytics error:', error);    }  }  // Get or create session ID  getSessionId() {    let sessionId = sessionStorage.getItem('sessionId');    if (!sessionId) {      sessionId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;      sessionStorage.setItem('sessionId', sessionId);    }    return sessionId;  }  // Get performance summary  getSummary() {    const summary = {};    for (const [metric, values] of Object.entries(this.metrics)) {      const nums = values.map(v => v.value);      summary[metric] = {        count: nums.length,        min: Math.min(...nums),        max: Math.max(...nums),        avg: nums.reduce((a, b) => a + b, 0) / nums.length,        last: nums[nums.length - 1],      };    }    return summary;  }  // Clear metrics  clear() {    this.metrics = {};    this.timers = {};  }}// Create singleton instanceexport const performanceMonitor = new PerformanceMonitor();// User behavior trackingexport class UserTracker {  constructor() {    this.events = [];    this.session = {      startTime: Date.now(),      pageViews: 0,      interactions: 0,    };  }  // Track page view  trackPageView(page, metadata = {}) {    this.session.pageViews++;    const event = {      type: 'pageview',      page,      timestamp: Date.now(),      ...metadata,    };    this.events.push(event);    this.sendEvent(event);  }  // Track user interaction  trackInteraction(action, category, metadata = {}) {    this.session.interactions++;    const event = {      type: 'interaction',      action,      category,      timestamp: Date.now(),      ...metadata,    };    this.events.push(event);    this.sendEvent(event);  }  // Track conversion  trackConversion(type, value, metadata = {}) {    const event = {      type: 'conversion',      conversionType: type,      value,      timestamp: Date.now(),      ...metadata,    };    this.events.push(event);    this.sendEvent(event);    // Send to Sentry as well for important conversions    if (type === 'subscription' || type === 'purchase') {      Sentry.addBreadcrumb({        category: 'conversion',        message: `${type}: ${value}`,        level: 'info',        data: metadata,      });    }  }  // Track error  trackError(error, context = {}) {    const event = {      type: 'error',      error: error.message || error,      stack: error.stack,      timestamp: Date.now(),      ...context,    };    this.events.push(event);    // Send to Sentry    Sentry.captureException(error, {      contexts: {        custom: context,      },    });  }  // Send event to backend  async sendEvent(event) {    try {      // Add session info      const enrichedEvent = {        ...event,        sessionId: performanceMonitor.getSessionId(),        sessionDuration: Date.now() - this.session.startTime,        userId: this.getUserId(),      };      // Batch events for efficiency      if (!this.batchTimer) {        this.batchTimer = setTimeout(() => this.flushEvents(), 1000);      }      this.pendingEvents = this.pendingEvents || [];      this.pendingEvents.push(enrichedEvent);    } catch (error) {      console.error('Tracking error:', error);    }  }  // Flush pending events  async flushEvents() {    if (this.pendingEvents && this.pendingEvents.length > 0) {      const events = [...this.pendingEvents];      this.pendingEvents = [];      try {        await fetch(`${process.env.REACT_APP_API_URL}/api/analytics/batch`, {          method: 'POST',          headers: {            'Content-Type': 'application/json',          },          body: JSON.stringify({ events }),        });      } catch (error) {        console.error('Failed to send analytics:', error);      }    }    this.batchTimer = null;  }  // Get user ID from auth  getUserId() {    // Try to get from localStorage or auth context    return localStorage.getItem('userId') || 'anonymous';  }  // Get session summary  getSessionSummary() {    return {      ...this.session,      duration: Date.now() - this.session.startTime,      eventsCount: this.events.length,    };  }}// Create tracker instanceexport const userTracker = new UserTracker();// React components for integrationexport function MonitoringProvider({ children }) {  return (    <>      <Analytics />      <SpeedInsights />      {children}    </>  );}// Hook for easy trackingexport function useTracking() {  return {    trackPageView: userTracker.trackPageView.bind(userTracker),    trackInteraction: userTracker.trackInteraction.bind(userTracker),    trackConversion: userTracker.trackConversion.bind(userTracker),    trackError: userTracker.trackError.bind(userTracker),    startTimer: performanceMonitor.startTimer.bind(performanceMonitor),    endTimer: performanceMonitor.endTimer.bind(performanceMonitor),  };}// Initialize monitoring on app startexport function initMonitoring() {  initSentry();  // Track core web vitals  if ('web-vitals' in window) {    import('web-vitals').then(({ getCLS, getFID, getFCP, getLCP, getTTFB }) => {      getCLS(metric => performanceMonitor.recordMetric('CLS', metric.value));      getFID(metric => performanceMonitor.recordMetric('FID', metric.value));      getFCP(metric => performanceMonitor.recordMetric('FCP', metric.value));      getLCP(metric => performanceMonitor.recordMetric('LCP', metric.value));      getTTFB(metric => performanceMonitor.recordMetric('TTFB', metric.value));    });  }  // Track unhandled promise rejections  window.addEventListener('unhandledrejection', event => {    userTracker.trackError(new Error(event.reason), {      type: 'unhandledRejection',    });  });  // Track resource timing  if (window.PerformanceObserver) {    const observer = new PerformanceObserver((list) => {      for (const entry of list.getEntries()) {        if (entry.entryType === 'resource') {          performanceMonitor.recordMetric('resource_load', entry.duration, {            name: entry.name,            type: entry.initiatorType,          });        }      }    });    observer.observe({ entryTypes: ['resource'] });  }  // Flush events on page unload  window.addEventListener('beforeunload', () => {    userTracker.flushEvents();  });}export default {  initMonitoring,  performanceMonitor,  userTracker,  useTracking,  MonitoringProvider,};

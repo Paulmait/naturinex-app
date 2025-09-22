@@ -1,495 +1,1 @@
-import { Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import HealthDataModel from '../models/HealthDataModel';
-import PrivacyComplianceManager from '../utils/PrivacyComplianceManager';
-
-/**
- * Comprehensive Health Integration Service
- * Manages Apple HealthKit and Google Fit integration with privacy compliance
- */
-class HealthIntegrationService {
-  constructor() {
-    this.isInitialized = false;
-    this.permissions = {
-      read: [],
-      write: []
-    };
-    this.syncStatus = {
-      lastSync: null,
-      isSync: false,
-      errors: []
-    };
-    this.privacyManager = new PrivacyComplianceManager();
-    this.healthDataModel = new HealthDataModel();
-  }
-
-  /**
-   * Initialize health integration based on platform
-   */
-  async initialize() {
-    try {
-      if (Platform.OS === 'ios') {
-        await this.initializeHealthKit();
-      } else if (Platform.OS === 'android') {
-        await this.initializeGoogleFit();
-      }
-
-      await this.loadStoredPermissions();
-      this.isInitialized = true;
-
-      console.log('HealthIntegrationService initialized successfully');
-      return { success: true };
-    } catch (error) {
-      console.error('Failed to initialize HealthIntegrationService:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Initialize Apple HealthKit for iOS
-   */
-  async initializeHealthKit() {
-    if (Platform.OS !== 'ios') return;
-
-    try {
-      // Dynamic import for iOS-specific health kit
-      const HealthKit = await import('react-native-healthkit');
-      this.healthKit = HealthKit.default;
-
-      // Check if HealthKit is available
-      const isAvailable = await this.healthKit.isHealthDataAvailable();
-      if (!isAvailable) {
-        throw new Error('HealthKit is not available on this device');
-      }
-
-      console.log('HealthKit initialized successfully');
-    } catch (error) {
-      console.error('HealthKit initialization failed:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Initialize Google Fit for Android
-   */
-  async initializeGoogleFit() {
-    if (Platform.OS !== 'android') return;
-
-    try {
-      // Dynamic import for Android-specific Google Fit
-      const GoogleFit = await import('react-native-google-fit');
-      this.googleFit = GoogleFit.default;
-
-      console.log('Google Fit initialized successfully');
-    } catch (error) {
-      console.error('Google Fit initialization failed:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Request permissions for health data access
-   */
-  async requestPermissions(readTypes = [], writeTypes = []) {
-    try {
-      await this.privacyManager.validatePermissionRequest(readTypes, writeTypes);
-
-      if (Platform.OS === 'ios') {
-        return await this.requestHealthKitPermissions(readTypes, writeTypes);
-      } else if (Platform.OS === 'android') {
-        return await this.requestGoogleFitPermissions(readTypes, writeTypes);
-      }
-
-      return { success: false, error: 'Unsupported platform' };
-    } catch (error) {
-      console.error('Permission request failed:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Request HealthKit permissions for iOS
-   */
-  async requestHealthKitPermissions(readTypes, writeTypes) {
-    try {
-      const permissions = {
-        permissions: {
-          read: this.mapToHealthKitTypes(readTypes),
-          write: this.mapToHealthKitTypes(writeTypes)
-        }
-      };
-
-      await this.healthKit.initHealthKit(permissions);
-
-      this.permissions.read = readTypes;
-      this.permissions.write = writeTypes;
-
-      await this.savePermissions();
-
-      return { success: true, permissions: this.permissions };
-    } catch (error) {
-      console.error('HealthKit permission request failed:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Request Google Fit permissions for Android
-   */
-  async requestGoogleFitPermissions(readTypes, writeTypes) {
-    try {
-      const scopes = this.mapToGoogleFitScopes([...readTypes, ...writeTypes]);
-
-      const authResult = await this.googleFit.authorize({
-        scopes: scopes
-      });
-
-      if (authResult.success) {
-        this.permissions.read = readTypes;
-        this.permissions.write = writeTypes;
-
-        await this.savePermissions();
-
-        return { success: true, permissions: this.permissions };
-      }
-
-      return { success: false, error: 'Google Fit authorization failed' };
-    } catch (error) {
-      console.error('Google Fit permission request failed:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Read health data from the platform
-   */
-  async readHealthData(dataType, options = {}) {
-    try {
-      if (!this.isInitialized) {
-        await this.initialize();
-      }
-
-      await this.privacyManager.validateDataAccess(dataType, 'read');
-
-      if (Platform.OS === 'ios') {
-        return await this.readFromHealthKit(dataType, options);
-      } else if (Platform.OS === 'android') {
-        return await this.readFromGoogleFit(dataType, options);
-      }
-
-      return { success: false, error: 'Unsupported platform' };
-    } catch (error) {
-      console.error('Health data read failed:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Write health data to the platform
-   */
-  async writeHealthData(dataType, data, options = {}) {
-    try {
-      if (!this.isInitialized) {
-        await this.initialize();
-      }
-
-      await this.privacyManager.validateDataAccess(dataType, 'write');
-      await this.privacyManager.validateHealthData(data);
-
-      if (Platform.OS === 'ios') {
-        return await this.writeToHealthKit(dataType, data, options);
-      } else if (Platform.OS === 'android') {
-        return await this.writeToGoogleFit(dataType, data, options);
-      }
-
-      return { success: false, error: 'Unsupported platform' };
-    } catch (error) {
-      console.error('Health data write failed:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Read data from HealthKit
-   */
-  async readFromHealthKit(dataType, options) {
-    try {
-      const healthKitType = this.mapToHealthKitType(dataType);
-      const queryOptions = {
-        type: healthKitType,
-        startDate: options.startDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 7 days ago
-        endDate: options.endDate || new Date(),
-        limit: options.limit || 100
-      };
-
-      const results = await this.healthKit.querySamples(queryOptions);
-
-      return {
-        success: true,
-        data: results.map(sample => this.healthDataModel.normalizeHealthKitData(sample, dataType))
-      };
-    } catch (error) {
-      console.error('HealthKit read error:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Read data from Google Fit
-   */
-  async readFromGoogleFit(dataType, options) {
-    try {
-      const fitDataType = this.mapToGoogleFitType(dataType);
-      const queryOptions = {
-        startDate: options.startDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-        endDate: options.endDate || new Date()
-      };
-
-      let results;
-      switch (dataType) {
-        case 'steps':
-          results = await this.googleFit.getSteps(queryOptions);
-          break;
-        case 'heartRate':
-          results = await this.googleFit.getHeartRate(queryOptions);
-          break;
-        case 'weight':
-          results = await this.googleFit.getWeights(queryOptions);
-          break;
-        case 'distance':
-          results = await this.googleFit.getDistances(queryOptions);
-          break;
-        default:
-          results = await this.googleFit.getSamples(queryOptions);
-      }
-
-      return {
-        success: true,
-        data: results.map(sample => this.healthDataModel.normalizeGoogleFitData(sample, dataType))
-      };
-    } catch (error) {
-      console.error('Google Fit read error:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Write data to HealthKit
-   */
-  async writeToHealthKit(dataType, data, options) {
-    try {
-      const healthKitType = this.mapToHealthKitType(dataType);
-      const samples = Array.isArray(data) ? data : [data];
-
-      const healthKitSamples = samples.map(sample => ({
-        type: healthKitType,
-        value: sample.value,
-        unit: sample.unit || this.getDefaultUnit(dataType),
-        startDate: sample.startDate || new Date(),
-        endDate: sample.endDate || new Date(),
-        metadata: sample.metadata || { source: 'Naturinex' }
-      }));
-
-      await this.healthKit.saveSamples(healthKitSamples);
-
-      return { success: true, samplesWritten: healthKitSamples.length };
-    } catch (error) {
-      console.error('HealthKit write error:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Write data to Google Fit
-   */
-  async writeToGoogleFit(dataType, data, options) {
-    try {
-      const samples = Array.isArray(data) ? data : [data];
-
-      for (const sample of samples) {
-        const fitSample = {
-          value: sample.value,
-          unit: sample.unit || this.getDefaultUnit(dataType),
-          date: sample.date || new Date(),
-          source: sample.source || 'Naturinex'
-        };
-
-        switch (dataType) {
-          case 'steps':
-            await this.googleFit.saveSteps(fitSample);
-            break;
-          case 'weight':
-            await this.googleFit.saveWeight(fitSample);
-            break;
-          case 'heartRate':
-            await this.googleFit.saveHeartRate(fitSample);
-            break;
-          default:
-            console.warn(`Unsupported write data type: ${dataType}`);
-        }
-      }
-
-      return { success: true, samplesWritten: samples.length };
-    } catch (error) {
-      console.error('Google Fit write error:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Sync all health data
-   */
-  async syncAllData() {
-    try {
-      this.syncStatus.isSync = true;
-      this.syncStatus.errors = [];
-
-      const dataTypes = ['steps', 'heartRate', 'weight', 'sleep', 'distance', 'calories'];
-      const results = {};
-
-      for (const dataType of dataTypes) {
-        try {
-          const result = await this.readHealthData(dataType);
-          if (result.success) {
-            results[dataType] = result.data;
-            await this.storeHealthData(dataType, result.data);
-          } else {
-            this.syncStatus.errors.push({ dataType, error: result.error });
-          }
-        } catch (error) {
-          this.syncStatus.errors.push({ dataType, error: error.message });
-        }
-      }
-
-      this.syncStatus.lastSync = new Date();
-      this.syncStatus.isSync = false;
-
-      await this.saveSyncStatus();
-
-      return {
-        success: true,
-        syncedData: results,
-        errors: this.syncStatus.errors
-      };
-    } catch (error) {
-      this.syncStatus.isSync = false;
-      console.error('Sync failed:', error);
-      return { success: false, error: error.message };
-    }
-  }
-
-  /**
-   * Get sync status
-   */
-  getSyncStatus() {
-    return {
-      isSync: this.syncStatus.isSync,
-      lastSync: this.syncStatus.lastSync,
-      errors: this.syncStatus.errors
-    };
-  }
-
-  /**
-   * Utility methods
-   */
-  mapToHealthKitTypes(types) {
-    const mapping = {
-      'steps': 'HKQuantityTypeIdentifierStepCount',
-      'heartRate': 'HKQuantityTypeIdentifierHeartRate',
-      'weight': 'HKQuantityTypeIdentifierBodyMass',
-      'height': 'HKQuantityTypeIdentifierHeight',
-      'sleep': 'HKCategoryTypeIdentifierSleepAnalysis',
-      'distance': 'HKQuantityTypeIdentifierDistanceWalkingRunning',
-      'calories': 'HKQuantityTypeIdentifierActiveEnergyBurned'
-    };
-    return types.map(type => mapping[type]).filter(Boolean);
-  }
-
-  mapToHealthKitType(type) {
-    const mapping = {
-      'steps': 'HKQuantityTypeIdentifierStepCount',
-      'heartRate': 'HKQuantityTypeIdentifierHeartRate',
-      'weight': 'HKQuantityTypeIdentifierBodyMass',
-      'height': 'HKQuantityTypeIdentifierHeight',
-      'sleep': 'HKCategoryTypeIdentifierSleepAnalysis',
-      'distance': 'HKQuantityTypeIdentifierDistanceWalkingRunning',
-      'calories': 'HKQuantityTypeIdentifierActiveEnergyBurned'
-    };
-    return mapping[type];
-  }
-
-  mapToGoogleFitScopes(types) {
-    const baseScopes = [
-      'https://www.googleapis.com/auth/fitness.activity.read',
-      'https://www.googleapis.com/auth/fitness.activity.write',
-      'https://www.googleapis.com/auth/fitness.body.read',
-      'https://www.googleapis.com/auth/fitness.body.write',
-      'https://www.googleapis.com/auth/fitness.sleep.read'
-    ];
-    return baseScopes;
-  }
-
-  mapToGoogleFitType(type) {
-    const mapping = {
-      'steps': 'com.google.step_count.delta',
-      'heartRate': 'com.google.heart_rate.bpm',
-      'weight': 'com.google.weight',
-      'distance': 'com.google.distance.delta',
-      'calories': 'com.google.calories.expended'
-    };
-    return mapping[type];
-  }
-
-  getDefaultUnit(dataType) {
-    const units = {
-      'steps': 'count',
-      'heartRate': 'bpm',
-      'weight': 'kg',
-      'height': 'cm',
-      'distance': 'm',
-      'calories': 'kcal'
-    };
-    return units[dataType] || '';
-  }
-
-  async storeHealthData(dataType, data) {
-    try {
-      const key = `health_data_${dataType}`;
-      await AsyncStorage.setItem(key, JSON.stringify({
-        data,
-        timestamp: new Date().toISOString()
-      }));
-    } catch (error) {
-      console.error('Failed to store health data:', error);
-    }
-  }
-
-  async loadStoredPermissions() {
-    try {
-      const stored = await AsyncStorage.getItem('health_permissions');
-      if (stored) {
-        this.permissions = JSON.parse(stored);
-      }
-    } catch (error) {
-      console.error('Failed to load permissions:', error);
-    }
-  }
-
-  async savePermissions() {
-    try {
-      await AsyncStorage.setItem('health_permissions', JSON.stringify(this.permissions));
-    } catch (error) {
-      console.error('Failed to save permissions:', error);
-    }
-  }
-
-  async saveSyncStatus() {
-    try {
-      await AsyncStorage.setItem('health_sync_status', JSON.stringify(this.syncStatus));
-    } catch (error) {
-      console.error('Failed to save sync status:', error);
-    }
-  }
-}
-
-export default new HealthIntegrationService();
+import { Platform } from 'react-native';import AsyncStorage from '@react-native-async-storage/async-storage';import HealthDataModel from '../models/HealthDataModel';import PrivacyComplianceManager from '../utils/PrivacyComplianceManager';/** * Comprehensive Health Integration Service * Manages Apple HealthKit and Google Fit integration with privacy compliance */class HealthIntegrationService {  constructor() {    this.isInitialized = false;    this.permissions = {      read: [],      write: []    };    this.syncStatus = {      lastSync: null,      isSync: false,      errors: []    };    this.privacyManager = new PrivacyComplianceManager();    this.healthDataModel = new HealthDataModel();  }  /**   * Initialize health integration based on platform   */  async initialize() {    try {      if (Platform.OS === 'ios') {        await this.initializeHealthKit();      } else if (Platform.OS === 'android') {        await this.initializeGoogleFit();      }      await this.loadStoredPermissions();      this.isInitialized = true;      return { success: true };    } catch (error) {      console.error('Failed to initialize HealthIntegrationService:', error);      return { success: false, error: error.message };    }  }  /**   * Initialize Apple HealthKit for iOS   */  async initializeHealthKit() {    if (Platform.OS !== 'ios') return;    try {      // Dynamic import for iOS-specific health kit      const HealthKit = await import('react-native-healthkit');      this.healthKit = HealthKit.default;      // Check if HealthKit is available      const isAvailable = await this.healthKit.isHealthDataAvailable();      if (!isAvailable) {        throw new Error('HealthKit is not available on this device');      }    } catch (error) {      console.error('HealthKit initialization failed:', error);      throw error;    }  }  /**   * Initialize Google Fit for Android   */  async initializeGoogleFit() {    if (Platform.OS !== 'android') return;    try {      // Dynamic import for Android-specific Google Fit      const GoogleFit = await import('react-native-google-fit');      this.googleFit = GoogleFit.default;    } catch (error) {      console.error('Google Fit initialization failed:', error);      throw error;    }  }  /**   * Request permissions for health data access   */  async requestPermissions(readTypes = [], writeTypes = []) {    try {      await this.privacyManager.validatePermissionRequest(readTypes, writeTypes);      if (Platform.OS === 'ios') {        return await this.requestHealthKitPermissions(readTypes, writeTypes);      } else if (Platform.OS === 'android') {        return await this.requestGoogleFitPermissions(readTypes, writeTypes);      }      return { success: false, error: 'Unsupported platform' };    } catch (error) {      console.error('Permission request failed:', error);      return { success: false, error: error.message };    }  }  /**   * Request HealthKit permissions for iOS   */  async requestHealthKitPermissions(readTypes, writeTypes) {    try {      const permissions = {        permissions: {          read: this.mapToHealthKitTypes(readTypes),          write: this.mapToHealthKitTypes(writeTypes)        }      };      await this.healthKit.initHealthKit(permissions);      this.permissions.read = readTypes;      this.permissions.write = writeTypes;      await this.savePermissions();      return { success: true, permissions: this.permissions };    } catch (error) {      console.error('HealthKit permission request failed:', error);      return { success: false, error: error.message };    }  }  /**   * Request Google Fit permissions for Android   */  async requestGoogleFitPermissions(readTypes, writeTypes) {    try {      const scopes = this.mapToGoogleFitScopes([...readTypes, ...writeTypes]);      const authResult = await this.googleFit.authorize({        scopes: scopes      });      if (authResult.success) {        this.permissions.read = readTypes;        this.permissions.write = writeTypes;        await this.savePermissions();        return { success: true, permissions: this.permissions };      }      return { success: false, error: 'Google Fit authorization failed' };    } catch (error) {      console.error('Google Fit permission request failed:', error);      return { success: false, error: error.message };    }  }  /**   * Read health data from the platform   */  async readHealthData(dataType, options = {}) {    try {      if (!this.isInitialized) {        await this.initialize();      }      await this.privacyManager.validateDataAccess(dataType, 'read');      if (Platform.OS === 'ios') {        return await this.readFromHealthKit(dataType, options);      } else if (Platform.OS === 'android') {        return await this.readFromGoogleFit(dataType, options);      }      return { success: false, error: 'Unsupported platform' };    } catch (error) {      console.error('Health data read failed:', error);      return { success: false, error: error.message };    }  }  /**   * Write health data to the platform   */  async writeHealthData(dataType, data, options = {}) {    try {      if (!this.isInitialized) {        await this.initialize();      }      await this.privacyManager.validateDataAccess(dataType, 'write');      await this.privacyManager.validateHealthData(data);      if (Platform.OS === 'ios') {        return await this.writeToHealthKit(dataType, data, options);      } else if (Platform.OS === 'android') {        return await this.writeToGoogleFit(dataType, data, options);      }      return { success: false, error: 'Unsupported platform' };    } catch (error) {      console.error('Health data write failed:', error);      return { success: false, error: error.message };    }  }  /**   * Read data from HealthKit   */  async readFromHealthKit(dataType, options) {    try {      const healthKitType = this.mapToHealthKitType(dataType);      const queryOptions = {        type: healthKitType,        startDate: options.startDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // 7 days ago        endDate: options.endDate || new Date(),        limit: options.limit || 100      };      const results = await this.healthKit.querySamples(queryOptions);      return {        success: true,        data: results.map(sample => this.healthDataModel.normalizeHealthKitData(sample, dataType))      };    } catch (error) {      console.error('HealthKit read error:', error);      return { success: false, error: error.message };    }  }  /**   * Read data from Google Fit   */  async readFromGoogleFit(dataType, options) {    try {      const fitDataType = this.mapToGoogleFitType(dataType);      const queryOptions = {        startDate: options.startDate || new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),        endDate: options.endDate || new Date()      };      let results;      switch (dataType) {        case 'steps':          results = await this.googleFit.getSteps(queryOptions);          break;        case 'heartRate':          results = await this.googleFit.getHeartRate(queryOptions);          break;        case 'weight':          results = await this.googleFit.getWeights(queryOptions);          break;        case 'distance':          results = await this.googleFit.getDistances(queryOptions);          break;        default:          results = await this.googleFit.getSamples(queryOptions);      }      return {        success: true,        data: results.map(sample => this.healthDataModel.normalizeGoogleFitData(sample, dataType))      };    } catch (error) {      console.error('Google Fit read error:', error);      return { success: false, error: error.message };    }  }  /**   * Write data to HealthKit   */  async writeToHealthKit(dataType, data, options) {    try {      const healthKitType = this.mapToHealthKitType(dataType);      const samples = Array.isArray(data) ? data : [data];      const healthKitSamples = samples.map(sample => ({        type: healthKitType,        value: sample.value,        unit: sample.unit || this.getDefaultUnit(dataType),        startDate: sample.startDate || new Date(),        endDate: sample.endDate || new Date(),        metadata: sample.metadata || { source: 'Naturinex' }      }));      await this.healthKit.saveSamples(healthKitSamples);      return { success: true, samplesWritten: healthKitSamples.length };    } catch (error) {      console.error('HealthKit write error:', error);      return { success: false, error: error.message };    }  }  /**   * Write data to Google Fit   */  async writeToGoogleFit(dataType, data, options) {    try {      const samples = Array.isArray(data) ? data : [data];      for (const sample of samples) {        const fitSample = {          value: sample.value,          unit: sample.unit || this.getDefaultUnit(dataType),          date: sample.date || new Date(),          source: sample.source || 'Naturinex'        };        switch (dataType) {          case 'steps':            await this.googleFit.saveSteps(fitSample);            break;          case 'weight':            await this.googleFit.saveWeight(fitSample);            break;          case 'heartRate':            await this.googleFit.saveHeartRate(fitSample);            break;          default:        }      }      return { success: true, samplesWritten: samples.length };    } catch (error) {      console.error('Google Fit write error:', error);      return { success: false, error: error.message };    }  }  /**   * Sync all health data   */  async syncAllData() {    try {      this.syncStatus.isSync = true;      this.syncStatus.errors = [];      const dataTypes = ['steps', 'heartRate', 'weight', 'sleep', 'distance', 'calories'];      const results = {};      for (const dataType of dataTypes) {        try {          const result = await this.readHealthData(dataType);          if (result.success) {            results[dataType] = result.data;            await this.storeHealthData(dataType, result.data);          } else {            this.syncStatus.errors.push({ dataType, error: result.error });          }        } catch (error) {          this.syncStatus.errors.push({ dataType, error: error.message });        }      }      this.syncStatus.lastSync = new Date();      this.syncStatus.isSync = false;      await this.saveSyncStatus();      return {        success: true,        syncedData: results,        errors: this.syncStatus.errors      };    } catch (error) {      this.syncStatus.isSync = false;      console.error('Sync failed:', error);      return { success: false, error: error.message };    }  }  /**   * Get sync status   */  getSyncStatus() {    return {      isSync: this.syncStatus.isSync,      lastSync: this.syncStatus.lastSync,      errors: this.syncStatus.errors    };  }  /**   * Utility methods   */  mapToHealthKitTypes(types) {    const mapping = {      'steps': 'HKQuantityTypeIdentifierStepCount',      'heartRate': 'HKQuantityTypeIdentifierHeartRate',      'weight': 'HKQuantityTypeIdentifierBodyMass',      'height': 'HKQuantityTypeIdentifierHeight',      'sleep': 'HKCategoryTypeIdentifierSleepAnalysis',      'distance': 'HKQuantityTypeIdentifierDistanceWalkingRunning',      'calories': 'HKQuantityTypeIdentifierActiveEnergyBurned'    };    return types.map(type => mapping[type]).filter(Boolean);  }  mapToHealthKitType(type) {    const mapping = {      'steps': 'HKQuantityTypeIdentifierStepCount',      'heartRate': 'HKQuantityTypeIdentifierHeartRate',      'weight': 'HKQuantityTypeIdentifierBodyMass',      'height': 'HKQuantityTypeIdentifierHeight',      'sleep': 'HKCategoryTypeIdentifierSleepAnalysis',      'distance': 'HKQuantityTypeIdentifierDistanceWalkingRunning',      'calories': 'HKQuantityTypeIdentifierActiveEnergyBurned'    };    return mapping[type];  }  mapToGoogleFitScopes(types) {    const baseScopes = [      'https://www.googleapis.com/auth/fitness.activity.read',      'https://www.googleapis.com/auth/fitness.activity.write',      'https://www.googleapis.com/auth/fitness.body.read',      'https://www.googleapis.com/auth/fitness.body.write',      'https://www.googleapis.com/auth/fitness.sleep.read'    ];    return baseScopes;  }  mapToGoogleFitType(type) {    const mapping = {      'steps': 'com.google.step_count.delta',      'heartRate': 'com.google.heart_rate.bpm',      'weight': 'com.google.weight',      'distance': 'com.google.distance.delta',      'calories': 'com.google.calories.expended'    };    return mapping[type];  }  getDefaultUnit(dataType) {    const units = {      'steps': 'count',      'heartRate': 'bpm',      'weight': 'kg',      'height': 'cm',      'distance': 'm',      'calories': 'kcal'    };    return units[dataType] || '';  }  async storeHealthData(dataType, data) {    try {      const key = `health_data_${dataType}`;      await AsyncStorage.setItem(key, JSON.stringify({        data,        timestamp: new Date().toISOString()      }));    } catch (error) {      console.error('Failed to store health data:', error);    }  }  async loadStoredPermissions() {    try {      const stored = await AsyncStorage.getItem('health_permissions');      if (stored) {        this.permissions = JSON.parse(stored);      }    } catch (error) {      console.error('Failed to load permissions:', error);    }  }  async savePermissions() {    try {      await AsyncStorage.setItem('health_permissions', JSON.stringify(this.permissions));    } catch (error) {      console.error('Failed to save permissions:', error);    }  }  async saveSyncStatus() {    try {      await AsyncStorage.setItem('health_sync_status', JSON.stringify(this.syncStatus));    } catch (error) {      console.error('Failed to save sync status:', error);    }  }}export default new HealthIntegrationService();

@@ -1,109 +1,1 @@
-// Jest setup file for testing
-import '@testing-library/jest-dom';
-
-// Mock React Native global variables
-global.__DEV__ = false;
-global.__METRO_GLOBAL_PREFIX__ = '';
-
-// Mock fetch globally
-global.fetch = jest.fn();
-
-// Mock console methods to reduce noise in tests
-global.console = {
-  ...console,
-  // Uncomment to ignore a specific log level
-  // log: jest.fn(),
-  // debug: jest.fn(),
-  // info: jest.fn(),
-  // warn: jest.fn(),
-  // error: jest.fn(),
-};
-
-// Mock AsyncStorage
-jest.mock('@react-native-async-storage/async-storage', () => ({
-  setItem: jest.fn(),
-  getItem: jest.fn(),
-  removeItem: jest.fn(),
-  clear: jest.fn(),
-}));
-
-// Mock react-native
-jest.mock('react-native', () => {
-  const RN = jest.requireActual('react-native');
-  return {
-    ...RN,
-    Alert: {
-      alert: jest.fn(),
-    },
-    Linking: {
-      openURL: jest.fn(),
-    },
-    Platform: {
-      OS: 'ios',
-      Version: 15,
-    },
-  };
-});
-
-// Mock expo-status-bar
-jest.mock('expo-status-bar', () => ({
-  StatusBar: 'StatusBar',
-}));
-
-// Mock expo-image-picker
-jest.mock('expo-image-picker', () => ({
-  launchCameraAsync: jest.fn(),
-  launchImageLibraryAsync: jest.fn(),
-  MediaTypeOptions: {
-    Images: 'Images',
-  },
-  ImagePickerResult: {
-    canceled: false,
-    assets: [{ uri: 'mock-image-uri' }],
-  },
-}));
-
-// Mock expo-sharing
-jest.mock('expo-sharing', () => ({
-  isAvailableAsync: jest.fn().mockResolvedValue(true),
-  shareAsync: jest.fn().mockResolvedValue(true),
-}));
-
-// Mock expo-store-review
-jest.mock('expo-store-review', () => ({
-  isAvailableAsync: jest.fn().mockResolvedValue(true),
-  requestReview: jest.fn().mockResolvedValue(true),
-  storeUrl: 'mock-store-url',
-}));
-
-// Mock expo-web-browser
-jest.mock('expo-web-browser', () => ({
-  openBrowserAsync: jest.fn().mockResolvedValue({ type: 'success' }),
-  closeBrowserAsync: jest.fn().mockResolvedValue({ type: 'success' }),
-}));
-
-// Mock expo-auth-session
-jest.mock('expo-auth-session', () => ({
-  AuthSession: {
-    makeRedirectUri: jest.fn().mockReturnValue('mock-redirect-uri'),
-    useAuthRequest: jest.fn().mockReturnValue([
-      { type: 'success', authentication: { accessToken: 'mock-token' } },
-      { type: 'cancel' },
-      { type: 'error', error: 'mock-error' },
-    ]),
-  },
-  useAuthRequest: jest.fn().mockReturnValue([
-    { type: 'success', authentication: { accessToken: 'mock-token' } },
-    { type: 'cancel' },
-    { type: 'error', error: 'mock-error' },
-  ]),
-}));
-
-// Mock expo-build-properties
-jest.mock('expo-build-properties', () => ({}));
-
-// Mock expo-dev-client
-jest.mock('expo-dev-client', () => ({
-  isDevice: true,
-  isDevelopmentBuild: true,
-}));
+// Jest setup file for testingimport '@testing-library/jest-dom';// Mock React Native global variablesglobal.__DEV__ = false;global.__METRO_GLOBAL_PREFIX__ = '';// Mock fetch globallyglobal.fetch = jest.fn();// Mock console methods to reduce noise in testsglobal.console = {  ...console,  // Uncomment to ignore a specific log level  // log: jest.fn(),  // debug: jest.fn(),  // info: jest.fn(),  // warn: jest.fn(),  // error: jest.fn(),};// Mock AsyncStoragejest.mock('@react-native-async-storage/async-storage', () => ({  setItem: jest.fn(),  getItem: jest.fn(),  removeItem: jest.fn(),  clear: jest.fn(),}));// Mock react-nativejest.mock('react-native', () => {  const RN = jest.requireActual('react-native');  return {    ...RN,    Alert: {      alert: jest.fn(),    },    Linking: {      openURL: jest.fn(),    },    Platform: {      OS: 'ios',      Version: 15,    },  };});// Mock expo-status-barjest.mock('expo-status-bar', () => ({  StatusBar: 'StatusBar',}));// Mock expo-image-pickerjest.mock('expo-image-picker', () => ({  launchCameraAsync: jest.fn(),  launchImageLibraryAsync: jest.fn(),  MediaTypeOptions: {    Images: 'Images',  },  ImagePickerResult: {    canceled: false,    assets: [{ uri: 'mock-image-uri' }],  },}));// Mock expo-sharingjest.mock('expo-sharing', () => ({  isAvailableAsync: jest.fn().mockResolvedValue(true),  shareAsync: jest.fn().mockResolvedValue(true),}));// Mock expo-store-reviewjest.mock('expo-store-review', () => ({  isAvailableAsync: jest.fn().mockResolvedValue(true),  requestReview: jest.fn().mockResolvedValue(true),  storeUrl: 'mock-store-url',}));// Mock expo-web-browserjest.mock('expo-web-browser', () => ({  openBrowserAsync: jest.fn().mockResolvedValue({ type: 'success' }),  closeBrowserAsync: jest.fn().mockResolvedValue({ type: 'success' }),}));// Mock expo-auth-sessionjest.mock('expo-auth-session', () => ({  AuthSession: {    makeRedirectUri: jest.fn().mockReturnValue('mock-redirect-uri'),    useAuthRequest: jest.fn().mockReturnValue([      { type: 'success', authentication: { accessToken: 'mock-token' } },      { type: 'cancel' },      { type: 'error', error: 'mock-error' },    ]),  },  useAuthRequest: jest.fn().mockReturnValue([    { type: 'success', authentication: { accessToken: 'mock-token' } },    { type: 'cancel' },    { type: 'error', error: 'mock-error' },  ]),}));// Mock expo-build-propertiesjest.mock('expo-build-properties', () => ({}));// Mock expo-dev-clientjest.mock('expo-dev-client', () => ({  isDevice: true,  isDevelopmentBuild: true,}));

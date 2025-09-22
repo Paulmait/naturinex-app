@@ -31,7 +31,6 @@ import { updateProfile, updatePassword, deleteUser, signOut } from 'firebase/aut
 import { doc, getDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebase.web';
 import { useNavigate } from 'react-router-dom';
-
 function WebProfile() {
   const [, setUserData] = useState(null);
   const [editing, setEditing] = useState(false);
@@ -39,7 +38,6 @@ function WebProfile() {
   const [saving, setSaving] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
-  
   const [formData, setFormData] = useState({
     displayName: '',
     email: '',
@@ -47,23 +45,18 @@ function WebProfile() {
     notifications: true,
     newsletter: false,
   });
-  
   const [passwordData, setPasswordData] = useState({
     currentPassword: '',
     newPassword: '',
     confirmPassword: '',
   });
-  
   const navigate = useNavigate();
   const user = auth.currentUser;
-
   useEffect(() => {
     loadUserData();
   }, [user]);
-
   const loadUserData = async () => {
     if (!user) return;
-    
     try {
       const userDoc = await getDoc(doc(db, 'users', user.uid));
       if (userDoc.exists()) {
@@ -83,10 +76,8 @@ function WebProfile() {
       setLoading(false);
     }
   };
-
   const handleSave = async () => {
     setSaving(true);
-    
     try {
       // Update Firebase Auth profile
       if (formData.displayName !== user.displayName) {
@@ -94,7 +85,6 @@ function WebProfile() {
           displayName: formData.displayName,
         });
       }
-      
       // Update Firestore user document
       await updateDoc(doc(db, 'users', user.uid), {
         displayName: formData.displayName,
@@ -103,7 +93,6 @@ function WebProfile() {
         newsletter: formData.newsletter,
         updatedAt: new Date().toISOString(),
       });
-      
       setEditing(false);
       await loadUserData();
     } catch (error) {
@@ -113,18 +102,15 @@ function WebProfile() {
       setSaving(false);
     }
   };
-
   const handlePasswordChange = async () => {
     if (passwordData.newPassword !== passwordData.confirmPassword) {
       alert('Passwords do not match');
       return;
     }
-    
     if (passwordData.newPassword.length < 6) {
       alert('Password must be at least 6 characters');
       return;
     }
-    
     try {
       await updatePassword(user, passwordData.newPassword);
       setPasswordDialogOpen(false);
@@ -139,22 +125,18 @@ function WebProfile() {
       alert('Failed to update password. Please try again.');
     }
   };
-
   const handleDeleteAccount = async () => {
     try {
       // Delete user data from Firestore
       await deleteDoc(doc(db, 'users', user.uid));
-      
       // Delete Firebase Auth account
       await deleteUser(user);
-      
       navigate('/');
     } catch (error) {
       console.error('Error deleting account:', error);
       alert('Failed to delete account. Please try logging in again and retry.');
     }
   };
-
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -163,7 +145,6 @@ function WebProfile() {
       console.error('Logout error:', error);
     }
   };
-
   if (loading) {
     return (
       <Container maxWidth="md" sx={{ py: 4 }}>
@@ -171,13 +152,11 @@ function WebProfile() {
       </Container>
     );
   }
-
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
       <Typography variant="h4" fontWeight="bold" gutterBottom>
         Profile Settings
       </Typography>
-
       {/* Profile Information */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
@@ -214,7 +193,6 @@ function WebProfile() {
               </Box>
             )}
           </Box>
-
           <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
             <Avatar
               src={user?.photoURL}
@@ -232,7 +210,6 @@ function WebProfile() {
               </Button>
             )}
           </Box>
-
           <Grid container spacing={2}>
             <Grid item xs={12} md={6}>
               <TextField
@@ -264,7 +241,6 @@ function WebProfile() {
           </Grid>
         </CardContent>
       </Card>
-
       {/* Preferences */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
@@ -293,14 +269,12 @@ function WebProfile() {
           />
         </CardContent>
       </Card>
-
       {/* Account Actions */}
       <Card>
         <CardContent>
           <Typography variant="h6" gutterBottom>
             Account Settings
           </Typography>
-          
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
             <Button
               variant="outlined"
@@ -308,16 +282,13 @@ function WebProfile() {
             >
               Change Password
             </Button>
-            
             <Button
               variant="outlined"
               onClick={() => navigate('/subscription')}
             >
               Manage Subscription
             </Button>
-            
             <Divider />
-            
             <Button
               variant="outlined"
               color="error"
@@ -326,7 +297,6 @@ function WebProfile() {
             >
               Sign Out
             </Button>
-            
             <Button
               variant="outlined"
               color="error"
@@ -338,7 +308,6 @@ function WebProfile() {
           </Box>
         </CardContent>
       </Card>
-
       {/* Change Password Dialog */}
       <Dialog open={passwordDialogOpen} onClose={() => setPasswordDialogOpen(false)}>
         <DialogTitle>Change Password</DialogTitle>
@@ -367,7 +336,6 @@ function WebProfile() {
           </Button>
         </DialogActions>
       </Dialog>
-
       {/* Delete Account Dialog */}
       <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
         <DialogTitle>Delete Account</DialogTitle>
@@ -394,5 +362,4 @@ function WebProfile() {
     </Container>
   );
 }
-
 export default WebProfile;

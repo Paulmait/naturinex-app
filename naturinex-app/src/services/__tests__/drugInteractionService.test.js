@@ -1,6 +1,5 @@
 import drugInteractionService from '../drugInteractionService';
 import { supabase } from '../config/supabase';
-
 // Mock dependencies
 jest.mock('../config/supabase', () => ({
   supabase: {
@@ -17,12 +16,10 @@ jest.mock('../config/supabase', () => ({
     }
   }
 }));
-
 describe('Drug Interaction Service', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
-
   describe('Interaction Detection', () => {
     test('should detect major drug interactions', async () => {
       const mockInteractions = {
@@ -39,17 +36,13 @@ describe('Drug Interaction Service', () => {
         }],
         error: null
       };
-      
       supabase.from().select().mockResolvedValue(mockInteractions);
-      
       const result = await drugInteractionService.checkInteractions(['Warfarin', 'Aspirin']);
-      
       expect(result.success).toBe(true);
       expect(result.interactions).toHaveLength(1);
       expect(result.interactions[0].severity).toBe('major');
       expect(result.interactions[0].description).toBe('Increased bleeding risk');
     });
-
     test('should detect moderate drug interactions', async () => {
       const mockInteractions = {
         data: [{
@@ -65,30 +58,22 @@ describe('Drug Interaction Service', () => {
         }],
         error: null
       };
-      
       supabase.from().select().mockResolvedValue(mockInteractions);
-      
       const result = await drugInteractionService.checkInteractions(['Simvastatin', 'Grapefruit']);
-      
       expect(result.success).toBe(true);
       expect(result.interactions[0].severity).toBe('moderate');
     });
-
     test('should handle no interactions found', async () => {
       const mockNoInteractions = {
         data: [],
         error: null
       };
-      
       supabase.from().select().mockResolvedValue(mockNoInteractions);
-      
       const result = await drugInteractionService.checkInteractions(['Acetaminophen']);
-      
       expect(result.success).toBe(true);
       expect(result.interactions).toHaveLength(0);
       expect(result.message).toBe('No known interactions found');
     });
-
     test('should handle multiple drug combinations', async () => {
       const mockMultipleInteractions = {
         data: [
@@ -113,16 +98,12 @@ describe('Drug Interaction Service', () => {
         ],
         error: null
       };
-      
       supabase.from().select().mockResolvedValue(mockMultipleInteractions);
-      
       const result = await drugInteractionService.checkInteractions(['Drug A', 'Drug B', 'Drug C']);
-      
       expect(result.success).toBe(true);
       expect(result.interactions).toHaveLength(3);
     });
   });
-
   describe('Severity Classification', () => {
     test('should classify contraindicated interactions', async () => {
       const contraindicated = {
@@ -134,15 +115,11 @@ describe('Drug Interaction Service', () => {
         }],
         error: null
       };
-      
       supabase.from().select().mockResolvedValue(contraindicated);
-      
       const result = await drugInteractionService.checkInteractions(['MAO Inhibitor', 'SSRI']);
-      
       expect(result.interactions[0].severity).toBe('contraindicated');
       expect(result.criticalInteractions).toHaveLength(1);
     });
-
     test('should prioritize interactions by severity', async () => {
       const mixedSeverity = {
         data: [
@@ -153,18 +130,13 @@ describe('Drug Interaction Service', () => {
         ],
         error: null
       };
-      
       supabase.from().select().mockResolvedValue(mixedSeverity);
-      
       const result = await drugInteractionService.checkInteractions(['A', 'B', 'C', 'D']);
-      
       const severities = result.interactions.map(i => i.severity);
       const expectedOrder = ['contraindicated', 'major', 'moderate', 'minor'];
-      
       expect(severities).toEqual(expectedOrder);
     });
   });
-
   describe('Drug Name Normalization', () => {
     test('should normalize generic and brand names', () => {
       const testCases = [
@@ -174,27 +146,23 @@ describe('Drug Interaction Service', () => {
         { input: 'Advil', expected: 'ibuprofen' },
         { input: 'Motrin', expected: 'ibuprofen' }
       ];
-      
       testCases.forEach(({ input, expected }) => {
         const normalized = drugInteractionService.normalizeDrugName(input);
         expect(normalized).toBe(expected);
       });
     });
-
     test('should handle dosage information in drug names', () => {
       const drugNames = [
         'Aspirin 81mg',
         'Metformin 500 mg',
         'Lisinopril 10mg tablets'
       ];
-      
       drugNames.forEach(name => {
         const normalized = drugInteractionService.normalizeDrugName(name);
         expect(normalized).not.toContain('mg');
         expect(normalized).not.toContain('tablets');
       });
     });
-
     test('should handle case insensitive drug names', () => {
       const variants = [
         'ASPIRIN',
@@ -202,16 +170,13 @@ describe('Drug Interaction Service', () => {
         'Aspirin',
         'AsPiRiN'
       ];
-      
       const normalized = variants.map(name => 
         drugInteractionService.normalizeDrugName(name)
       );
-      
       // All should normalize to the same value
       expect(new Set(normalized).size).toBe(1);
     });
   });
-
   describe('Food and Supplement Interactions', () => {
     test('should detect food interactions', async () => {
       const foodInteractions = {
@@ -224,15 +189,11 @@ describe('Drug Interaction Service', () => {
         }],
         error: null
       };
-      
       supabase.from().select().mockResolvedValue(foodInteractions);
-      
       const result = await drugInteractionService.checkFoodInteractions(['Warfarin']);
-      
       expect(result.success).toBe(true);
       expect(result.interactions[0].type).toBe('food');
     });
-
     test('should detect supplement interactions', async () => {
       const supplementInteractions = {
         data: [{
@@ -244,16 +205,12 @@ describe('Drug Interaction Service', () => {
         }],
         error: null
       };
-      
       supabase.from().select().mockResolvedValue(supplementInteractions);
-      
       const result = await drugInteractionService.checkSupplementInteractions(['Blood thinner']);
-      
       expect(result.success).toBe(true);
       expect(result.interactions[0].type).toBe('supplement');
     });
   });
-
   describe('Clinical Decision Support', () => {
     test('should provide clinical recommendations', async () => {
       const clinicalData = {
@@ -267,15 +224,11 @@ describe('Drug Interaction Service', () => {
         }],
         error: null
       };
-      
       supabase.from().select().mockResolvedValue(clinicalData);
-      
       const result = await drugInteractionService.checkInteractions(['ACE Inhibitor', 'Potassium']);
-      
       expect(result.interactions[0]).toHaveProperty('recommendation');
       expect(result.interactions[0]).toHaveProperty('monitoring');
     });
-
     test('should calculate interaction risk scores', async () => {
       const riskData = {
         data: [{
@@ -287,62 +240,47 @@ describe('Drug Interaction Service', () => {
         }],
         error: null
       };
-      
       supabase.from().select().mockResolvedValue(riskData);
-      
       const result = await drugInteractionService.calculateRiskScore(
         ['High Risk Drug', 'Another Drug'],
         { age: 75, conditions: ['kidney_disease'] }
       );
-      
       expect(result.riskScore).toBeGreaterThan(8);
       expect(result.riskLevel).toBe('high');
     });
   });
-
   describe('Performance and Caching', () => {
     test('should cache interaction results', async () => {
       const mockData = {
         data: [{ drug1: 'A', drug2: 'B', severity: 'minor' }],
         error: null
       };
-      
       supabase.from().select().mockResolvedValue(mockData);
-      
       // First call
       await drugInteractionService.checkInteractions(['A', 'B']);
       // Second call (should use cache)
       await drugInteractionService.checkInteractions(['A', 'B']);
-      
       // Should only make one database call
       expect(supabase.from).toHaveBeenCalledTimes(1);
     });
-
     test('should handle large drug lists efficiently', async () => {
       const largeDrugList = Array(50).fill().map((_, i) => `Drug${i}`);
-      
       const mockData = { data: [], error: null };
       supabase.from().select().mockResolvedValue(mockData);
-      
       const startTime = Date.now();
       const result = await drugInteractionService.checkInteractions(largeDrugList);
       const endTime = Date.now();
-      
       expect(result.success).toBe(true);
       expect(endTime - startTime).toBeLessThan(5000); // Should complete within 5 seconds
     });
   });
-
   describe('Error Handling', () => {
     test('should handle database connection errors', async () => {
       supabase.from().select().mockRejectedValue(new Error('Database connection failed'));
-      
       const result = await drugInteractionService.checkInteractions(['Aspirin']);
-      
       expect(result.success).toBe(false);
       expect(result.error).toContain('Database connection failed');
     });
-
     test('should validate input parameters', async () => {
       const invalidInputs = [
         null,
@@ -352,14 +290,12 @@ describe('Drug Interaction Service', () => {
         [null, undefined],
         ['valid', '', 'drug']
       ];
-      
       for (const input of invalidInputs) {
         const result = await drugInteractionService.checkInteractions(input);
         expect(result.success).toBe(false);
         expect(result.error).toContain('Invalid');
       }
     });
-
     test('should handle malformed database responses', async () => {
       const malformedData = {
         data: [{
@@ -368,16 +304,12 @@ describe('Drug Interaction Service', () => {
         }],
         error: null
       };
-      
       supabase.from().select().mockResolvedValue(malformedData);
-      
       const result = await drugInteractionService.checkInteractions(['Drug A']);
-      
       expect(result.success).toBe(false);
       expect(result.error).toContain('malformed');
     });
   });
-
   describe('Security', () => {
     test('should sanitize drug names to prevent SQL injection', async () => {
       const maliciousInputs = [
@@ -385,24 +317,18 @@ describe('Drug Interaction Service', () => {
         "1' OR '1'='1",
         "<script>alert('xss')</script>"
       ];
-      
       for (const input of maliciousInputs) {
         const result = await drugInteractionService.checkInteractions([input]);
-        
         // Should either reject or sanitize the input
         expect(result.success).toBe(false);
       }
     });
-
     test('should log security violations', async () => {
       const auditSpy = jest.spyOn(console, 'warn').mockImplementation();
-      
       await drugInteractionService.checkInteractions(["'; DROP TABLE --"]);
-      
       expect(auditSpy).toHaveBeenCalledWith(
         expect.stringContaining('Security violation')
       );
-      
       auditSpy.mockRestore();
     });
   });

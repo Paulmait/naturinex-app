@@ -1,434 +1,1 @@
-import React, { useState, useEffect } from 'react';
-import { Bell, Plus, Clock, Calendar, Trash2, Power, Check, AlertCircle } from 'lucide-react';
-import { useUser } from '../hooks/useUser';
-import { useNotifications } from './NotificationSystem';
-import notificationService from '../services/notificationService';
-import './MedicationReminders.css';
-
-const MedicationReminders = () => {
-  const { user } = useUser();
-  const { showNotification } = useNotifications();
-  const [reminders, setReminders] = useState([]);
-  const [showAddForm, setShowAddForm] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
-  const [adherenceStats, setAdherenceStats] = useState(null);
-  
-  // Form state
-  const [formData, setFormData] = useState({
-    medicationName: '',
-    dosage: '',
-    frequency: 'daily',
-    times: ['09:00'],
-    notes: '',
-    endDate: ''
-  });
-
-  useEffect(() => {
-    initializeNotifications();
-    if (user) {
-      fetchReminders();
-      fetchAdherenceStats();
-    }
-  }, [user]);
-
-  const initializeNotifications = async () => {
-    const initialized = await notificationService.initialize();
-    if (initialized) {
-      setNotificationsEnabled(Notification.permission === 'granted');
-    }
-  };
-
-  const fetchReminders = async () => {
-    setLoading(true);
-    try {
-      const userReminders = await notificationService.getUserReminders(user.uid);
-      setReminders(userReminders);
-    } catch (error) {
-      console.error('Error fetching reminders:', error);
-      showNotification('Failed to load reminders', 'error');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchAdherenceStats = async () => {
-    try {
-      const stats = await notificationService.getAdherenceStats(user.uid, 7);
-      setAdherenceStats(stats);
-    } catch (error) {
-      console.error('Error fetching adherence stats:', error);
-    }
-  };
-
-  const requestNotificationPermission = async () => {
-    const granted = await notificationService.requestPermission();
-    if (granted) {
-      setNotificationsEnabled(true);
-      showNotification('Notifications enabled successfully!', 'success');
-    } else {
-      showNotification('Please enable notifications in your browser settings', 'warning');
-    }
-  };
-
-  const handleAddReminder = async (e) => {
-    e.preventDefault();
-    
-    if (!formData.medicationName || !formData.dosage) {
-      showNotification('Please fill in all required fields', 'warning');
-      return;
-    }
-
-    try {
-      const result = await notificationService.createMedicationReminder(user.uid, formData);
-      
-      if (result.success) {
-        showNotification('Reminder created successfully!', 'success');
-        setShowAddForm(false);
-        setFormData({
-          medicationName: '',
-          dosage: '',
-          frequency: 'daily',
-          times: ['09:00'],
-          notes: '',
-          endDate: ''
-        });
-        fetchReminders();
-        fetchAdherenceStats();
-      } else {
-        showNotification('Failed to create reminder', 'error');
-      }
-    } catch (error) {
-      console.error('Error creating reminder:', error);
-      showNotification('Failed to create reminder', 'error');
-    }
-  };
-
-  const handleToggleReminder = async (reminderId, currentStatus) => {
-    try {
-      const result = await notificationService.toggleReminder(reminderId, !currentStatus);
-      
-      if (result.success) {
-        showNotification(
-          `Reminder ${!currentStatus ? 'enabled' : 'disabled'} successfully`,
-          'success'
-        );
-        fetchReminders();
-      }
-    } catch (error) {
-      console.error('Error toggling reminder:', error);
-      showNotification('Failed to update reminder', 'error');
-    }
-  };
-
-  const handleDeleteReminder = async (reminderId) => {
-    if (!window.confirm('Are you sure you want to delete this reminder?')) {
-      return;
-    }
-
-    try {
-      const result = await notificationService.deleteReminder(reminderId);
-      
-      if (result.success) {
-        showNotification('Reminder deleted successfully', 'success');
-        fetchReminders();
-        fetchAdherenceStats();
-      }
-    } catch (error) {
-      console.error('Error deleting reminder:', error);
-      showNotification('Failed to delete reminder', 'error');
-    }
-  };
-
-  const handleMarkAsTaken = async (reminder) => {
-    try {
-      const result = await notificationService.logMedicationTaken(
-        user.uid,
-        reminder.medicationName,
-        reminder.id
-      );
-      
-      if (result.success) {
-        showNotification(`${reminder.medicationName} marked as taken`, 'success');
-        fetchAdherenceStats();
-      }
-    } catch (error) {
-      console.error('Error logging medication:', error);
-      showNotification('Failed to log medication', 'error');
-    }
-  };
-
-  const addTimeSlot = () => {
-    setFormData({
-      ...formData,
-      times: [...formData.times, '12:00']
-    });
-  };
-
-  const updateTimeSlot = (index, value) => {
-    const newTimes = [...formData.times];
-    newTimes[index] = value;
-    setFormData({ ...formData, times: newTimes });
-  };
-
-  const removeTimeSlot = (index) => {
-    if (formData.times.length > 1) {
-      const newTimes = formData.times.filter((_, i) => i !== index);
-      setFormData({ ...formData, times: newTimes });
-    }
-  };
-
-  const formatNextReminder = (nextReminder) => {
-    const next = new Date(nextReminder);
-    const now = new Date();
-    const diffMs = next - now;
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
-
-    if (diffHours < 0 || diffMinutes < 0) {
-      return 'Overdue';
-    } else if (diffHours === 0) {
-      return `In ${diffMinutes} minutes`;
-    } else if (diffHours < 24) {
-      return `In ${diffHours}h ${diffMinutes}m`;
-    } else {
-      return next.toLocaleDateString();
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="medication-reminders loading">
-        <div className="loading-spinner"></div>
-        <p>Loading reminders...</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="medication-reminders">
-      <div className="reminders-header">
-        <h2>
-          <Bell size={24} />
-          Medication Reminders
-        </h2>
-        
-        {!notificationsEnabled && (
-          <button className="enable-notifications-btn" onClick={requestNotificationPermission}>
-            <Bell size={18} />
-            Enable Notifications
-          </button>
-        )}
-      </div>
-
-      {adherenceStats && (
-        <div className="adherence-card">
-          <h3>Your Adherence</h3>
-          <div className="adherence-score">
-            <div className="score-circle" style={{ '--score': adherenceStats.overallAdherence }}>
-              <span className="score-value">{adherenceStats.overallAdherence}%</span>
-            </div>
-            <p className="score-label">Last 7 days</p>
-          </div>
-          {Object.keys(adherenceStats.byMedication).length > 0 && (
-            <div className="medication-adherence">
-              {Object.entries(adherenceStats.byMedication).map(([medication, stats]) => (
-                <div key={medication} className="adherence-item">
-                  <span className="medication-name">{medication}</span>
-                  <span className="adherence-rate">{stats.adherenceRate}%</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      <div className="reminders-actions">
-        <button 
-          className="add-reminder-btn"
-          onClick={() => setShowAddForm(true)}
-        >
-          <Plus size={20} />
-          Add Reminder
-        </button>
-      </div>
-
-      {showAddForm && (
-        <div className="add-reminder-form">
-          <h3>Create New Reminder</h3>
-          <form onSubmit={handleAddReminder}>
-            <div className="form-group">
-              <label htmlFor="medicationName">Medication Name *</label>
-              <input
-                type="text"
-                id="medicationName"
-                value={formData.medicationName}
-                onChange={(e) => setFormData({ ...formData, medicationName: e.target.value })}
-                required
-                placeholder="e.g., Aspirin"
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="dosage">Dosage *</label>
-              <input
-                type="text"
-                id="dosage"
-                value={formData.dosage}
-                onChange={(e) => setFormData({ ...formData, dosage: e.target.value })}
-                required
-                placeholder="e.g., 100mg"
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="frequency">Frequency</label>
-              <select
-                id="frequency"
-                value={formData.frequency}
-                onChange={(e) => setFormData({ ...formData, frequency: e.target.value })}
-              >
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-                <option value="twice-weekly">Twice Weekly</option>
-              </select>
-            </div>
-
-            <div className="form-group">
-              <label>Reminder Times</label>
-              <div className="time-slots">
-                {formData.times.map((time, index) => (
-                  <div key={index} className="time-slot">
-                    <input
-                      type="time"
-                      value={time}
-                      onChange={(e) => updateTimeSlot(index, e.target.value)}
-                    />
-                    {formData.times.length > 1 && (
-                      <button
-                        type="button"
-                        className="remove-time-btn"
-                        onClick={() => removeTimeSlot(index)}
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  className="add-time-btn"
-                  onClick={addTimeSlot}
-                >
-                  + Add Time
-                </button>
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="notes">Notes (Optional)</label>
-              <textarea
-                id="notes"
-                value={formData.notes}
-                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                rows={3}
-                placeholder="e.g., Take with food"
-              />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="endDate">End Date (Optional)</label>
-              <input
-                type="date"
-                id="endDate"
-                value={formData.endDate}
-                onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}
-                min={new Date().toISOString().split('T')[0]}
-              />
-            </div>
-
-            <div className="form-actions">
-              <button type="submit" className="submit-btn">
-                Create Reminder
-              </button>
-              <button
-                type="button"
-                className="cancel-btn"
-                onClick={() => setShowAddForm(false)}
-              >
-                Cancel
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {reminders.length === 0 ? (
-        <div className="empty-reminders">
-          <Clock size={48} />
-          <h3>No reminders set</h3>
-          <p>Add reminders to never miss your medications</p>
-        </div>
-      ) : (
-        <div className="reminders-list">
-          {reminders.map((reminder) => (
-            <div key={reminder.id} className={`reminder-item ${!reminder.active ? 'inactive' : ''}`}>
-              <div className="reminder-header">
-                <div className="reminder-info">
-                  <h4>{reminder.medicationName}</h4>
-                  <p className="dosage">{reminder.dosage}</p>
-                </div>
-                <div className="reminder-actions">
-                  <button
-                    className="mark-taken-btn"
-                    onClick={() => handleMarkAsTaken(reminder)}
-                    title="Mark as taken"
-                  >
-                    <Check size={18} />
-                  </button>
-                  <button
-                    className={`toggle-btn ${reminder.active ? 'active' : ''}`}
-                    onClick={() => handleToggleReminder(reminder.id, reminder.active)}
-                    title={reminder.active ? 'Disable reminder' : 'Enable reminder'}
-                  >
-                    <Power size={18} />
-                  </button>
-                  <button
-                    className="delete-btn"
-                    onClick={() => handleDeleteReminder(reminder.id)}
-                    title="Delete reminder"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                </div>
-              </div>
-
-              <div className="reminder-details">
-                <div className="detail-item">
-                  <Calendar size={16} />
-                  <span>{reminder.frequency}</span>
-                </div>
-                <div className="detail-item">
-                  <Clock size={16} />
-                  <span>{reminder.times.join(', ')}</span>
-                </div>
-                {reminder.active && (
-                  <div className="detail-item next-reminder">
-                    <AlertCircle size={16} />
-                    <span>Next: {formatNextReminder(reminder.nextReminder)}</span>
-                  </div>
-                )}
-              </div>
-
-              {reminder.notes && (
-                <p className="reminder-notes">{reminder.notes}</p>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
-
-export default MedicationReminders;
+import React, { useState, useEffect } from 'react';import { Bell, Plus, Clock, Calendar, Trash2, Power, Check, AlertCircle } from 'lucide-react';import { useUser } from '../hooks/useUser';import { useNotifications } from './NotificationSystem';import notificationService from '../services/notificationService';import './MedicationReminders.css';const MedicationReminders = () => {  const { user } = useUser();  const { showNotification } = useNotifications();  const [reminders, setReminders] = useState([]);  const [showAddForm, setShowAddForm] = useState(false);  const [loading, setLoading] = useState(true);  const [notificationsEnabled, setNotificationsEnabled] = useState(false);  const [adherenceStats, setAdherenceStats] = useState(null);  // Form state  const [formData, setFormData] = useState({    medicationName: '',    dosage: '',    frequency: 'daily',    times: ['09:00'],    notes: '',    endDate: ''  });  useEffect(() => {    initializeNotifications();    if (user) {      fetchReminders();      fetchAdherenceStats();    }  }, [user]);  const initializeNotifications = async () => {    const initialized = await notificationService.initialize();    if (initialized) {      setNotificationsEnabled(Notification.permission === 'granted');    }  };  const fetchReminders = async () => {    setLoading(true);    try {      const userReminders = await notificationService.getUserReminders(user.uid);      setReminders(userReminders);    } catch (error) {      console.error('Error fetching reminders:', error);      showNotification('Failed to load reminders', 'error');    } finally {      setLoading(false);    }  };  const fetchAdherenceStats = async () => {    try {      const stats = await notificationService.getAdherenceStats(user.uid, 7);      setAdherenceStats(stats);    } catch (error) {      console.error('Error fetching adherence stats:', error);    }  };  const requestNotificationPermission = async () => {    const granted = await notificationService.requestPermission();    if (granted) {      setNotificationsEnabled(true);      showNotification('Notifications enabled successfully!', 'success');    } else {      showNotification('Please enable notifications in your browser settings', 'warning');    }  };  const handleAddReminder = async (e) => {    e.preventDefault();    if (!formData.medicationName || !formData.dosage) {      showNotification('Please fill in all required fields', 'warning');      return;    }    try {      const result = await notificationService.createMedicationReminder(user.uid, formData);      if (result.success) {        showNotification('Reminder created successfully!', 'success');        setShowAddForm(false);        setFormData({          medicationName: '',          dosage: '',          frequency: 'daily',          times: ['09:00'],          notes: '',          endDate: ''        });        fetchReminders();        fetchAdherenceStats();      } else {        showNotification('Failed to create reminder', 'error');      }    } catch (error) {      console.error('Error creating reminder:', error);      showNotification('Failed to create reminder', 'error');    }  };  const handleToggleReminder = async (reminderId, currentStatus) => {    try {      const result = await notificationService.toggleReminder(reminderId, !currentStatus);      if (result.success) {        showNotification(          `Reminder ${!currentStatus ? 'enabled' : 'disabled'} successfully`,          'success'        );        fetchReminders();      }    } catch (error) {      console.error('Error toggling reminder:', error);      showNotification('Failed to update reminder', 'error');    }  };  const handleDeleteReminder = async (reminderId) => {    if (!window.confirm('Are you sure you want to delete this reminder?')) {      return;    }    try {      const result = await notificationService.deleteReminder(reminderId);      if (result.success) {        showNotification('Reminder deleted successfully', 'success');        fetchReminders();        fetchAdherenceStats();      }    } catch (error) {      console.error('Error deleting reminder:', error);      showNotification('Failed to delete reminder', 'error');    }  };  const handleMarkAsTaken = async (reminder) => {    try {      const result = await notificationService.logMedicationTaken(        user.uid,        reminder.medicationName,        reminder.id      );      if (result.success) {        showNotification(`${reminder.medicationName} marked as taken`, 'success');        fetchAdherenceStats();      }    } catch (error) {      console.error('Error logging medication:', error);      showNotification('Failed to log medication', 'error');    }  };  const addTimeSlot = () => {    setFormData({      ...formData,      times: [...formData.times, '12:00']    });  };  const updateTimeSlot = (index, value) => {    const newTimes = [...formData.times];    newTimes[index] = value;    setFormData({ ...formData, times: newTimes });  };  const removeTimeSlot = (index) => {    if (formData.times.length > 1) {      const newTimes = formData.times.filter((_, i) => i !== index);      setFormData({ ...formData, times: newTimes });    }  };  const formatNextReminder = (nextReminder) => {    const next = new Date(nextReminder);    const now = new Date();    const diffMs = next - now;    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));    if (diffHours < 0 || diffMinutes < 0) {      return 'Overdue';    } else if (diffHours === 0) {      return `In ${diffMinutes} minutes`;    } else if (diffHours < 24) {      return `In ${diffHours}h ${diffMinutes}m`;    } else {      return next.toLocaleDateString();    }  };  if (loading) {    return (      <div className="medication-reminders loading">        <div className="loading-spinner"></div>        <p>Loading reminders...</p>      </div>    );  }  return (    <div className="medication-reminders">      <div className="reminders-header">        <h2>          <Bell size={24} />          Medication Reminders        </h2>        {!notificationsEnabled && (          <button className="enable-notifications-btn" onClick={requestNotificationPermission}>            <Bell size={18} />            Enable Notifications          </button>        )}      </div>      {adherenceStats && (        <div className="adherence-card">          <h3>Your Adherence</h3>          <div className="adherence-score">            <div className="score-circle" style={{ '--score': adherenceStats.overallAdherence }}>              <span className="score-value">{adherenceStats.overallAdherence}%</span>            </div>            <p className="score-label">Last 7 days</p>          </div>          {Object.keys(adherenceStats.byMedication).length > 0 && (            <div className="medication-adherence">              {Object.entries(adherenceStats.byMedication).map(([medication, stats]) => (                <div key={medication} className="adherence-item">                  <span className="medication-name">{medication}</span>                  <span className="adherence-rate">{stats.adherenceRate}%</span>                </div>              ))}            </div>          )}        </div>      )}      <div className="reminders-actions">        <button           className="add-reminder-btn"          onClick={() => setShowAddForm(true)}        >          <Plus size={20} />          Add Reminder        </button>      </div>      {showAddForm && (        <div className="add-reminder-form">          <h3>Create New Reminder</h3>          <form onSubmit={handleAddReminder}>            <div className="form-group">              <label htmlFor="medicationName">Medication Name *</label>              <input                type="text"                id="medicationName"                value={formData.medicationName}                onChange={(e) => setFormData({ ...formData, medicationName: e.target.value })}                required                placeholder="e.g., Aspirin"              />            </div>            <div className="form-group">              <label htmlFor="dosage">Dosage *</label>              <input                type="text"                id="dosage"                value={formData.dosage}                onChange={(e) => setFormData({ ...formData, dosage: e.target.value })}                required                placeholder="e.g., 100mg"              />            </div>            <div className="form-group">              <label htmlFor="frequency">Frequency</label>              <select                id="frequency"                value={formData.frequency}                onChange={(e) => setFormData({ ...formData, frequency: e.target.value })}              >                <option value="daily">Daily</option>                <option value="weekly">Weekly</option>                <option value="twice-weekly">Twice Weekly</option>              </select>            </div>            <div className="form-group">              <label>Reminder Times</label>              <div className="time-slots">                {formData.times.map((time, index) => (                  <div key={index} className="time-slot">                    <input                      type="time"                      value={time}                      onChange={(e) => updateTimeSlot(index, e.target.value)}                    />                    {formData.times.length > 1 && (                      <button                        type="button"                        className="remove-time-btn"                        onClick={() => removeTimeSlot(index)}                      >                        ×                      </button>                    )}                  </div>                ))}                <button                  type="button"                  className="add-time-btn"                  onClick={addTimeSlot}                >                  + Add Time                </button>              </div>            </div>            <div className="form-group">              <label htmlFor="notes">Notes (Optional)</label>              <textarea                id="notes"                value={formData.notes}                onChange={(e) => setFormData({ ...formData, notes: e.target.value })}                rows={3}                placeholder="e.g., Take with food"              />            </div>            <div className="form-group">              <label htmlFor="endDate">End Date (Optional)</label>              <input                type="date"                id="endDate"                value={formData.endDate}                onChange={(e) => setFormData({ ...formData, endDate: e.target.value })}                min={new Date().toISOString().split('T')[0]}              />            </div>            <div className="form-actions">              <button type="submit" className="submit-btn">                Create Reminder              </button>              <button                type="button"                className="cancel-btn"                onClick={() => setShowAddForm(false)}              >                Cancel              </button>            </div>          </form>        </div>      )}      {reminders.length === 0 ? (        <div className="empty-reminders">          <Clock size={48} />          <h3>No reminders set</h3>          <p>Add reminders to never miss your medications</p>        </div>      ) : (        <div className="reminders-list">          {reminders.map((reminder) => (            <div key={reminder.id} className={`reminder-item ${!reminder.active ? 'inactive' : ''}`}>              <div className="reminder-header">                <div className="reminder-info">                  <h4>{reminder.medicationName}</h4>                  <p className="dosage">{reminder.dosage}</p>                </div>                <div className="reminder-actions">                  <button                    className="mark-taken-btn"                    onClick={() => handleMarkAsTaken(reminder)}                    title="Mark as taken"                  >                    <Check size={18} />                  </button>                  <button                    className={`toggle-btn ${reminder.active ? 'active' : ''}`}                    onClick={() => handleToggleReminder(reminder.id, reminder.active)}                    title={reminder.active ? 'Disable reminder' : 'Enable reminder'}                  >                    <Power size={18} />                  </button>                  <button                    className="delete-btn"                    onClick={() => handleDeleteReminder(reminder.id)}                    title="Delete reminder"                  >                    <Trash2 size={18} />                  </button>                </div>              </div>              <div className="reminder-details">                <div className="detail-item">                  <Calendar size={16} />                  <span>{reminder.frequency}</span>                </div>                <div className="detail-item">                  <Clock size={16} />                  <span>{reminder.times.join(', ')}</span>                </div>                {reminder.active && (                  <div className="detail-item next-reminder">                    <AlertCircle size={16} />                    <span>Next: {formatNextReminder(reminder.nextReminder)}</span>                  </div>                )}              </div>              {reminder.notes && (                <p className="reminder-notes">{reminder.notes}</p>              )}            </div>          ))}        </div>      )}    </div>  );};export default MedicationReminders;

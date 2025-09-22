@@ -1,445 +1,1 @@
-/**
- * Medical Disclaimer Service
- * HIPAA-compliant disclaimer management and enforcement
- * Ensures compliance with FDA guidelines for medical apps
- */
-
-import { supabase } from '../config/supabase.js';
-import CryptoJS from 'crypto-js';
-
-const DISCLAIMER_EXPIRY_DAYS = 30;
-const AUDIT_LOG_RETENTION_YEARS = 7; // HIPAA requirement
-
-export class DisclaimerService {
-  constructor() {
-    this.initializeDatabase();
-  }
-
-  /**
-   * Initialize database tables if not exists
-   * This is for development - in production use proper migrations
-   */
-  async initializeDatabase() {
-    if (!supabase) {
-      console.warn('Supabase not available, using fallback storage');
-      return;
-    }
-
-    try {
-      // Check if tables exist by attempting a simple query
-      await supabase.from('disclaimer_acceptances').select('count').limit(1);
-    } catch (error) {
-      console.warn('Database tables may not exist. Please run migrations.');
-    }
-  }
-
-  /**
-   * Check if user has valid disclaimer acceptance
-   * @param {string} userId - User identifier
-   * @param {string} featureType - Type of feature being accessed
-   * @returns {Promise<boolean>} - Whether disclaimer is valid
-   */
-  async hasValidDisclaimer(userId, featureType = 'general') {
-    if (!userId) {
-      throw new Error('User ID is required for disclaimer verification');
-    }
-
-    try {
-      if (!supabase) {
-        // Fallback to localStorage for web-only apps
-        return this.checkLocalDisclaimer(userId, featureType);
-      }
-
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - DISCLAIMER_EXPIRY_DAYS);
-
-      const { data, error } = await supabase
-        .from('disclaimer_acceptances')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('feature_type', featureType)
-        .eq('is_active', true)
-        .gte('accepted_at', cutoffDate.toISOString())
-        .order('accepted_at', { ascending: false })
-        .limit(1);
-
-      if (error) {
-        console.error('Error checking disclaimer:', error);
-        return false;
-      }
-
-      return data && data.length > 0;
-    } catch (error) {
-      console.error('Disclaimer validation error:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Record disclaimer acceptance
-   * @param {Object} acceptanceData - Disclaimer acceptance data
-   * @returns {Promise<Object>} - Acceptance record
-   */
-  async recordAcceptance(acceptanceData) {
-    const {
-      userId,
-      featureType = 'general',
-      disclaimerVersion = '1.0',
-      ipAddress,
-      userAgent,
-      geolocation,
-      isMinor = false,
-      emergencyContact = null
-    } = acceptanceData;
-
-    if (!userId) {
-      throw new Error('User ID is required for disclaimer acceptance');
-    }
-
-    const acceptanceRecord = {
-      user_id: userId,
-      feature_type: featureType,
-      disclaimer_version: disclaimerVersion,
-      accepted_at: new Date().toISOString(),
-      ip_address: this.hashSensitiveData(ipAddress),
-      user_agent: this.hashSensitiveData(userAgent),
-      geolocation: geolocation ? this.hashSensitiveData(JSON.stringify(geolocation)) : null,
-      is_minor: isMinor,
-      emergency_contact: emergencyContact,
-      is_active: true,
-      audit_trail: this.generateAuditTrail(acceptanceData)
-    };
-
-    try {
-      if (!supabase) {
-        return this.storeLocalDisclaimer(acceptanceRecord);
-      }
-
-      // Deactivate previous disclaimers for this user and feature
-      await supabase
-        .from('disclaimer_acceptances')
-        .update({ is_active: false })
-        .eq('user_id', userId)
-        .eq('feature_type', featureType);
-
-      // Insert new acceptance record
-      const { data, error } = await supabase
-        .from('disclaimer_acceptances')
-        .insert(acceptanceRecord)
-        .select()
-        .single();
-
-      if (error) {
-        throw error;
-      }
-
-      // Log audit event
-      await this.logAuditEvent({
-        user_id: userId,
-        action: 'DISCLAIMER_ACCEPTED',
-        feature_type: featureType,
-        details: {
-          disclaimer_version: disclaimerVersion,
-          is_minor: isMinor
-        }
-      });
-
-      return data;
-    } catch (error) {
-      console.error('Error recording disclaimer acceptance:', error);
-      throw new Error('Failed to record disclaimer acceptance');
-    }
-  }
-
-  /**
-   * Get disclaimer status for user
-   * @param {string} userId - User identifier
-   * @returns {Promise<Object>} - Disclaimer status information
-   */
-  async getDisclaimerStatus(userId) {
-    if (!userId) {
-      throw new Error('User ID is required');
-    }
-
-    try {
-      if (!supabase) {
-        return this.getLocalDisclaimerStatus(userId);
-      }
-
-      const { data, error } = await supabase
-        .from('disclaimer_acceptances')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('is_active', true)
-        .order('accepted_at', { ascending: false });
-
-      if (error) {
-        throw error;
-      }
-
-      const status = {};
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - DISCLAIMER_EXPIRY_DAYS);
-
-      data.forEach(record => {
-        const isValid = new Date(record.accepted_at) >= cutoffDate;
-        status[record.feature_type] = {
-          isValid,
-          acceptedAt: record.accepted_at,
-          version: record.disclaimer_version,
-          daysRemaining: isValid ?
-            Math.ceil((new Date(record.accepted_at).getTime() + (DISCLAIMER_EXPIRY_DAYS * 24 * 60 * 60 * 1000) - Date.now()) / (24 * 60 * 60 * 1000)) : 0
-        };
-      });
-
-      return status;
-    } catch (error) {
-      console.error('Error getting disclaimer status:', error);
-      return {};
-    }
-  }
-
-  /**
-   * Block access to features without valid disclaimer
-   * @param {string} userId - User identifier
-   * @param {string} featureType - Feature being accessed
-   * @throws {Error} - If access is blocked
-   */
-  async enforceDisclaimer(userId, featureType = 'general') {
-    const hasValidDisclaimer = await this.hasValidDisclaimer(userId, featureType);
-
-    if (!hasValidDisclaimer) {
-      await this.logAuditEvent({
-        user_id: userId,
-        action: 'ACCESS_BLOCKED',
-        feature_type: featureType,
-        details: { reason: 'No valid disclaimer acceptance' }
-      });
-
-      throw new Error(`Access denied: Valid medical disclaimer acceptance required for ${featureType} features`);
-    }
-  }
-
-  /**
-   * Get disclaimer content based on feature type
-   * @param {string} featureType - Type of feature
-   * @returns {Object} - Disclaimer content
-   */
-  getDisclaimerContent(featureType = 'general') {
-    const baseDisclaimer = {
-      title: 'Medical Disclaimer',
-      version: '1.0',
-      critical_warnings: [
-        'This app is for educational and informational purposes only',
-        'Information provided is NOT medical advice, diagnosis, or treatment',
-        'Always consult qualified healthcare professionals',
-        'Do not use for medical emergencies - call 911',
-        'AI technology may contain errors or incomplete information'
-      ],
-      liability_limitation: 'TO THE MAXIMUM EXTENT PERMITTED BY LAW, WE ARE NOT LIABLE FOR ANY HEALTH OUTCOMES FROM USING THIS APPLICATION',
-      emergency_notice: 'IF YOU ARE EXPERIENCING A MEDICAL EMERGENCY, CALL 911 OR YOUR LOCAL EMERGENCY SERVICES IMMEDIATELY'
-    };
-
-    const featureSpecificContent = {
-      general: {
-        ...baseDisclaimer,
-        description: 'General use of NaturineX medical information features'
-      },
-      drug_interaction: {
-        ...baseDisclaimer,
-        title: 'Drug Interaction Analysis Disclaimer',
-        description: 'Drug interaction checking and analysis features',
-        additional_warnings: [
-          'Drug interaction analysis is based on available data and may not be complete',
-          'Always verify interactions with your pharmacist or doctor',
-          'Report any adverse reactions to your healthcare provider immediately',
-          'This tool does not replace professional pharmaceutical consultation'
-        ]
-      },
-      medication_analysis: {
-        ...baseDisclaimer,
-        title: 'Medication Analysis Disclaimer',
-        description: 'AI-powered medication analysis and recommendations',
-        additional_warnings: [
-          'AI analysis is for educational purposes only',
-          'Medication recommendations must be verified by healthcare professionals',
-          'Do not change medications based solely on app suggestions',
-          'Individual medical conditions may affect medication suitability'
-        ]
-      },
-      symptom_checker: {
-        ...baseDisclaimer,
-        title: 'Symptom Analysis Disclaimer',
-        description: 'AI-powered symptom analysis and health information',
-        additional_warnings: [
-          'Symptom analysis cannot replace professional medical diagnosis',
-          'Seek immediate medical attention for serious or worsening symptoms',
-          'AI may not recognize all possible conditions or symptoms',
-          'Personal medical history affects symptom interpretation'
-        ]
-      }
-    };
-
-    return featureSpecificContent[featureType] || featureSpecificContent.general;
-  }
-
-  /**
-   * Log audit event for HIPAA compliance
-   * @param {Object} eventData - Audit event data
-   */
-  async logAuditEvent(eventData) {
-    const auditRecord = {
-      user_id: eventData.user_id,
-      action: eventData.action,
-      feature_type: eventData.feature_type || 'general',
-      timestamp: new Date().toISOString(),
-      details: eventData.details || {},
-      ip_address: eventData.ip_address ? this.hashSensitiveData(eventData.ip_address) : null,
-      session_id: this.generateSessionId()
-    };
-
-    try {
-      if (!supabase) {
-        // Store locally for web-only apps
-        const logs = JSON.parse(localStorage.getItem('disclaimer_audit_logs') || '[]');
-        logs.push(auditRecord);
-        // Keep only last 1000 entries for local storage
-        if (logs.length > 1000) {
-          logs.splice(0, logs.length - 1000);
-        }
-        localStorage.setItem('disclaimer_audit_logs', JSON.stringify(logs));
-        return;
-      }
-
-      await supabase
-        .from('disclaimer_audit_logs')
-        .insert(auditRecord);
-    } catch (error) {
-      console.error('Error logging audit event:', error);
-      // Don't throw - audit logging should not break functionality
-    }
-  }
-
-  /**
-   * Hash sensitive data for HIPAA compliance
-   * @param {string} data - Data to hash
-   * @returns {string} - Hashed data
-   */
-  hashSensitiveData(data) {
-    if (!data) return null;
-    return CryptoJS.SHA256(data + process.env.REACT_APP_SALT || 'naturinex_salt').toString();
-  }
-
-  /**
-   * Generate audit trail for acceptance
-   * @param {Object} data - Acceptance data
-   * @returns {Object} - Audit trail
-   */
-  generateAuditTrail(data) {
-    return {
-      timestamp: new Date().toISOString(),
-      app_version: process.env.REACT_APP_VERSION || '1.0.0',
-      platform: typeof window !== 'undefined' ? 'web' : 'mobile',
-      compliance_check: this.validateComplianceData(data)
-    };
-  }
-
-  /**
-   * Validate compliance data
-   * @param {Object} data - Data to validate
-   * @returns {Object} - Validation results
-   */
-  validateComplianceData(data) {
-    return {
-      has_user_id: !!data.userId,
-      has_ip_address: !!data.ipAddress,
-      has_user_agent: !!data.userAgent,
-      minor_handling: data.isMinor ? !!data.emergencyContact : true,
-      timestamp_valid: true
-    };
-  }
-
-  /**
-   * Generate session ID for tracking
-   * @returns {string} - Session ID
-   */
-  generateSessionId() {
-    return CryptoJS.lib.WordArray.random(16).toString();
-  }
-
-  // Fallback methods for when Supabase is not available
-
-  /**
-   * Check local disclaimer (fallback)
-   */
-  checkLocalDisclaimer(userId, featureType) {
-    try {
-      const disclaimers = JSON.parse(localStorage.getItem('disclaimer_acceptances') || '{}');
-      const userDisclaimers = disclaimers[userId] || {};
-      const disclaimer = userDisclaimers[featureType];
-
-      if (!disclaimer) return false;
-
-      const acceptedDate = new Date(disclaimer.accepted_at);
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - DISCLAIMER_EXPIRY_DAYS);
-
-      return acceptedDate >= cutoffDate;
-    } catch (error) {
-      console.error('Error checking local disclaimer:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Store local disclaimer (fallback)
-   */
-  storeLocalDisclaimer(record) {
-    try {
-      const disclaimers = JSON.parse(localStorage.getItem('disclaimer_acceptances') || '{}');
-      if (!disclaimers[record.user_id]) {
-        disclaimers[record.user_id] = {};
-      }
-      disclaimers[record.user_id][record.feature_type] = record;
-      localStorage.setItem('disclaimer_acceptances', JSON.stringify(disclaimers));
-      return record;
-    } catch (error) {
-      console.error('Error storing local disclaimer:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Get local disclaimer status (fallback)
-   */
-  getLocalDisclaimerStatus(userId) {
-    try {
-      const disclaimers = JSON.parse(localStorage.getItem('disclaimer_acceptances') || '{}');
-      const userDisclaimers = disclaimers[userId] || {};
-
-      const status = {};
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - DISCLAIMER_EXPIRY_DAYS);
-
-      Object.entries(userDisclaimers).forEach(([featureType, record]) => {
-        const isValid = new Date(record.accepted_at) >= cutoffDate;
-        status[featureType] = {
-          isValid,
-          acceptedAt: record.accepted_at,
-          version: record.disclaimer_version,
-          daysRemaining: isValid ?
-            Math.ceil((new Date(record.accepted_at).getTime() + (DISCLAIMER_EXPIRY_DAYS * 24 * 60 * 60 * 1000) - Date.now()) / (24 * 60 * 60 * 1000)) : 0
-        };
-      });
-
-      return status;
-    } catch (error) {
-      console.error('Error getting local disclaimer status:', error);
-      return {};
-    }
-  }
-}
-
-// Export singleton instance
-export const disclaimerService = new DisclaimerService();
-export default disclaimerService;
+/** * Medical Disclaimer Service * HIPAA-compliant disclaimer management and enforcement * Ensures compliance with FDA guidelines for medical apps */import { supabase } from '../config/supabase.js';import CryptoJS from 'crypto-js';const DISCLAIMER_EXPIRY_DAYS = 30;const AUDIT_LOG_RETENTION_YEARS = 7; // HIPAA requirementexport class DisclaimerService {  constructor() {    this.initializeDatabase();  }  /**   * Initialize database tables if not exists   * This is for development - in production use proper migrations   */  async initializeDatabase() {    if (!supabase) {      return;    }    try {      // Check if tables exist by attempting a simple query      await supabase.from('disclaimer_acceptances').select('count').limit(1);    } catch (error) {    }  }  /**   * Check if user has valid disclaimer acceptance   * @param {string} userId - User identifier   * @param {string} featureType - Type of feature being accessed   * @returns {Promise<boolean>} - Whether disclaimer is valid   */  async hasValidDisclaimer(userId, featureType = 'general') {    if (!userId) {      throw new Error('User ID is required for disclaimer verification');    }    try {      if (!supabase) {        // Fallback to localStorage for web-only apps        return this.checkLocalDisclaimer(userId, featureType);      }      const cutoffDate = new Date();      cutoffDate.setDate(cutoffDate.getDate() - DISCLAIMER_EXPIRY_DAYS);      const { data, error } = await supabase        .from('disclaimer_acceptances')        .select('*')        .eq('user_id', userId)        .eq('feature_type', featureType)        .eq('is_active', true)        .gte('accepted_at', cutoffDate.toISOString())        .order('accepted_at', { ascending: false })        .limit(1);      if (error) {        console.error('Error checking disclaimer:', error);        return false;      }      return data && data.length > 0;    } catch (error) {      console.error('Disclaimer validation error:', error);      return false;    }  }  /**   * Record disclaimer acceptance   * @param {Object} acceptanceData - Disclaimer acceptance data   * @returns {Promise<Object>} - Acceptance record   */  async recordAcceptance(acceptanceData) {    const {      userId,      featureType = 'general',      disclaimerVersion = '1.0',      ipAddress,      userAgent,      geolocation,      isMinor = false,      emergencyContact = null    } = acceptanceData;    if (!userId) {      throw new Error('User ID is required for disclaimer acceptance');    }    const acceptanceRecord = {      user_id: userId,      feature_type: featureType,      disclaimer_version: disclaimerVersion,      accepted_at: new Date().toISOString(),      ip_address: this.hashSensitiveData(ipAddress),      user_agent: this.hashSensitiveData(userAgent),      geolocation: geolocation ? this.hashSensitiveData(JSON.stringify(geolocation)) : null,      is_minor: isMinor,      emergency_contact: emergencyContact,      is_active: true,      audit_trail: this.generateAuditTrail(acceptanceData)    };    try {      if (!supabase) {        return this.storeLocalDisclaimer(acceptanceRecord);      }      // Deactivate previous disclaimers for this user and feature      await supabase        .from('disclaimer_acceptances')        .update({ is_active: false })        .eq('user_id', userId)        .eq('feature_type', featureType);      // Insert new acceptance record      const { data, error } = await supabase        .from('disclaimer_acceptances')        .insert(acceptanceRecord)        .select()        .single();      if (error) {        throw error;      }      // Log audit event      await this.logAuditEvent({        user_id: userId,        action: 'DISCLAIMER_ACCEPTED',        feature_type: featureType,        details: {          disclaimer_version: disclaimerVersion,          is_minor: isMinor        }      });      return data;    } catch (error) {      console.error('Error recording disclaimer acceptance:', error);      throw new Error('Failed to record disclaimer acceptance');    }  }  /**   * Get disclaimer status for user   * @param {string} userId - User identifier   * @returns {Promise<Object>} - Disclaimer status information   */  async getDisclaimerStatus(userId) {    if (!userId) {      throw new Error('User ID is required');    }    try {      if (!supabase) {        return this.getLocalDisclaimerStatus(userId);      }      const { data, error } = await supabase        .from('disclaimer_acceptances')        .select('*')        .eq('user_id', userId)        .eq('is_active', true)        .order('accepted_at', { ascending: false });      if (error) {        throw error;      }      const status = {};      const cutoffDate = new Date();      cutoffDate.setDate(cutoffDate.getDate() - DISCLAIMER_EXPIRY_DAYS);      data.forEach(record => {        const isValid = new Date(record.accepted_at) >= cutoffDate;        status[record.feature_type] = {          isValid,          acceptedAt: record.accepted_at,          version: record.disclaimer_version,          daysRemaining: isValid ?            Math.ceil((new Date(record.accepted_at).getTime() + (DISCLAIMER_EXPIRY_DAYS * 24 * 60 * 60 * 1000) - Date.now()) / (24 * 60 * 60 * 1000)) : 0        };      });      return status;    } catch (error) {      console.error('Error getting disclaimer status:', error);      return {};    }  }  /**   * Block access to features without valid disclaimer   * @param {string} userId - User identifier   * @param {string} featureType - Feature being accessed   * @throws {Error} - If access is blocked   */  async enforceDisclaimer(userId, featureType = 'general') {    const hasValidDisclaimer = await this.hasValidDisclaimer(userId, featureType);    if (!hasValidDisclaimer) {      await this.logAuditEvent({        user_id: userId,        action: 'ACCESS_BLOCKED',        feature_type: featureType,        details: { reason: 'No valid disclaimer acceptance' }      });      throw new Error(`Access denied: Valid medical disclaimer acceptance required for ${featureType} features`);    }  }  /**   * Get disclaimer content based on feature type   * @param {string} featureType - Type of feature   * @returns {Object} - Disclaimer content   */  getDisclaimerContent(featureType = 'general') {    const baseDisclaimer = {      title: 'Medical Disclaimer',      version: '1.0',      critical_warnings: [        'This app is for educational and informational purposes only',        'Information provided is NOT medical advice, diagnosis, or treatment',        'Always consult qualified healthcare professionals',        'Do not use for medical emergencies - call 911',        'AI technology may contain errors or incomplete information'      ],      liability_limitation: 'TO THE MAXIMUM EXTENT PERMITTED BY LAW, WE ARE NOT LIABLE FOR ANY HEALTH OUTCOMES FROM USING THIS APPLICATION',      emergency_notice: 'IF YOU ARE EXPERIENCING A MEDICAL EMERGENCY, CALL 911 OR YOUR LOCAL EMERGENCY SERVICES IMMEDIATELY'    };    const featureSpecificContent = {      general: {        ...baseDisclaimer,        description: 'General use of NaturineX medical information features'      },      drug_interaction: {        ...baseDisclaimer,        title: 'Drug Interaction Analysis Disclaimer',        description: 'Drug interaction checking and analysis features',        additional_warnings: [          'Drug interaction analysis is based on available data and may not be complete',          'Always verify interactions with your pharmacist or doctor',          'Report any adverse reactions to your healthcare provider immediately',          'This tool does not replace professional pharmaceutical consultation'        ]      },      medication_analysis: {        ...baseDisclaimer,        title: 'Medication Analysis Disclaimer',        description: 'AI-powered medication analysis and recommendations',        additional_warnings: [          'AI analysis is for educational purposes only',          'Medication recommendations must be verified by healthcare professionals',          'Do not change medications based solely on app suggestions',          'Individual medical conditions may affect medication suitability'        ]      },      symptom_checker: {        ...baseDisclaimer,        title: 'Symptom Analysis Disclaimer',        description: 'AI-powered symptom analysis and health information',        additional_warnings: [          'Symptom analysis cannot replace professional medical diagnosis',          'Seek immediate medical attention for serious or worsening symptoms',          'AI may not recognize all possible conditions or symptoms',          'Personal medical history affects symptom interpretation'        ]      }    };    return featureSpecificContent[featureType] || featureSpecificContent.general;  }  /**   * Log audit event for HIPAA compliance   * @param {Object} eventData - Audit event data   */  async logAuditEvent(eventData) {    const auditRecord = {      user_id: eventData.user_id,      action: eventData.action,      feature_type: eventData.feature_type || 'general',      timestamp: new Date().toISOString(),      details: eventData.details || {},      ip_address: eventData.ip_address ? this.hashSensitiveData(eventData.ip_address) : null,      session_id: this.generateSessionId()    };    try {      if (!supabase) {        // Store locally for web-only apps        const logs = JSON.parse(localStorage.getItem('disclaimer_audit_logs') || '[]');        logs.push(auditRecord);        // Keep only last 1000 entries for local storage        if (logs.length > 1000) {          logs.splice(0, logs.length - 1000);        }        localStorage.setItem('disclaimer_audit_logs', JSON.stringify(logs));        return;      }      await supabase        .from('disclaimer_audit_logs')        .insert(auditRecord);    } catch (error) {      console.error('Error logging audit event:', error);      // Don't throw - audit logging should not break functionality    }  }  /**   * Hash sensitive data for HIPAA compliance   * @param {string} data - Data to hash   * @returns {string} - Hashed data   */  hashSensitiveData(data) {    if (!data) return null;    return CryptoJS.SHA256(data + process.env.REACT_APP_SALT || 'naturinex_salt').toString();  }  /**   * Generate audit trail for acceptance   * @param {Object} data - Acceptance data   * @returns {Object} - Audit trail   */  generateAuditTrail(data) {    return {      timestamp: new Date().toISOString(),      app_version: process.env.REACT_APP_VERSION || '1.0.0',      platform: typeof window !== 'undefined' ? 'web' : 'mobile',      compliance_check: this.validateComplianceData(data)    };  }  /**   * Validate compliance data   * @param {Object} data - Data to validate   * @returns {Object} - Validation results   */  validateComplianceData(data) {    return {      has_user_id: !!data.userId,      has_ip_address: !!data.ipAddress,      has_user_agent: !!data.userAgent,      minor_handling: data.isMinor ? !!data.emergencyContact : true,      timestamp_valid: true    };  }  /**   * Generate session ID for tracking   * @returns {string} - Session ID   */  generateSessionId() {    return CryptoJS.lib.WordArray.random(16).toString();  }  // Fallback methods for when Supabase is not available  /**   * Check local disclaimer (fallback)   */  checkLocalDisclaimer(userId, featureType) {    try {      const disclaimers = JSON.parse(localStorage.getItem('disclaimer_acceptances') || '{}');      const userDisclaimers = disclaimers[userId] || {};      const disclaimer = userDisclaimers[featureType];      if (!disclaimer) return false;      const acceptedDate = new Date(disclaimer.accepted_at);      const cutoffDate = new Date();      cutoffDate.setDate(cutoffDate.getDate() - DISCLAIMER_EXPIRY_DAYS);      return acceptedDate >= cutoffDate;    } catch (error) {      console.error('Error checking local disclaimer:', error);      return false;    }  }  /**   * Store local disclaimer (fallback)   */  storeLocalDisclaimer(record) {    try {      const disclaimers = JSON.parse(localStorage.getItem('disclaimer_acceptances') || '{}');      if (!disclaimers[record.user_id]) {        disclaimers[record.user_id] = {};      }      disclaimers[record.user_id][record.feature_type] = record;      localStorage.setItem('disclaimer_acceptances', JSON.stringify(disclaimers));      return record;    } catch (error) {      console.error('Error storing local disclaimer:', error);      throw error;    }  }  /**   * Get local disclaimer status (fallback)   */  getLocalDisclaimerStatus(userId) {    try {      const disclaimers = JSON.parse(localStorage.getItem('disclaimer_acceptances') || '{}');      const userDisclaimers = disclaimers[userId] || {};      const status = {};      const cutoffDate = new Date();      cutoffDate.setDate(cutoffDate.getDate() - DISCLAIMER_EXPIRY_DAYS);      Object.entries(userDisclaimers).forEach(([featureType, record]) => {        const isValid = new Date(record.accepted_at) >= cutoffDate;        status[featureType] = {          isValid,          acceptedAt: record.accepted_at,          version: record.disclaimer_version,          daysRemaining: isValid ?            Math.ceil((new Date(record.accepted_at).getTime() + (DISCLAIMER_EXPIRY_DAYS * 24 * 60 * 60 * 1000) - Date.now()) / (24 * 60 * 60 * 1000)) : 0        };      });      return status;    } catch (error) {      console.error('Error getting local disclaimer status:', error);      return {};    }  }}// Export singleton instanceexport const disclaimerService = new DisclaimerService();export default disclaimerService;

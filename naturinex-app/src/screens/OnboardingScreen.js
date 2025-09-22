@@ -1,427 +1,1 @@
-import React, { useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  ScrollView,
-  Dimensions,
-} from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
-import * as SecureStore from 'expo-secure-store';
-
-export default function OnboardingScreen({ navigation }) {
-  const { width } = Dimensions.get('window');
-  const [currentStep, setCurrentStep] = useState(0);
-  const [termsAccepted, setTermsAccepted] = useState(false);
-
-  const steps = [
-    {
-      id: 0,
-      title: 'Welcome to Naturinex',
-      subtitle: 'Educational medication resource',
-      description: 'Learn about natural alternatives to medications. This app provides educational information only and is not a substitute for medical advice.',
-      icon: '📚',
-      color: '#10B981',
-      warning: 'This app does not provide medical advice, diagnosis, or treatment.',
-    },
-    {
-      id: 1,
-      title: 'How It Works',
-      subtitle: 'Two ways to search',
-      description: '1. Camera: Take a photo of medication labels\n2. Manual: Type the medication name directly\n\nNote: Camera feature requires clear text for best results.',
-      icon: '🔍',
-      color: '#3B82F6',
-      tip: 'Manual entry is often faster and more accurate!',
-    },
-    {
-      id: 2,
-      title: 'Educational Information',
-      subtitle: 'Research-based content',
-      description: 'Get information about natural alternatives based on scientific research. Remember: Natural doesn\'t always mean safer or more effective.',
-      icon: '🌿',
-      color: '#10B981',
-      warning: 'Always verify information with healthcare professionals.',
-    },
-    {
-      id: 3,
-      title: 'Important Safety Notice',
-      subtitle: 'Your health matters',
-      description: 'NEVER stop or change your prescribed medications without consulting your doctor. Natural alternatives may interact with medications or have side effects.',
-      icon: '⚠️',
-      color: '#EF4444',
-      critical: true,
-    },
-    {
-      id: 4,
-      title: 'Terms of Use',
-      subtitle: 'By using this app, you agree:',
-      description: '• To use this app for educational purposes only\n• To consult healthcare providers before making changes\n• That the app creators are not liable for health decisions\n• To verify all information independently',
-      icon: '📋',
-      color: '#6366F1',
-      checkbox: true,
-    },
-  ];
-
-  const handleNext = () => {
-    if (currentStep === steps.length - 1 && !termsAccepted) {
-      alert('Please accept the terms of use to continue.');
-      return;
-    }
-    
-    if (currentStep < steps.length - 1) {
-      setCurrentStep(currentStep + 1);
-    } else {
-      handleComplete();
-    }
-  };
-
-  const handleSkip = () => {
-    handleComplete();
-  };
-
-  const handleComplete = async () => {
-    try {
-      await SecureStore.setItemAsync('onboarding_completed', 'true');
-      navigation.replace('Home');
-    } catch (error) {
-      console.error('Error completing onboarding:', error);
-      navigation.replace('Home');
-    }
-  };
-
-  const currentStepData = steps[currentStep];
-
-  return (
-    <View style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Progress Indicator */}
-        <View style={styles.progressContainer}>
-          {steps.map((step, index) => (
-            <View
-              key={step.id}
-              style={[
-                styles.progressDot,
-                index <= currentStep && styles.progressDotActive,
-              ]}
-            />
-          ))}
-        </View>
-
-        {/* Skip Button */}
-        <TouchableOpacity style={styles.skipButton} onPress={handleSkip}>
-          <Text style={styles.skipText}>Skip</Text>
-        </TouchableOpacity>
-
-        {/* Content */}
-        <View style={styles.contentContainer}>
-          <View style={styles.iconContainer}>
-            <Text style={styles.icon}>{currentStepData.icon}</Text>
-          </View>
-
-          <Text style={styles.title}>{currentStepData.title}</Text>
-          <Text style={styles.subtitle}>{currentStepData.subtitle}</Text>
-          <Text style={styles.description}>{currentStepData.description}</Text>
-          
-          {currentStepData.tip && (
-            <View style={styles.tipBox}>
-              <MaterialIcons name="lightbulb" size={16} color="#F59E0B" />
-              <Text style={styles.tipText}>{currentStepData.tip}</Text>
-            </View>
-          )}
-          
-          {currentStepData.warning && (
-            <View style={[styles.warningBox, currentStepData.critical && styles.criticalWarning]}>
-              <MaterialIcons name="warning" size={16} color={currentStepData.critical ? '#EF4444' : '#F59E0B'} />
-              <Text style={[styles.warningText, currentStepData.critical && styles.criticalText]}>
-                {currentStepData.warning}
-              </Text>
-            </View>
-          )}
-          
-          {currentStepData.checkbox && (
-            <TouchableOpacity 
-              style={styles.checkboxContainer} 
-              onPress={() => setTermsAccepted(!termsAccepted)}
-            >
-              <View style={[styles.checkbox, termsAccepted && styles.checkboxChecked]}>
-                {termsAccepted && <MaterialIcons name="check" size={16} color="white" />}
-              </View>
-              <Text style={styles.checkboxText}>I understand and accept these terms</Text>
-            </TouchableOpacity>
-          )}
-        </View>
-
-        {/* Features List - Only show on first screen */}
-        {currentStep === 0 && (
-          <View style={styles.featuresContainer}>
-            <View style={styles.featureItem}>
-              <MaterialIcons name="school" size={20} color="#10B981" />
-              <Text style={styles.featureText}>Educational content only</Text>
-            </View>
-            <View style={styles.featureItem}>
-              <MaterialIcons name="search" size={20} color="#10B981" />
-              <Text style={styles.featureText}>Research-based information</Text>
-            </View>
-            <View style={styles.featureItem}>
-              <MaterialIcons name="security" size={20} color="#10B981" />
-              <Text style={styles.featureText}>Privacy protected</Text>
-            </View>
-            <View style={styles.featureItem}>
-              <MaterialIcons name="medical-services" size={20} color="#10B981" />
-              <Text style={styles.featureText}>Not medical advice</Text>
-            </View>
-          </View>
-        )}
-
-        {/* Disclaimer - Show on all screens */}
-        <View style={[styles.disclaimerContainer, currentStep === 3 && styles.criticalDisclaimer]}>
-          <Text style={[styles.disclaimerText, currentStep === 3 && styles.criticalDisclaimerText]}>
-            {currentStep === 3 
-              ? '🚨 CRITICAL: Never stop taking prescribed medications without medical supervision. Doing so can be dangerous or life-threatening.'
-              : '⚠️ Educational purposes only. Not a substitute for professional medical advice, diagnosis, or treatment.'
-            }
-          </Text>
-        </View>
-      </ScrollView>
-
-      {/* Bottom Actions */}
-      <View style={styles.bottomContainer}>
-        <View style={styles.buttonContainer}>
-          {currentStep > 0 && (
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => setCurrentStep(currentStep - 1)}
-            >
-              <Text style={styles.backButtonText}>Back</Text>
-            </TouchableOpacity>
-          )}
-
-          <TouchableOpacity style={styles.nextButton} onPress={handleNext}>
-            <Text style={styles.nextButtonText}>
-              {currentStep === steps.length - 1 ? 'Get Started' : 'Next'}
-            </Text>
-            <MaterialIcons
-              name={currentStep === steps.length - 1 ? 'check' : 'arrow-forward'}
-              size={20}
-              color="white"
-            />
-          </TouchableOpacity>
-        </View>
-      </View>
-    </View>
-  );
-}
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F9FAFB',
-  },
-  scrollContent: {
-    flexGrow: 1,
-    padding: 20,
-  },
-  progressContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: 20,
-  },
-  progressDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#E5E7EB',
-    marginHorizontal: 4,
-  },
-  progressDotActive: {
-    backgroundColor: '#10B981',
-  },
-  skipButton: {
-    position: 'absolute',
-    top: 20,
-    right: 20,
-    zIndex: 1,
-  },
-  skipText: {
-    color: '#6B7280',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  contentContainer: {
-    alignItems: 'center',
-    marginTop: 40,
-    marginBottom: 40,
-  },
-  iconContainer: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#F0FDF4',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 30,
-  },
-  icon: {
-    fontSize: 60,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#1F2937',
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-  subtitle: {
-    fontSize: 18,
-    color: '#6B7280',
-    textAlign: 'center',
-    marginBottom: 20,
-  },
-  description: {
-    fontSize: 16,
-    color: '#6B7280',
-    textAlign: 'center',
-    lineHeight: 24,
-    paddingHorizontal: 20,
-  },
-  featuresContainer: {
-    backgroundColor: 'white',
-    borderRadius: 15,
-    padding: 20,
-    marginBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  featureItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 15,
-  },
-  featureText: {
-    fontSize: 16,
-    color: '#1F2937',
-    marginLeft: 12,
-  },
-  disclaimerContainer: {
-    backgroundColor: '#FEF3C7',
-    borderRadius: 10,
-    padding: 15,
-    marginBottom: 20,
-  },
-  disclaimerText: {
-    fontSize: 12,
-    color: '#92400E',
-    lineHeight: 16,
-    textAlign: 'center',
-  },
-  bottomContainer: {
-    padding: 20,
-    backgroundColor: 'white',
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  backButton: {
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-  },
-  backButtonText: {
-    color: '#6B7280',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  nextButton: {
-    backgroundColor: '#10B981',
-    borderRadius: 12,
-    paddingVertical: 15,
-    paddingHorizontal: 30,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  nextButtonText: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginRight: 8,
-  },
-  tipBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FEF3C7',
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 16,
-    maxWidth: '90%',
-  },
-  tipText: {
-    color: '#92400E',
-    fontSize: 14,
-    marginLeft: 8,
-    flex: 1,
-  },
-  warningBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FEF3C7',
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 16,
-    maxWidth: '90%',
-  },
-  warningText: {
-    color: '#92400E',
-    fontSize: 14,
-    marginLeft: 8,
-    flex: 1,
-    fontWeight: '600',
-  },
-  criticalWarning: {
-    backgroundColor: '#FEE2E2',
-    borderWidth: 1,
-    borderColor: '#EF4444',
-  },
-  criticalText: {
-    color: '#991B1B',
-  },
-  checkboxContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 20,
-    paddingHorizontal: 20,
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderWidth: 2,
-    borderColor: '#10B981',
-    borderRadius: 4,
-    marginRight: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  checkboxChecked: {
-    backgroundColor: '#10B981',
-  },
-  checkboxText: {
-    fontSize: 16,
-    color: '#1F2937',
-    flex: 1,
-  },
-  criticalDisclaimer: {
-    backgroundColor: '#FEE2E2',
-    borderWidth: 1,
-    borderColor: '#EF4444',
-  },
-  criticalDisclaimerText: {
-    color: '#991B1B',
-    fontWeight: 'bold',
-  },
-}); 
+import React, { useState } from 'react';import {  View,  Text,  StyleSheet,  TouchableOpacity,  ScrollView,  Dimensions,} from 'react-native';import { MaterialIcons } from '@expo/vector-icons';import * as SecureStore from 'expo-secure-store';export default function OnboardingScreen({ navigation }) {  const { width } = Dimensions.get('window');  const [currentStep, setCurrentStep] = useState(0);  const [termsAccepted, setTermsAccepted] = useState(false);  const steps = [    {      id: 0,      title: 'Welcome to Naturinex',      subtitle: 'Educational medication resource',      description: 'Learn about natural alternatives to medications. This app provides educational information only and is not a substitute for medical advice.',      icon: '📚',      color: '#10B981',      warning: 'This app does not provide medical advice, diagnosis, or treatment.',    },    {      id: 1,      title: 'How It Works',      subtitle: 'Two ways to search',      description: '1. Camera: Take a photo of medication labels\n2. Manual: Type the medication name directly\n\nNote: Camera feature requires clear text for best results.',      icon: '🔍',      color: '#3B82F6',      tip: 'Manual entry is often faster and more accurate!',    },    {      id: 2,      title: 'Educational Information',      subtitle: 'Research-based content',      description: 'Get information about natural alternatives based on scientific research. Remember: Natural doesn\'t always mean safer or more effective.',      icon: '🌿',      color: '#10B981',      warning: 'Always verify information with healthcare professionals.',    },    {      id: 3,      title: 'Important Safety Notice',      subtitle: 'Your health matters',      description: 'NEVER stop or change your prescribed medications without consulting your doctor. Natural alternatives may interact with medications or have side effects.',      icon: '⚠️',      color: '#EF4444',      critical: true,    },    {      id: 4,      title: 'Terms of Use',      subtitle: 'By using this app, you agree:',      description: '• To use this app for educational purposes only\n• To consult healthcare providers before making changes\n• That the app creators are not liable for health decisions\n• To verify all information independently',      icon: '📋',      color: '#6366F1',      checkbox: true,    },  ];  const handleNext = () => {    if (currentStep === steps.length - 1 && !termsAccepted) {      alert('Please accept the terms of use to continue.');      return;    }    if (currentStep < steps.length - 1) {      setCurrentStep(currentStep + 1);    } else {      handleComplete();    }  };  const handleSkip = () => {    handleComplete();  };  const handleComplete = async () => {    try {      await SecureStore.setItemAsync('onboarding_completed', 'true');      navigation.replace('Home');    } catch (error) {      console.error('Error completing onboarding:', error);      navigation.replace('Home');    }  };  const currentStepData = steps[currentStep];  return (    <View style={styles.container}>      <ScrollView contentContainerStyle={styles.scrollContent}>        {/* Progress Indicator */}        <View style={styles.progressContainer}>          {steps.map((step, index) => (            <View              key={step.id}              style={[                styles.progressDot,                index <= currentStep && styles.progressDotActive,              ]}            />          ))}        </View>        {/* Skip Button */}        <TouchableOpacity style={styles.skipButton} onPress={handleSkip}>          <Text style={styles.skipText}>Skip</Text>        </TouchableOpacity>        {/* Content */}        <View style={styles.contentContainer}>          <View style={styles.iconContainer}>            <Text style={styles.icon}>{currentStepData.icon}</Text>          </View>          <Text style={styles.title}>{currentStepData.title}</Text>          <Text style={styles.subtitle}>{currentStepData.subtitle}</Text>          <Text style={styles.description}>{currentStepData.description}</Text>          {currentStepData.tip && (            <View style={styles.tipBox}>              <MaterialIcons name="lightbulb" size={16} color="#F59E0B" />              <Text style={styles.tipText}>{currentStepData.tip}</Text>            </View>          )}          {currentStepData.warning && (            <View style={[styles.warningBox, currentStepData.critical && styles.criticalWarning]}>              <MaterialIcons name="warning" size={16} color={currentStepData.critical ? '#EF4444' : '#F59E0B'} />              <Text style={[styles.warningText, currentStepData.critical && styles.criticalText]}>                {currentStepData.warning}              </Text>            </View>          )}          {currentStepData.checkbox && (            <TouchableOpacity               style={styles.checkboxContainer}               onPress={() => setTermsAccepted(!termsAccepted)}            >              <View style={[styles.checkbox, termsAccepted && styles.checkboxChecked]}>                {termsAccepted && <MaterialIcons name="check" size={16} color="white" />}              </View>              <Text style={styles.checkboxText}>I understand and accept these terms</Text>            </TouchableOpacity>          )}        </View>        {/* Features List - Only show on first screen */}        {currentStep === 0 && (          <View style={styles.featuresContainer}>            <View style={styles.featureItem}>              <MaterialIcons name="school" size={20} color="#10B981" />              <Text style={styles.featureText}>Educational content only</Text>            </View>            <View style={styles.featureItem}>              <MaterialIcons name="search" size={20} color="#10B981" />              <Text style={styles.featureText}>Research-based information</Text>            </View>            <View style={styles.featureItem}>              <MaterialIcons name="security" size={20} color="#10B981" />              <Text style={styles.featureText}>Privacy protected</Text>            </View>            <View style={styles.featureItem}>              <MaterialIcons name="medical-services" size={20} color="#10B981" />              <Text style={styles.featureText}>Not medical advice</Text>            </View>          </View>        )}        {/* Disclaimer - Show on all screens */}        <View style={[styles.disclaimerContainer, currentStep === 3 && styles.criticalDisclaimer]}>          <Text style={[styles.disclaimerText, currentStep === 3 && styles.criticalDisclaimerText]}>            {currentStep === 3               ? '🚨 CRITICAL: Never stop taking prescribed medications without medical supervision. Doing so can be dangerous or life-threatening.'              : '⚠️ Educational purposes only. Not a substitute for professional medical advice, diagnosis, or treatment.'            }          </Text>        </View>      </ScrollView>      {/* Bottom Actions */}      <View style={styles.bottomContainer}>        <View style={styles.buttonContainer}>          {currentStep > 0 && (            <TouchableOpacity              style={styles.backButton}              onPress={() => setCurrentStep(currentStep - 1)}            >              <Text style={styles.backButtonText}>Back</Text>            </TouchableOpacity>          )}          <TouchableOpacity style={styles.nextButton} onPress={handleNext}>            <Text style={styles.nextButtonText}>              {currentStep === steps.length - 1 ? 'Get Started' : 'Next'}            </Text>            <MaterialIcons              name={currentStep === steps.length - 1 ? 'check' : 'arrow-forward'}              size={20}              color="white"            />          </TouchableOpacity>        </View>      </View>    </View>  );}const styles = StyleSheet.create({  container: {    flex: 1,    backgroundColor: '#F9FAFB',  },  scrollContent: {    flexGrow: 1,    padding: 20,  },  progressContainer: {    flexDirection: 'row',    justifyContent: 'center',    marginBottom: 20,  },  progressDot: {    width: 8,    height: 8,    borderRadius: 4,    backgroundColor: '#E5E7EB',    marginHorizontal: 4,  },  progressDotActive: {    backgroundColor: '#10B981',  },  skipButton: {    position: 'absolute',    top: 20,    right: 20,    zIndex: 1,  },  skipText: {    color: '#6B7280',    fontSize: 16,    fontWeight: '600',  },  contentContainer: {    alignItems: 'center',    marginTop: 40,    marginBottom: 40,  },  iconContainer: {    width: 120,    height: 120,    borderRadius: 60,    backgroundColor: '#F0FDF4',    justifyContent: 'center',    alignItems: 'center',    marginBottom: 30,  },  icon: {    fontSize: 60,  },  title: {    fontSize: 28,    fontWeight: 'bold',    color: '#1F2937',    textAlign: 'center',    marginBottom: 10,  },  subtitle: {    fontSize: 18,    color: '#6B7280',    textAlign: 'center',    marginBottom: 20,  },  description: {    fontSize: 16,    color: '#6B7280',    textAlign: 'center',    lineHeight: 24,    paddingHorizontal: 20,  },  featuresContainer: {    backgroundColor: 'white',    borderRadius: 15,    padding: 20,    marginBottom: 20,    shadowColor: '#000',    shadowOffset: { width: 0, height: 2 },    shadowOpacity: 0.1,    shadowRadius: 4,    elevation: 3,  },  featureItem: {    flexDirection: 'row',    alignItems: 'center',    marginBottom: 15,  },  featureText: {    fontSize: 16,    color: '#1F2937',    marginLeft: 12,  },  disclaimerContainer: {    backgroundColor: '#FEF3C7',    borderRadius: 10,    padding: 15,    marginBottom: 20,  },  disclaimerText: {    fontSize: 12,    color: '#92400E',    lineHeight: 16,    textAlign: 'center',  },  bottomContainer: {    padding: 20,    backgroundColor: 'white',    borderTopWidth: 1,    borderTopColor: '#E5E7EB',  },  buttonContainer: {    flexDirection: 'row',    justifyContent: 'space-between',    alignItems: 'center',  },  backButton: {    paddingVertical: 15,    paddingHorizontal: 20,  },  backButtonText: {    color: '#6B7280',    fontSize: 16,    fontWeight: '600',  },  nextButton: {    backgroundColor: '#10B981',    borderRadius: 12,    paddingVertical: 15,    paddingHorizontal: 30,    flexDirection: 'row',    alignItems: 'center',  },  nextButtonText: {    color: 'white',    fontSize: 16,    fontWeight: 'bold',    marginRight: 8,  },  tipBox: {    flexDirection: 'row',    alignItems: 'center',    backgroundColor: '#FEF3C7',    borderRadius: 8,    padding: 12,    marginTop: 16,    maxWidth: '90%',  },  tipText: {    color: '#92400E',    fontSize: 14,    marginLeft: 8,    flex: 1,  },  warningBox: {    flexDirection: 'row',    alignItems: 'center',    backgroundColor: '#FEF3C7',    borderRadius: 8,    padding: 12,    marginTop: 16,    maxWidth: '90%',  },  warningText: {    color: '#92400E',    fontSize: 14,    marginLeft: 8,    flex: 1,    fontWeight: '600',  },  criticalWarning: {    backgroundColor: '#FEE2E2',    borderWidth: 1,    borderColor: '#EF4444',  },  criticalText: {    color: '#991B1B',  },  checkboxContainer: {    flexDirection: 'row',    alignItems: 'center',    marginTop: 20,    paddingHorizontal: 20,  },  checkbox: {    width: 24,    height: 24,    borderWidth: 2,    borderColor: '#10B981',    borderRadius: 4,    marginRight: 12,    justifyContent: 'center',    alignItems: 'center',  },  checkboxChecked: {    backgroundColor: '#10B981',  },  checkboxText: {    fontSize: 16,    color: '#1F2937',    flex: 1,  },  criticalDisclaimer: {    backgroundColor: '#FEE2E2',    borderWidth: 1,    borderColor: '#EF4444',  },  criticalDisclaimerText: {    color: '#991B1B',    fontWeight: 'bold',  },}); 

@@ -1,433 +1,1 @@
-import * as admin from 'firebase-admin';
-import { Request, Response } from 'express';
-import * as sgMail from '@sendgrid/mail';
-
-// Initialize SendGrid (you can also use Firebase Extensions for email)
-sgMail.setApiKey(process.env.SENDGRID_API_KEY || '');
-
-interface EmailTemplate {
-  subject: string;
-  htmlContent: string;
-  textContent: string;
-}
-
-/**
- * Schedule re-engagement campaigns (runs daily)
- */
-export async function scheduleReEngagementCampaigns() {
-  console.log('Running re-engagement campaign scheduler...');
-  
-  try {
-    // Get all users who might need re-engagement
-    const now = new Date();
-    
-    // 1. Trial ending soon (day 5 of 7-day trial)
-    await sendTrialEndingSoonEmails();
-    
-    // 2. Trial ended without conversion (1 day after trial)
-    await sendTrialEndedEmails();
-    
-    // 3. Subscription cancelled (3 days after cancellation)
-    await sendWinBackEmails();
-    
-    // 4. Long-time inactive (30 days no app usage)
-    await sendInactiveUserEmails();
-    
-    // 5. Milestone celebrations (keep engaged users happy)
-    await sendMilestoneEmails();
-    
-  } catch (error) {
-    console.error('Error in re-engagement campaigns:', error);
-  }
-}
-
-/**
- * Send trial ending soon emails (Day 5 of trial)
- */
-async function sendTrialEndingSoonEmails() {
-  const fiveDaysAgo = new Date();
-  fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
-  
-  const sixDaysAgo = new Date();
-  sixDaysAgo.setDate(sixDaysAgo.getDate() - 6);
-  
-  const usersSnapshot = await admin.firestore()
-    .collection('users')
-    .where('trialStartDate', '>=', sixDaysAgo)
-    .where('trialStartDate', '<', fiveDaysAgo)
-    .where('isPremium', '==', false)
-    .where('lastTrialReminderSent', '==', null)
-    .get();
-  
-  for (const doc of usersSnapshot.docs) {
-    const user = doc.data();
-    const template = getTrialEndingTemplate(user);
-    
-    await sendEmail({
-      to: user.email,
-      ...template,
-      userId: doc.id,
-      campaignType: 'trial_ending'
-    });
-    
-    // Mark as sent
-    await doc.ref.update({
-      lastTrialReminderSent: admin.firestore.FieldValue.serverTimestamp()
-    });
-  }
-}
-
-/**
- * Send trial ended emails (1 day after trial)
- */
-async function sendTrialEndedEmails() {
-  const eightDaysAgo = new Date();
-  eightDaysAgo.setDate(eightDaysAgo.getDate() - 8);
-  
-  const sevenDaysAgo = new Date();
-  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-  
-  const usersSnapshot = await admin.firestore()
-    .collection('users')
-    .where('trialStartDate', '>=', eightDaysAgo)
-    .where('trialStartDate', '<', sevenDaysAgo)
-    .where('isPremium', '==', false)
-    .where('lastTrialEndedEmailSent', '==', null)
-    .get();
-  
-  for (const doc of usersSnapshot.docs) {
-    const user = doc.data();
-    const template = getTrialEndedTemplate(user);
-    
-    await sendEmail({
-      to: user.email,
-      ...template,
-      userId: doc.id,
-      campaignType: 'trial_ended'
-    });
-    
-    await doc.ref.update({
-      lastTrialEndedEmailSent: admin.firestore.FieldValue.serverTimestamp()
-    });
-  }
-}
-
-/**
- * Send win-back emails (3 days after subscription cancelled)
- */
-async function sendWinBackEmails() {
-  const threeDaysAgo = new Date();
-  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-  
-  const fourDaysAgo = new Date();
-  fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
-  
-  const usersSnapshot = await admin.firestore()
-    .collection('users')
-    .where('subscriptionCancelledDate', '>=', fourDaysAgo)
-    .where('subscriptionCancelledDate', '<', threeDaysAgo)
-    .where('lastWinBackEmailSent', '==', null)
-    .get();
-  
-  for (const doc of usersSnapshot.docs) {
-    const user = doc.data();
-    const template = getWinBackTemplate(user);
-    
-    await sendEmail({
-      to: user.email,
-      ...template,
-      userId: doc.id,
-      campaignType: 'win_back'
-    });
-    
-    await doc.ref.update({
-      lastWinBackEmailSent: admin.firestore.FieldValue.serverTimestamp()
-    });
-  }
-}
-
-/**
- * Send inactive user emails (30 days no usage)
- */
-async function sendInactiveUserEmails() {
-  const thirtyDaysAgo = new Date();
-  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-  
-  const usersSnapshot = await admin.firestore()
-    .collection('users')
-    .where('lastActiveDate', '<', thirtyDaysAgo)
-    .where('isPremium', '==', true)
-    .where('lastInactiveEmailSent', '==', null)
-    .get();
-  
-  for (const doc of usersSnapshot.docs) {
-    const user = doc.data();
-    const template = getInactiveUserTemplate(user);
-    
-    await sendEmail({
-      to: user.email,
-      ...template,
-      userId: doc.id,
-      campaignType: 'inactive_user'
-    });
-    
-    await doc.ref.update({
-      lastInactiveEmailSent: admin.firestore.FieldValue.serverTimestamp()
-    });
-  }
-}
-
-/**
- * Send milestone celebration emails
- */
-async function sendMilestoneEmails() {
-  // 100th scan milestone
-  const usersSnapshot = await admin.firestore()
-    .collection('users')
-    .where('totalScans', '==', 100)
-    .where('milestone100ScansSent', '==', null)
-    .get();
-  
-  for (const doc of usersSnapshot.docs) {
-    const user = doc.data();
-    const template = getMilestoneTemplate(user, '100_scans');
-    
-    await sendEmail({
-      to: user.email,
-      ...template,
-      userId: doc.id,
-      campaignType: 'milestone'
-    });
-    
-    await doc.ref.update({
-      milestone100ScansSent: admin.firestore.FieldValue.serverTimestamp()
-    });
-  }
-}
-
-/**
- * Email Templates
- */
-function getTrialEndingTemplate(user: any): EmailTemplate {
-  const link = `https://app.naturinex.com/pricing?utm_source=email&utm_campaign=trial_ending`;
-  
-  return {
-    subject: `${user.name}, your Naturinex trial ends in 2 days`,
-    htmlContent: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2>Your trial is almost over!</h2>
-        <p>Hi ${user.name},</p>
-        <p>Your 7-day free trial ends in just 2 days. Don't lose access to:</p>
-        <ul>
-          <li>✅ Unlimited AI health scans</li>
-          <li>✅ Personalized health insights</li>
-          <li>✅ Medicine interaction checks</li>
-        </ul>
-        <div style="background: #f0f0f0; padding: 20px; border-radius: 8px; margin: 20px 0;">
-          <h3>🎁 Special Offer: Save 20% on Annual Plans</h3>
-          <p>Subscribe now and lock in our best price!</p>
-          <a href="${link}" style="background: #4CAF50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Choose Your Plan</a>
-        </div>
-        <p>Questions? Reply to this email and we'll help!</p>
-      </div>
-    `,
-    textContent: `Hi ${user.name}, your Naturinex trial ends in 2 days. Subscribe now to keep your access and save 20% on annual plans: ${link}`
-  };
-}
-
-function getTrialEndedTemplate(user: any): EmailTemplate {
-  const link = `https://app.naturinex.com/pricing?utm_source=email&utm_campaign=trial_ended&offer=welcome`;
-  
-  return {
-    subject: `${user.name}, get 50% off your first 3 months`,
-    htmlContent: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2>We miss you already! 💚</h2>
-        <p>Hi ${user.name},</p>
-        <p>Your free trial has ended, but we'd love to have you back!</p>
-        <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin: 20px 0; border: 2px solid #ffc107;">
-          <h3>🎉 Exclusive Offer: 50% OFF for 3 Months!</h3>
-          <p>This offer expires in 48 hours</p>
-          <a href="${link}" style="background: #ffc107; color: #333; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block; font-weight: bold;">Claim Your Discount</a>
-        </div>
-        <p>During your trial, you completed ${user.trialScans || 0} scans. Imagine what you could discover with unlimited access!</p>
-      </div>
-    `,
-    textContent: `Hi ${user.name}, your trial ended but we have a special offer: 50% off your first 3 months! Claim it here: ${link}`
-  };
-}
-
-function getWinBackTemplate(user: any): EmailTemplate {
-  const link = `https://app.naturinex.com/pricing?utm_source=email&utm_campaign=win_back&offer=comeback`;
-  
-  return {
-    subject: `${user.name}, we want you back! 50% off awaits`,
-    htmlContent: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2>We've made Naturinex even better! 🚀</h2>
-        <p>Hi ${user.name},</p>
-        <p>Since you left, we've added:</p>
-        <ul>
-          <li>🆕 Enhanced AI accuracy (98.5% precision)</li>
-          <li>🆕 Family sharing for up to 4 members</li>
-          <li>🆕 PDF health reports</li>
-          <li>🆕 50+ new health conditions detected</li>
-        </ul>
-        <div style="background: #e3f2fd; padding: 20px; border-radius: 8px; margin: 20px 0; border: 2px solid #2196f3;">
-          <h3>🎁 Welcome Back Offer: 50% OFF for 3 Months</h3>
-          <p>No questions asked. Just great health insights at half the price.</p>
-          <a href="${link}" style="background: #2196f3; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Come Back & Save</a>
-        </div>
-        <p><small>This offer is exclusively for returning members and expires in 7 days.</small></p>
-      </div>
-    `,
-    textContent: `Hi ${user.name}, we've improved Naturinex and want you back! Get 50% off for 3 months: ${link}`
-  };
-}
-
-function getInactiveUserTemplate(user: any): EmailTemplate {
-  return {
-    subject: `${user.name}, your health insights are waiting`,
-    htmlContent: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2>We noticed you haven't used Naturinex lately 🤔</h2>
-        <p>Hi ${user.name},</p>
-        <p>You have an active subscription but haven't scanned anything in a while. Here's what you might be missing:</p>
-        <ul>
-          <li>📊 ${user.missedScans || 30} potential health insights</li>
-          <li>💊 Medicine interaction updates</li>
-          <li>🌟 New features we've launched</li>
-        </ul>
-        <p>Your subscription is active until ${user.subscriptionEndDate}, so why not make the most of it?</p>
-        <a href="https://app.naturinex.com?utm_source=email&utm_campaign=re_engage" style="background: #4CAF50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Open Naturinex</a>
-        <p><small>Need help? Just reply to this email.</small></p>
-      </div>
-    `,
-    textContent: `Hi ${user.name}, you haven't used Naturinex in a while. Your subscription is still active - come back and scan!`
-  };
-}
-
-function getMilestoneTemplate(user: any, milestone: string): EmailTemplate {
-  const achievements: Record<string, any> = {
-    '100_scans': {
-      subject: `🎉 Congratulations ${user.name}! 100 scans completed!`,
-      title: "You've hit 100 health scans!",
-      message: "You're officially a Naturinex power user. Here's to your health journey!",
-      reward: "Enjoy 1 month of free Premium features on us!"
-    }
-  };
-  
-  const data = achievements[milestone];
-  
-  return {
-    subject: data.subject,
-    htmlContent: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; text-align: center;">
-        <h1>🏆</h1>
-        <h2>${data.title}</h2>
-        <p>${data.message}</p>
-        <div style="background: #e8f5e9; padding: 20px; border-radius: 8px; margin: 20px 0;">
-          <h3>Your Reward:</h3>
-          <p>${data.reward}</p>
-        </div>
-        <p>Keep up the great work on your health journey!</p>
-      </div>
-    `,
-    textContent: `${data.subject} ${data.message} ${data.reward}`
-  };
-}
-
-/**
- * Send email using SendGrid or your preferred service
- */
-async function sendEmail(params: {
-  to: string;
-  subject: string;
-  htmlContent: string;
-  textContent: string;
-  userId: string;
-  campaignType: string;
-}) {
-  try {
-    // Using SendGrid
-    const msg = {
-      to: params.to,
-      from: {
-        email: 'hello@naturinex.com',
-        name: 'Naturinex'
-      },
-      subject: params.subject,
-      text: params.textContent,
-      html: params.htmlContent,
-      trackingSettings: {
-        clickTracking: { enable: true },
-        openTracking: { enable: true }
-      },
-      customArgs: {
-        userId: params.userId,
-        campaign: params.campaignType
-      }
-    };
-    
-    await sgMail.send(msg);
-    
-    // Log email sent
-    await admin.firestore().collection('email_logs').add({
-      userId: params.userId,
-      email: params.to,
-      campaignType: params.campaignType,
-      subject: params.subject,
-      sentAt: admin.firestore.FieldValue.serverTimestamp(),
-      status: 'sent'
-    });
-    
-  } catch (error) {
-    console.error('Error sending email:', error);
-    
-    // Log error
-    await admin.firestore().collection('email_logs').add({
-      userId: params.userId,
-      email: params.to,
-      campaignType: params.campaignType,
-      subject: params.subject,
-      sentAt: admin.firestore.FieldValue.serverTimestamp(),
-      status: 'failed',
-      error: error instanceof Error ? error.message : 'Unknown error'
-    });
-  }
-}
-
-/**
- * Handle email webhook events (opens, clicks, etc)
- */
-export async function handleEmailWebhook(req: Request, res: Response) {
-  try {
-    const events = req.body;
-    
-    for (const event of events) {
-      if (event.userId) {
-        await admin.firestore().collection('email_events').add({
-          userId: event.userId,
-          campaign: event.campaign,
-          event: event.event,
-          timestamp: new Date(event.timestamp * 1000),
-          email: event.email,
-          url: event.url || null
-        });
-        
-        // Update user engagement score
-        if (event.event === 'open' || event.event === 'click') {
-          await admin.firestore().collection('users').doc(event.userId).update({
-            emailEngagementScore: admin.firestore.FieldValue.increment(1),
-            lastEmailEngagement: admin.firestore.FieldValue.serverTimestamp()
-          });
-        }
-      }
-    }
-    
-    res.status(200).send('OK');
-  } catch (error) {
-    console.error('Error handling email webhook:', error);
-    res.status(500).send('Error');
-  }
-}
+import * as admin from 'firebase-admin';import { Request, Response } from 'express';import * as sgMail from '@sendgrid/mail';// Initialize SendGrid (you can also use Firebase Extensions for email)sgMail.setApiKey(process.env.SENDGRID_API_KEY || '');interface EmailTemplate {  subject: string;  htmlContent: string;  textContent: string;}/** * Schedule re-engagement campaigns (runs daily) */export async function scheduleReEngagementCampaigns() {  try {    // Get all users who might need re-engagement    const now = new Date();    // 1. Trial ending soon (day 5 of 7-day trial)    await sendTrialEndingSoonEmails();    // 2. Trial ended without conversion (1 day after trial)    await sendTrialEndedEmails();    // 3. Subscription cancelled (3 days after cancellation)    await sendWinBackEmails();    // 4. Long-time inactive (30 days no app usage)    await sendInactiveUserEmails();    // 5. Milestone celebrations (keep engaged users happy)    await sendMilestoneEmails();  } catch (error) {    console.error('Error in re-engagement campaigns:', error);  }}/** * Send trial ending soon emails (Day 5 of trial) */async function sendTrialEndingSoonEmails() {  const fiveDaysAgo = new Date();  fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);  const sixDaysAgo = new Date();  sixDaysAgo.setDate(sixDaysAgo.getDate() - 6);  const usersSnapshot = await admin.firestore()    .collection('users')    .where('trialStartDate', '>=', sixDaysAgo)    .where('trialStartDate', '<', fiveDaysAgo)    .where('isPremium', '==', false)    .where('lastTrialReminderSent', '==', null)    .get();  for (const doc of usersSnapshot.docs) {    const user = doc.data();    const template = getTrialEndingTemplate(user);    await sendEmail({      to: user.email,      ...template,      userId: doc.id,      campaignType: 'trial_ending'    });    // Mark as sent    await doc.ref.update({      lastTrialReminderSent: admin.firestore.FieldValue.serverTimestamp()    });  }}/** * Send trial ended emails (1 day after trial) */async function sendTrialEndedEmails() {  const eightDaysAgo = new Date();  eightDaysAgo.setDate(eightDaysAgo.getDate() - 8);  const sevenDaysAgo = new Date();  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);  const usersSnapshot = await admin.firestore()    .collection('users')    .where('trialStartDate', '>=', eightDaysAgo)    .where('trialStartDate', '<', sevenDaysAgo)    .where('isPremium', '==', false)    .where('lastTrialEndedEmailSent', '==', null)    .get();  for (const doc of usersSnapshot.docs) {    const user = doc.data();    const template = getTrialEndedTemplate(user);    await sendEmail({      to: user.email,      ...template,      userId: doc.id,      campaignType: 'trial_ended'    });    await doc.ref.update({      lastTrialEndedEmailSent: admin.firestore.FieldValue.serverTimestamp()    });  }}/** * Send win-back emails (3 days after subscription cancelled) */async function sendWinBackEmails() {  const threeDaysAgo = new Date();  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);  const fourDaysAgo = new Date();  fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);  const usersSnapshot = await admin.firestore()    .collection('users')    .where('subscriptionCancelledDate', '>=', fourDaysAgo)    .where('subscriptionCancelledDate', '<', threeDaysAgo)    .where('lastWinBackEmailSent', '==', null)    .get();  for (const doc of usersSnapshot.docs) {    const user = doc.data();    const template = getWinBackTemplate(user);    await sendEmail({      to: user.email,      ...template,      userId: doc.id,      campaignType: 'win_back'    });    await doc.ref.update({      lastWinBackEmailSent: admin.firestore.FieldValue.serverTimestamp()    });  }}/** * Send inactive user emails (30 days no usage) */async function sendInactiveUserEmails() {  const thirtyDaysAgo = new Date();  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);  const usersSnapshot = await admin.firestore()    .collection('users')    .where('lastActiveDate', '<', thirtyDaysAgo)    .where('isPremium', '==', true)    .where('lastInactiveEmailSent', '==', null)    .get();  for (const doc of usersSnapshot.docs) {    const user = doc.data();    const template = getInactiveUserTemplate(user);    await sendEmail({      to: user.email,      ...template,      userId: doc.id,      campaignType: 'inactive_user'    });    await doc.ref.update({      lastInactiveEmailSent: admin.firestore.FieldValue.serverTimestamp()    });  }}/** * Send milestone celebration emails */async function sendMilestoneEmails() {  // 100th scan milestone  const usersSnapshot = await admin.firestore()    .collection('users')    .where('totalScans', '==', 100)    .where('milestone100ScansSent', '==', null)    .get();  for (const doc of usersSnapshot.docs) {    const user = doc.data();    const template = getMilestoneTemplate(user, '100_scans');    await sendEmail({      to: user.email,      ...template,      userId: doc.id,      campaignType: 'milestone'    });    await doc.ref.update({      milestone100ScansSent: admin.firestore.FieldValue.serverTimestamp()    });  }}/** * Email Templates */function getTrialEndingTemplate(user: any): EmailTemplate {  const link = `https://app.naturinex.com/pricing?utm_source=email&utm_campaign=trial_ending`;  return {    subject: `${user.name}, your Naturinex trial ends in 2 days`,    htmlContent: `      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">        <h2>Your trial is almost over!</h2>        <p>Hi ${user.name},</p>        <p>Your 7-day free trial ends in just 2 days. Don't lose access to:</p>        <ul>          <li>✅ Unlimited AI health scans</li>          <li>✅ Personalized health insights</li>          <li>✅ Medicine interaction checks</li>        </ul>        <div style="background: #f0f0f0; padding: 20px; border-radius: 8px; margin: 20px 0;">          <h3>🎁 Special Offer: Save 20% on Annual Plans</h3>          <p>Subscribe now and lock in our best price!</p>          <a href="${link}" style="background: #4CAF50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Choose Your Plan</a>        </div>        <p>Questions? Reply to this email and we'll help!</p>      </div>    `,    textContent: `Hi ${user.name}, your Naturinex trial ends in 2 days. Subscribe now to keep your access and save 20% on annual plans: ${link}`  };}function getTrialEndedTemplate(user: any): EmailTemplate {  const link = `https://app.naturinex.com/pricing?utm_source=email&utm_campaign=trial_ended&offer=welcome`;  return {    subject: `${user.name}, get 50% off your first 3 months`,    htmlContent: `      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">        <h2>We miss you already! 💚</h2>        <p>Hi ${user.name},</p>        <p>Your free trial has ended, but we'd love to have you back!</p>        <div style="background: #fff3cd; padding: 20px; border-radius: 8px; margin: 20px 0; border: 2px solid #ffc107;">          <h3>🎉 Exclusive Offer: 50% OFF for 3 Months!</h3>          <p>This offer expires in 48 hours</p>          <a href="${link}" style="background: #ffc107; color: #333; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block; font-weight: bold;">Claim Your Discount</a>        </div>        <p>During your trial, you completed ${user.trialScans || 0} scans. Imagine what you could discover with unlimited access!</p>      </div>    `,    textContent: `Hi ${user.name}, your trial ended but we have a special offer: 50% off your first 3 months! Claim it here: ${link}`  };}function getWinBackTemplate(user: any): EmailTemplate {  const link = `https://app.naturinex.com/pricing?utm_source=email&utm_campaign=win_back&offer=comeback`;  return {    subject: `${user.name}, we want you back! 50% off awaits`,    htmlContent: `      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">        <h2>We've made Naturinex even better! 🚀</h2>        <p>Hi ${user.name},</p>        <p>Since you left, we've added:</p>        <ul>          <li>🆕 Enhanced AI accuracy (98.5% precision)</li>          <li>🆕 Family sharing for up to 4 members</li>          <li>🆕 PDF health reports</li>          <li>🆕 50+ new health conditions detected</li>        </ul>        <div style="background: #e3f2fd; padding: 20px; border-radius: 8px; margin: 20px 0; border: 2px solid #2196f3;">          <h3>🎁 Welcome Back Offer: 50% OFF for 3 Months</h3>          <p>No questions asked. Just great health insights at half the price.</p>          <a href="${link}" style="background: #2196f3; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Come Back & Save</a>        </div>        <p><small>This offer is exclusively for returning members and expires in 7 days.</small></p>      </div>    `,    textContent: `Hi ${user.name}, we've improved Naturinex and want you back! Get 50% off for 3 months: ${link}`  };}function getInactiveUserTemplate(user: any): EmailTemplate {  return {    subject: `${user.name}, your health insights are waiting`,    htmlContent: `      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">        <h2>We noticed you haven't used Naturinex lately 🤔</h2>        <p>Hi ${user.name},</p>        <p>You have an active subscription but haven't scanned anything in a while. Here's what you might be missing:</p>        <ul>          <li>📊 ${user.missedScans || 30} potential health insights</li>          <li>💊 Medicine interaction updates</li>          <li>🌟 New features we've launched</li>        </ul>        <p>Your subscription is active until ${user.subscriptionEndDate}, so why not make the most of it?</p>        <a href="https://app.naturinex.com?utm_source=email&utm_campaign=re_engage" style="background: #4CAF50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px; display: inline-block;">Open Naturinex</a>        <p><small>Need help? Just reply to this email.</small></p>      </div>    `,    textContent: `Hi ${user.name}, you haven't used Naturinex in a while. Your subscription is still active - come back and scan!`  };}function getMilestoneTemplate(user: any, milestone: string): EmailTemplate {  const achievements: Record<string, any> = {    '100_scans': {      subject: `🎉 Congratulations ${user.name}! 100 scans completed!`,      title: "You've hit 100 health scans!",      message: "You're officially a Naturinex power user. Here's to your health journey!",      reward: "Enjoy 1 month of free Premium features on us!"    }  };  const data = achievements[milestone];  return {    subject: data.subject,    htmlContent: `      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; text-align: center;">        <h1>🏆</h1>        <h2>${data.title}</h2>        <p>${data.message}</p>        <div style="background: #e8f5e9; padding: 20px; border-radius: 8px; margin: 20px 0;">          <h3>Your Reward:</h3>          <p>${data.reward}</p>        </div>        <p>Keep up the great work on your health journey!</p>      </div>    `,    textContent: `${data.subject} ${data.message} ${data.reward}`  };}/** * Send email using SendGrid or your preferred service */async function sendEmail(params: {  to: string;  subject: string;  htmlContent: string;  textContent: string;  userId: string;  campaignType: string;}) {  try {    // Using SendGrid    const msg = {      to: params.to,      from: {        email: 'hello@naturinex.com',        name: 'Naturinex'      },      subject: params.subject,      text: params.textContent,      html: params.htmlContent,      trackingSettings: {        clickTracking: { enable: true },        openTracking: { enable: true }      },      customArgs: {        userId: params.userId,        campaign: params.campaignType      }    };    await sgMail.send(msg);    // Log email sent    await admin.firestore().collection('email_logs').add({      userId: params.userId,      email: params.to,      campaignType: params.campaignType,      subject: params.subject,      sentAt: admin.firestore.FieldValue.serverTimestamp(),      status: 'sent'    });  } catch (error) {    console.error('Error sending email:', error);    // Log error    await admin.firestore().collection('email_logs').add({      userId: params.userId,      email: params.to,      campaignType: params.campaignType,      subject: params.subject,      sentAt: admin.firestore.FieldValue.serverTimestamp(),      status: 'failed',      error: error instanceof Error ? error.message : 'Unknown error'    });  }}/** * Handle email webhook events (opens, clicks, etc) */export async function handleEmailWebhook(req: Request, res: Response) {  try {    const events = req.body;    for (const event of events) {      if (event.userId) {        await admin.firestore().collection('email_events').add({          userId: event.userId,          campaign: event.campaign,          event: event.event,          timestamp: new Date(event.timestamp * 1000),          email: event.email,          url: event.url || null        });        // Update user engagement score        if (event.event === 'open' || event.event === 'click') {          await admin.firestore().collection('users').doc(event.userId).update({            emailEngagementScore: admin.firestore.FieldValue.increment(1),            lastEmailEngagement: admin.firestore.FieldValue.serverTimestamp()          });        }      }    }    res.status(200).send('OK');  } catch (error) {    console.error('Error handling email webhook:', error);    res.status(500).send('Error');  }}

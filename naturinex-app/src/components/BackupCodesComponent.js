@@ -1,563 +1,1 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-  ScrollView,
-  Share,
-  Platform
-} from 'react-native';
-import { MaterialIcons } from '@expo/vector-icons';
-import * as Clipboard from 'expo-clipboard';
-import * as FileSystem from 'expo-file-system';
-import * as Sharing from 'expo-sharing';
-import TwoFactorAuthService from '../services/TwoFactorAuthService';
-
-const BackupCodesComponent = ({ userId, onComplete, onBack, showAsModal = false }) => {
-  const [loading, setLoading] = useState(false);
-  const [backupCodes, setBackupCodes] = useState([]);
-  const [savedCodes, setSavedCodes] = useState(false);
-  const [step, setStep] = useState('generate'); // generate, display, confirm
-
-  useEffect(() => {
-    generateBackupCodes();
-  }, []);
-
-  const generateBackupCodes = async () => {
-    try {
-      setLoading(true);
-
-      const codes = await TwoFactorAuthService.generateBackupCodes(userId);
-      setBackupCodes(codes);
-      setStep('display');
-
-    } catch (error) {
-      console.error('Backup codes generation error:', error);
-      Alert.alert(
-        'Generation Failed',
-        'Failed to generate backup codes. Please try again.'
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleCopyAllCodes = async () => {
-    try {
-      const codesText = backupCodes
-        .map((code, index) => `${index + 1}. ${code}`)
-        .join('\n');
-
-      const fullText = `NaturineX Backup Codes\n\nThese codes can be used if you lose access to your primary 2FA method.\nKeep them safe and secure!\n\n${codesText}\n\nGenerated: ${new Date().toLocaleDateString()}`;
-
-      await Clipboard.setStringAsync(fullText);
-      Alert.alert('Copied', 'All backup codes copied to clipboard');
-      setSavedCodes(true);
-    } catch (error) {
-      console.error('Copy error:', error);
-      Alert.alert('Error', 'Failed to copy codes to clipboard');
-    }
-  };
-
-  const handleSaveToFile = async () => {
-    try {
-      const codesText = backupCodes
-        .map((code, index) => `${index + 1}. ${code}`)
-        .join('\n');
-
-      const fullText = `NaturineX Backup Codes
-
-These codes can be used if you lose access to your primary 2FA method.
-Keep them safe and secure!
-
-${codesText}
-
-Generated: ${new Date().toLocaleDateString()}
-
-IMPORTANT SECURITY NOTES:
-- Store these codes in a secure location
-- Each code can only be used once
-- Keep them separate from your device
-- Consider printing them or storing in a password manager`;
-
-      const fileName = `NaturineX_Backup_Codes_${new Date().toISOString().split('T')[0]}.txt`;
-      const fileUri = `${FileSystem.documentDirectory}${fileName}`;
-
-      await FileSystem.writeAsStringAsync(fileUri, fullText);
-
-      if (Platform.OS === 'ios' || Platform.OS === 'android') {
-        await Sharing.shareAsync(fileUri, {
-          mimeType: 'text/plain',
-          dialogTitle: 'Save Backup Codes'
-        });
-      } else {
-        // Web fallback
-        const element = document.createElement('a');
-        const file = new Blob([fullText], { type: 'text/plain' });
-        element.href = URL.createObjectURL(file);
-        element.download = fileName;
-        document.body.appendChild(element);
-        element.click();
-        document.body.removeChild(element);
-      }
-
-      setSavedCodes(true);
-      Alert.alert('Saved', 'Backup codes saved successfully');
-    } catch (error) {
-      console.error('Save error:', error);
-      Alert.alert('Error', 'Failed to save backup codes');
-    }
-  };
-
-  const handleShareCodes = async () => {
-    try {
-      const codesText = backupCodes
-        .map((code, index) => `${index + 1}. ${code}`)
-        .join('\n');
-
-      const shareText = `NaturineX Backup Codes\n\n${codesText}\n\nGenerated: ${new Date().toLocaleDateString()}`;
-
-      if (Platform.OS === 'web') {
-        if (navigator.share) {
-          await navigator.share({
-            title: 'NaturineX Backup Codes',
-            text: shareText
-          });
-        } else {
-          await Clipboard.setStringAsync(shareText);
-          Alert.alert('Copied', 'Backup codes copied to clipboard for sharing');
-        }
-      } else {
-        await Share.share({
-          message: shareText,
-          title: 'NaturineX Backup Codes'
-        });
-      }
-
-      setSavedCodes(true);
-    } catch (error) {
-      console.error('Share error:', error);
-      // User cancelled share dialog
-      if (error.code !== 'ERR_REQUEST_CANCELLED') {
-        Alert.alert('Error', 'Failed to share backup codes');
-      }
-    }
-  };
-
-  const handleConfirmSaved = () => {
-    if (!savedCodes) {
-      Alert.alert(
-        'Save Required',
-        'Please save your backup codes before continuing. You will not be able to view them again.',
-        [
-          {
-            text: 'Cancel',
-            style: 'cancel'
-          },
-          {
-            text: 'I\'ve Saved Them',
-            onPress: () => {
-              setSavedCodes(true);
-              setStep('confirm');
-            }
-          }
-        ]
-      );
-      return;
-    }
-
-    setStep('confirm');
-  };
-
-  const handleComplete = () => {
-    Alert.alert(
-      'Setup Complete',
-      'Backup codes have been generated and saved. Keep them secure!',
-      [
-        {
-          text: 'OK',
-          onPress: () => onComplete()
-        }
-      ]
-    );
-  };
-
-  const renderGenerate = () => (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <MaterialIcons name="backup" size={60} color="#007AFF" />
-        <Text style={styles.title}>Generating Backup Codes</Text>
-        <Text style={styles.subtitle}>
-          Creating your emergency access codes...
-        </Text>
-      </View>
-
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#007AFF" />
-      </View>
-    </View>
-  );
-
-  const renderDisplay = () => (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
-      <View style={styles.header}>
-        <MaterialIcons name="security" size={60} color="#4CAF50" />
-        <Text style={styles.title}>Backup Codes Generated</Text>
-        <Text style={styles.subtitle}>
-          Save these codes in a secure location. Each can only be used once.
-        </Text>
-      </View>
-
-      <View style={styles.warningContainer}>
-        <MaterialIcons name="warning" size={24} color="#FF9500" />
-        <Text style={styles.warningText}>
-          Keep these codes secure and separate from your device. You won't be able to view them again after this setup.
-        </Text>
-      </View>
-
-      <View style={styles.codesContainer}>
-        <Text style={styles.codesTitle}>Your Backup Codes:</Text>
-        <View style={styles.codesList}>
-          {backupCodes.map((code, index) => (
-            <View key={index} style={styles.codeItem}>
-              <Text style={styles.codeNumber}>{index + 1}.</Text>
-              <Text style={styles.codeText}>{code}</Text>
-            </View>
-          ))}
-        </View>
-      </View>
-
-      <View style={styles.actionsContainer}>
-        <Text style={styles.actionsTitle}>Save Your Codes:</Text>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={handleCopyAllCodes}
-        >
-          <MaterialIcons name="content-copy" size={20} color="#007AFF" />
-          <Text style={styles.actionButtonText}>Copy All Codes</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={handleSaveToFile}
-        >
-          <MaterialIcons name="file-download" size={20} color="#007AFF" />
-          <Text style={styles.actionButtonText}>Save to File</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={handleShareCodes}
-        >
-          <MaterialIcons name="share" size={20} color="#007AFF" />
-          <Text style={styles.actionButtonText}>Share Securely</Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.securityTips}>
-        <Text style={styles.tipsTitle}>Security Tips:</Text>
-        <Text style={styles.tipsText}>
-          • Store codes in a password manager{'\n'}
-          • Print them and keep in a safe place{'\n'}
-          • Don't store them on the same device{'\n'}
-          • Each code can only be used once{'\n'}
-          • Generate new codes if compromised
-        </Text>
-      </View>
-
-      <View style={styles.footer}>
-        <TouchableOpacity
-          style={[
-            styles.continueButton,
-            savedCodes && styles.continueButtonEnabled
-          ]}
-          onPress={handleConfirmSaved}
-        >
-          <Text style={[
-            styles.continueButtonText,
-            savedCodes && styles.continueButtonTextEnabled
-          ]}>
-            I've Saved My Codes
-          </Text>
-        </TouchableOpacity>
-
-        {!showAsModal && (
-          <TouchableOpacity style={styles.backButton} onPress={onBack}>
-            <Text style={styles.backButtonText}>Back</Text>
-          </TouchableOpacity>
-        )}
-      </View>
-    </ScrollView>
-  );
-
-  const renderConfirm = () => (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <MaterialIcons name="check-circle" size={60} color="#4CAF50" />
-        <Text style={styles.title}>Backup Codes Ready</Text>
-        <Text style={styles.subtitle}>
-          Your backup codes have been generated and saved securely.
-        </Text>
-      </View>
-
-      <View style={styles.confirmContainer}>
-        <View style={styles.confirmItem}>
-          <MaterialIcons name="check" size={24} color="#4CAF50" />
-          <Text style={styles.confirmText}>10 backup codes generated</Text>
-        </View>
-
-        <View style={styles.confirmItem}>
-          <MaterialIcons name="check" size={24} color="#4CAF50" />
-          <Text style={styles.confirmText}>Codes saved securely</Text>
-        </View>
-
-        <View style={styles.confirmItem}>
-          <MaterialIcons name="check" size={24} color="#4CAF50" />
-          <Text style={styles.confirmText}>Emergency access enabled</Text>
-        </View>
-      </View>
-
-      <View style={styles.usageInfo}>
-        <Text style={styles.usageTitle}>How to use backup codes:</Text>
-        <Text style={styles.usageText}>
-          If you lose access to your primary 2FA method, you can use these codes instead of the regular verification code during login.
-        </Text>
-      </View>
-
-      <View style={styles.footer}>
-        <TouchableOpacity
-          style={styles.completeButton}
-          onPress={handleComplete}
-        >
-          <Text style={styles.completeButtonText}>Complete Setup</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  const renderCurrentStep = () => {
-    switch (step) {
-      case 'generate':
-        return renderGenerate();
-      case 'display':
-        return renderDisplay();
-      case 'confirm':
-        return renderConfirm();
-      default:
-        return renderGenerate();
-    }
-  };
-
-  return renderCurrentStep();
-};
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    padding: 20
-  },
-  header: {
-    alignItems: 'center',
-    marginBottom: 30
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1D1D1F',
-    marginTop: 16,
-    marginBottom: 8,
-    textAlign: 'center'
-  },
-  subtitle: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 22,
-    paddingHorizontal: 20
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  warningContainer: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: '#FFF3E0',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 30
-  },
-  warningText: {
-    flex: 1,
-    fontSize: 14,
-    color: '#F57C00',
-    marginLeft: 8,
-    lineHeight: 18
-  },
-  codesContainer: {
-    marginBottom: 30
-  },
-  codesTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1D1D1F',
-    marginBottom: 16
-  },
-  codesList: {
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    padding: 16
-  },
-  codeItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8
-  },
-  codeNumber: {
-    fontSize: 14,
-    color: '#666',
-    width: 24,
-    fontWeight: '600'
-  },
-  codeText: {
-    fontSize: 16,
-    color: '#1D1D1F',
-    fontFamily: Platform.select({
-      ios: 'Menlo',
-      android: 'monospace',
-      default: 'monospace'
-    }),
-    fontWeight: '600',
-    letterSpacing: 2
-  },
-  actionsContainer: {
-    marginBottom: 30
-  },
-  actionsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1D1D1F',
-    marginBottom: 16
-  },
-  actionButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F2F2F7',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12
-  },
-  actionButtonText: {
-    fontSize: 16,
-    color: '#007AFF',
-    marginLeft: 12,
-    fontWeight: '500'
-  },
-  securityTips: {
-    backgroundColor: '#E3F2FD',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 30
-  },
-  tipsTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1976D2',
-    marginBottom: 8
-  },
-  tipsText: {
-    fontSize: 14,
-    color: '#1976D2',
-    lineHeight: 20
-  },
-  confirmContainer: {
-    marginBottom: 30
-  },
-  confirmItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E8F5E8',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12
-  },
-  confirmText: {
-    fontSize: 16,
-    color: '#2E7D32',
-    marginLeft: 12,
-    fontWeight: '500'
-  },
-  usageInfo: {
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 30
-  },
-  usageTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1D1D1F',
-    marginBottom: 8
-  },
-  usageText: {
-    fontSize: 14,
-    color: '#666',
-    lineHeight: 20
-  },
-  footer: {
-    paddingBottom: 40
-  },
-  continueButton: {
-    backgroundColor: '#E5E5E7',
-    borderRadius: 12,
-    height: 56,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16
-  },
-  continueButtonEnabled: {
-    backgroundColor: '#007AFF'
-  },
-  continueButtonText: {
-    color: '#999',
-    fontSize: 16,
-    fontWeight: '600'
-  },
-  continueButtonTextEnabled: {
-    color: '#fff'
-  },
-  completeButton: {
-    backgroundColor: '#4CAF50',
-    borderRadius: 12,
-    height: 56,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16
-  },
-  completeButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600'
-  },
-  backButton: {
-    backgroundColor: 'transparent',
-    borderRadius: 12,
-    height: 56,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#E5E5E7'
-  },
-  backButtonText: {
-    color: '#007AFF',
-    fontSize: 16,
-    fontWeight: '600'
-  }
-});
-
-export default BackupCodesComponent;
+import React, { useState, useEffect } from 'react';import {  View,  Text,  TouchableOpacity,  StyleSheet,  Alert,  ActivityIndicator,  ScrollView,  Share,  Platform} from 'react-native';import { MaterialIcons } from '@expo/vector-icons';import * as Clipboard from 'expo-clipboard';import * as FileSystem from 'expo-file-system';import * as Sharing from 'expo-sharing';import TwoFactorAuthService from '../services/TwoFactorAuthService';const BackupCodesComponent = ({ userId, onComplete, onBack, showAsModal = false }) => {  const [loading, setLoading] = useState(false);  const [backupCodes, setBackupCodes] = useState([]);  const [savedCodes, setSavedCodes] = useState(false);  const [step, setStep] = useState('generate'); // generate, display, confirm  useEffect(() => {    generateBackupCodes();  }, []);  const generateBackupCodes = async () => {    try {      setLoading(true);      const codes = await TwoFactorAuthService.generateBackupCodes(userId);      setBackupCodes(codes);      setStep('display');    } catch (error) {      console.error('Backup codes generation error:', error);      Alert.alert(        'Generation Failed',        'Failed to generate backup codes. Please try again.'      );    } finally {      setLoading(false);    }  };  const handleCopyAllCodes = async () => {    try {      const codesText = backupCodes        .map((code, index) => `${index + 1}. ${code}`)        .join('\n');      const fullText = `NaturineX Backup Codes\n\nThese codes can be used if you lose access to your primary 2FA method.\nKeep them safe and secure!\n\n${codesText}\n\nGenerated: ${new Date().toLocaleDateString()}`;      await Clipboard.setStringAsync(fullText);      Alert.alert('Copied', 'All backup codes copied to clipboard');      setSavedCodes(true);    } catch (error) {      console.error('Copy error:', error);      Alert.alert('Error', 'Failed to copy codes to clipboard');    }  };  const handleSaveToFile = async () => {    try {      const codesText = backupCodes        .map((code, index) => `${index + 1}. ${code}`)        .join('\n');      const fullText = `NaturineX Backup CodesThese codes can be used if you lose access to your primary 2FA method.Keep them safe and secure!${codesText}Generated: ${new Date().toLocaleDateString()}IMPORTANT SECURITY NOTES:- Store these codes in a secure location- Each code can only be used once- Keep them separate from your device- Consider printing them or storing in a password manager`;      const fileName = `NaturineX_Backup_Codes_${new Date().toISOString().split('T')[0]}.txt`;      const fileUri = `${FileSystem.documentDirectory}${fileName}`;      await FileSystem.writeAsStringAsync(fileUri, fullText);      if (Platform.OS === 'ios' || Platform.OS === 'android') {        await Sharing.shareAsync(fileUri, {          mimeType: 'text/plain',          dialogTitle: 'Save Backup Codes'        });      } else {        // Web fallback        const element = document.createElement('a');        const file = new Blob([fullText], { type: 'text/plain' });        element.href = URL.createObjectURL(file);        element.download = fileName;        document.body.appendChild(element);        element.click();        document.body.removeChild(element);      }      setSavedCodes(true);      Alert.alert('Saved', 'Backup codes saved successfully');    } catch (error) {      console.error('Save error:', error);      Alert.alert('Error', 'Failed to save backup codes');    }  };  const handleShareCodes = async () => {    try {      const codesText = backupCodes        .map((code, index) => `${index + 1}. ${code}`)        .join('\n');      const shareText = `NaturineX Backup Codes\n\n${codesText}\n\nGenerated: ${new Date().toLocaleDateString()}`;      if (Platform.OS === 'web') {        if (navigator.share) {          await navigator.share({            title: 'NaturineX Backup Codes',            text: shareText          });        } else {          await Clipboard.setStringAsync(shareText);          Alert.alert('Copied', 'Backup codes copied to clipboard for sharing');        }      } else {        await Share.share({          message: shareText,          title: 'NaturineX Backup Codes'        });      }      setSavedCodes(true);    } catch (error) {      console.error('Share error:', error);      // User cancelled share dialog      if (error.code !== 'ERR_REQUEST_CANCELLED') {        Alert.alert('Error', 'Failed to share backup codes');      }    }  };  const handleConfirmSaved = () => {    if (!savedCodes) {      Alert.alert(        'Save Required',        'Please save your backup codes before continuing. You will not be able to view them again.',        [          {            text: 'Cancel',            style: 'cancel'          },          {            text: 'I\'ve Saved Them',            onPress: () => {              setSavedCodes(true);              setStep('confirm');            }          }        ]      );      return;    }    setStep('confirm');  };  const handleComplete = () => {    Alert.alert(      'Setup Complete',      'Backup codes have been generated and saved. Keep them secure!',      [        {          text: 'OK',          onPress: () => onComplete()        }      ]    );  };  const renderGenerate = () => (    <View style={styles.container}>      <View style={styles.header}>        <MaterialIcons name="backup" size={60} color="#007AFF" />        <Text style={styles.title}>Generating Backup Codes</Text>        <Text style={styles.subtitle}>          Creating your emergency access codes...        </Text>      </View>      <View style={styles.loadingContainer}>        <ActivityIndicator size="large" color="#007AFF" />      </View>    </View>  );  const renderDisplay = () => (    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>      <View style={styles.header}>        <MaterialIcons name="security" size={60} color="#4CAF50" />        <Text style={styles.title}>Backup Codes Generated</Text>        <Text style={styles.subtitle}>          Save these codes in a secure location. Each can only be used once.        </Text>      </View>      <View style={styles.warningContainer}>        <MaterialIcons name="warning" size={24} color="#FF9500" />        <Text style={styles.warningText}>          Keep these codes secure and separate from your device. You won't be able to view them again after this setup.        </Text>      </View>      <View style={styles.codesContainer}>        <Text style={styles.codesTitle}>Your Backup Codes:</Text>        <View style={styles.codesList}>          {backupCodes.map((code, index) => (            <View key={index} style={styles.codeItem}>              <Text style={styles.codeNumber}>{index + 1}.</Text>              <Text style={styles.codeText}>{code}</Text>            </View>          ))}        </View>      </View>      <View style={styles.actionsContainer}>        <Text style={styles.actionsTitle}>Save Your Codes:</Text>        <TouchableOpacity          style={styles.actionButton}          onPress={handleCopyAllCodes}        >          <MaterialIcons name="content-copy" size={20} color="#007AFF" />          <Text style={styles.actionButtonText}>Copy All Codes</Text>        </TouchableOpacity>        <TouchableOpacity          style={styles.actionButton}          onPress={handleSaveToFile}        >          <MaterialIcons name="file-download" size={20} color="#007AFF" />          <Text style={styles.actionButtonText}>Save to File</Text>        </TouchableOpacity>        <TouchableOpacity          style={styles.actionButton}          onPress={handleShareCodes}        >          <MaterialIcons name="share" size={20} color="#007AFF" />          <Text style={styles.actionButtonText}>Share Securely</Text>        </TouchableOpacity>      </View>      <View style={styles.securityTips}>        <Text style={styles.tipsTitle}>Security Tips:</Text>        <Text style={styles.tipsText}>          • Store codes in a password manager{'\n'}          • Print them and keep in a safe place{'\n'}          • Don't store them on the same device{'\n'}          • Each code can only be used once{'\n'}          • Generate new codes if compromised        </Text>      </View>      <View style={styles.footer}>        <TouchableOpacity          style={[            styles.continueButton,            savedCodes && styles.continueButtonEnabled          ]}          onPress={handleConfirmSaved}        >          <Text style={[            styles.continueButtonText,            savedCodes && styles.continueButtonTextEnabled          ]}>            I've Saved My Codes          </Text>        </TouchableOpacity>        {!showAsModal && (          <TouchableOpacity style={styles.backButton} onPress={onBack}>            <Text style={styles.backButtonText}>Back</Text>          </TouchableOpacity>        )}      </View>    </ScrollView>  );  const renderConfirm = () => (    <View style={styles.container}>      <View style={styles.header}>        <MaterialIcons name="check-circle" size={60} color="#4CAF50" />        <Text style={styles.title}>Backup Codes Ready</Text>        <Text style={styles.subtitle}>          Your backup codes have been generated and saved securely.        </Text>      </View>      <View style={styles.confirmContainer}>        <View style={styles.confirmItem}>          <MaterialIcons name="check" size={24} color="#4CAF50" />          <Text style={styles.confirmText}>10 backup codes generated</Text>        </View>        <View style={styles.confirmItem}>          <MaterialIcons name="check" size={24} color="#4CAF50" />          <Text style={styles.confirmText}>Codes saved securely</Text>        </View>        <View style={styles.confirmItem}>          <MaterialIcons name="check" size={24} color="#4CAF50" />          <Text style={styles.confirmText}>Emergency access enabled</Text>        </View>      </View>      <View style={styles.usageInfo}>        <Text style={styles.usageTitle}>How to use backup codes:</Text>        <Text style={styles.usageText}>          If you lose access to your primary 2FA method, you can use these codes instead of the regular verification code during login.        </Text>      </View>      <View style={styles.footer}>        <TouchableOpacity          style={styles.completeButton}          onPress={handleComplete}        >          <Text style={styles.completeButtonText}>Complete Setup</Text>        </TouchableOpacity>      </View>    </View>  );  const renderCurrentStep = () => {    switch (step) {      case 'generate':        return renderGenerate();      case 'display':        return renderDisplay();      case 'confirm':        return renderConfirm();      default:        return renderGenerate();    }  };  return renderCurrentStep();};const styles = StyleSheet.create({  container: {    flex: 1,    padding: 20  },  header: {    alignItems: 'center',    marginBottom: 30  },  title: {    fontSize: 24,    fontWeight: 'bold',    color: '#1D1D1F',    marginTop: 16,    marginBottom: 8,    textAlign: 'center'  },  subtitle: {    fontSize: 16,    color: '#666',    textAlign: 'center',    lineHeight: 22,    paddingHorizontal: 20  },  loadingContainer: {    flex: 1,    justifyContent: 'center',    alignItems: 'center'  },  warningContainer: {    flexDirection: 'row',    alignItems: 'flex-start',    backgroundColor: '#FFF3E0',    borderRadius: 12,    padding: 16,    marginBottom: 30  },  warningText: {    flex: 1,    fontSize: 14,    color: '#F57C00',    marginLeft: 8,    lineHeight: 18  },  codesContainer: {    marginBottom: 30  },  codesTitle: {    fontSize: 18,    fontWeight: '600',    color: '#1D1D1F',    marginBottom: 16  },  codesList: {    backgroundColor: '#F8F9FA',    borderRadius: 12,    padding: 16  },  codeItem: {    flexDirection: 'row',    alignItems: 'center',    paddingVertical: 8  },  codeNumber: {    fontSize: 14,    color: '#666',    width: 24,    fontWeight: '600'  },  codeText: {    fontSize: 16,    color: '#1D1D1F',    fontFamily: Platform.select({      ios: 'Menlo',      android: 'monospace',      default: 'monospace'    }),    fontWeight: '600',    letterSpacing: 2  },  actionsContainer: {    marginBottom: 30  },  actionsTitle: {    fontSize: 16,    fontWeight: '600',    color: '#1D1D1F',    marginBottom: 16  },  actionButton: {    flexDirection: 'row',    alignItems: 'center',    backgroundColor: '#F2F2F7',    borderRadius: 12,    padding: 16,    marginBottom: 12  },  actionButtonText: {    fontSize: 16,    color: '#007AFF',    marginLeft: 12,    fontWeight: '500'  },  securityTips: {    backgroundColor: '#E3F2FD',    borderRadius: 12,    padding: 16,    marginBottom: 30  },  tipsTitle: {    fontSize: 16,    fontWeight: '600',    color: '#1976D2',    marginBottom: 8  },  tipsText: {    fontSize: 14,    color: '#1976D2',    lineHeight: 20  },  confirmContainer: {    marginBottom: 30  },  confirmItem: {    flexDirection: 'row',    alignItems: 'center',    backgroundColor: '#E8F5E8',    borderRadius: 12,    padding: 16,    marginBottom: 12  },  confirmText: {    fontSize: 16,    color: '#2E7D32',    marginLeft: 12,    fontWeight: '500'  },  usageInfo: {    backgroundColor: '#F8F9FA',    borderRadius: 12,    padding: 16,    marginBottom: 30  },  usageTitle: {    fontSize: 16,    fontWeight: '600',    color: '#1D1D1F',    marginBottom: 8  },  usageText: {    fontSize: 14,    color: '#666',    lineHeight: 20  },  footer: {    paddingBottom: 40  },  continueButton: {    backgroundColor: '#E5E5E7',    borderRadius: 12,    height: 56,    justifyContent: 'center',    alignItems: 'center',    marginBottom: 16  },  continueButtonEnabled: {    backgroundColor: '#007AFF'  },  continueButtonText: {    color: '#999',    fontSize: 16,    fontWeight: '600'  },  continueButtonTextEnabled: {    color: '#fff'  },  completeButton: {    backgroundColor: '#4CAF50',    borderRadius: 12,    height: 56,    justifyContent: 'center',    alignItems: 'center',    marginBottom: 16  },  completeButtonText: {    color: '#fff',    fontSize: 16,    fontWeight: '600'  },  backButton: {    backgroundColor: 'transparent',    borderRadius: 12,    height: 56,    justifyContent: 'center',    alignItems: 'center',    borderWidth: 1,    borderColor: '#E5E5E7'  },  backButtonText: {    color: '#007AFF',    fontSize: 16,    fontWeight: '600'  }});export default BackupCodesComponent;

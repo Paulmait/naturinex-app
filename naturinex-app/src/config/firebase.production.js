@@ -1,0 +1,76 @@
+// Production Firebase Configuration
+// This file should be used in production builds
+import { initializeApp, getApps } from 'firebase/app';
+import { getAuth, initializeAuth, getReactNativePersistence } from 'firebase/auth';
+import { getFirestore } from 'firebase/firestore';
+import { getAnalytics, isSupported } from 'firebase/analytics';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
+
+// Production Firebase configuration
+// These values should be set via environment variables in production
+const firebaseConfig = {
+  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY || process.env.REACT_APP_FIREBASE_API_KEY,
+  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN || process.env.REACT_APP_FIREBASE_AUTH_DOMAIN,
+  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID || process.env.REACT_APP_FIREBASE_PROJECT_ID,
+  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET || process.env.REACT_APP_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID || process.env.REACT_APP_FIREBASE_APP_ID,
+  measurementId: process.env.EXPO_PUBLIC_FIREBASE_MEASUREMENT_ID || process.env.REACT_APP_FIREBASE_MEASUREMENT_ID
+};
+
+// Validate configuration
+const validateConfig = () => {
+  const required = ['apiKey', 'authDomain', 'projectId', 'appId'];
+  const missing = required.filter(key => !firebaseConfig[key]);
+
+  if (missing.length > 0) {
+    console.error('Missing required Firebase configuration:', missing);
+    throw new Error(`Firebase configuration incomplete. Missing: ${missing.join(', ')}`);
+  }
+};
+
+// Initialize Firebase
+let app;
+let auth;
+let db;
+let analytics = null;
+
+try {
+  validateConfig();
+
+  // Initialize Firebase app if not already initialized
+  if (!getApps().length) {
+    app = initializeApp(firebaseConfig);
+  } else {
+    app = getApps()[0];
+  }
+
+  // Initialize Auth with platform-specific persistence
+  if (Platform.OS === 'web') {
+    auth = getAuth(app);
+  } else {
+    auth = initializeAuth(app, {
+      persistence: getReactNativePersistence(AsyncStorage)
+    });
+  }
+
+  // Initialize Firestore
+  db = getFirestore(app);
+
+  // Initialize Analytics (web only)
+  if (Platform.OS === 'web') {
+    isSupported().then(supported => {
+      if (supported) {
+        analytics = getAnalytics(app);
+      }
+    });
+  }
+} catch (error) {
+  console.error('Firebase initialization error:', error);
+  throw error;
+}
+
+// Export Firebase services
+export { app, auth, db, analytics };
+export default app;

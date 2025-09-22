@@ -1,21 +1,1 @@
-// Mock for expo-constants
-const Constants = {
-  expoConfig: {
-    extra: {
-      apiUrl: 'https://test-api.example.com',
-      stripePublishableKey: 'pk_test_mock',
-      googleExpoClientId: 'mock-google-client-id',
-      googleIosClientId: 'mock-google-ios-client-id',
-      googleAndroidClientId: 'mock-google-android-client-id',
-      firebaseApiKey: 'mock-firebase-api-key',
-      firebaseAuthDomain: 'mock-firebase-auth-domain',
-      firebaseProjectId: 'mock-firebase-project-id',
-      firebaseStorageBucket: 'mock-firebase-storage-bucket',
-      firebaseMessagingSenderId: 'mock-firebase-messaging-sender-id',
-      firebaseAppId: 'mock-firebase-app-id',
-      firebaseMeasurementId: 'mock-firebase-measurement-id'
-    }
-  }
-};
-
-export default Constants; 
+// Mock for expo-constantsconst Constants = {  expoConfig: {    extra: {      apiUrl: 'https://test-api.example.com',      stripePublishableKey: 'pk_test_mock',      googleExpoClientId: 'mock-google-client-id',      googleIosClientId: 'mock-google-ios-client-id',      googleAndroidClientId: 'mock-google-android-client-id',      firebaseApiKey: 'mock-firebase-api-key',      firebaseAuthDomain: 'mock-firebase-auth-domain',      firebaseProjectId: 'mock-firebase-project-id',      firebaseStorageBucket: 'mock-firebase-storage-bucket',      firebaseMessagingSenderId: 'mock-firebase-messaging-sender-id',      firebaseAppId: 'mock-firebase-app-id',      firebaseMeasurementId: 'mock-firebase-measurement-id'    }  }};export default Constants; 

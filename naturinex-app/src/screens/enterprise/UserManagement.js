@@ -1,775 +1,1 @@
-/**
- * Enterprise User Management Screen
- * Handles user provisioning, role management, and bulk operations
- */
-
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  TouchableOpacity,
-  Alert,
-  TextInput,
-  Modal,
-  RefreshControl,
-  Platform
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import * as DocumentPicker from 'expo-document-picker';
-import EnterpriseService from '../../services/EnterpriseService';
-
-const UserManagement = ({ navigation, route }) => {
-  const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedRole, setSelectedRole] = useState('all');
-  const [selectedStatus, setSelectedStatus] = useState('all');
-  const [showInviteModal, setShowInviteModal] = useState(false);
-  const [showBulkModal, setShowBulkModal] = useState(false);
-  const [inviteForm, setInviteForm] = useState({ email: '', role: 'member' });
-  const [pagination, setPagination] = useState({ page: 1, totalPages: 1 });
-  const { organizationId } = route.params;
-
-  const roles = [
-    { value: 'admin', label: 'Admin' },
-    { value: 'manager', label: 'Manager' },
-    { value: 'member', label: 'Member' },
-    { value: 'viewer', label: 'Viewer' }
-  ];
-
-  const statuses = [
-    { value: 'active', label: 'Active' },
-    { value: 'invited', label: 'Invited' },
-    { value: 'suspended', label: 'Suspended' }
-  ];
-
-  useEffect(() => {
-    loadUsers();
-  }, [organizationId, searchQuery, selectedRole, selectedStatus, pagination.page]);
-
-  const loadUsers = async () => {
-    try {
-      const filters = {
-        page: pagination.page,
-        limit: 20,
-        search: searchQuery || undefined,
-        role: selectedRole !== 'all' ? selectedRole : undefined,
-        status: selectedStatus !== 'all' ? selectedStatus : undefined
-      };
-
-      const result = await EnterpriseService.getOrganizationUsers(organizationId, filters);
-
-      if (result.success) {
-        setUsers(result.data.users);
-        setPagination(result.data.pagination);
-      } else {
-        Alert.alert('Error', result.error);
-      }
-    } catch (error) {
-      console.error('Error loading users:', error);
-      Alert.alert('Error', 'Failed to load users');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  const onRefresh = () => {
-    setRefreshing(true);
-    setPagination(prev => ({ ...prev, page: 1 }));
-    loadUsers();
-  };
-
-  const handleInviteUser = async () => {
-    if (!inviteForm.email) {
-      Alert.alert('Error', 'Please enter an email address');
-      return;
-    }
-
-    try {
-      const result = await EnterpriseService.inviteUser(
-        organizationId,
-        inviteForm,
-        'current-user-id' // Replace with actual current user ID
-      );
-
-      if (result.success) {
-        Alert.alert('Success', 'User invitation sent successfully');
-        setShowInviteModal(false);
-        setInviteForm({ email: '', role: 'member' });
-        loadUsers();
-      } else {
-        Alert.alert('Error', result.error);
-      }
-    } catch (error) {
-      console.error('Error inviting user:', error);
-      Alert.alert('Error', 'Failed to send invitation');
-    }
-  };
-
-  const handleBulkImport = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ['text/csv', 'application/vnd.ms-excel'],
-        copyToCacheDirectory: true
-      });
-
-      if (result.type === 'success') {
-        // Parse CSV file and bulk import users
-        const csvData = await parseCsvFile(result.uri);
-        const bulkResult = await EnterpriseService.bulkProvisionUsers(
-          organizationId,
-          csvData,
-          'current-user-id'
-        );
-
-        if (bulkResult.success) {
-          Alert.alert(
-            'Bulk Import Complete',
-            `${bulkResult.data.successful} users imported successfully, ${bulkResult.data.failed} failed`
-          );
-          setShowBulkModal(false);
-          loadUsers();
-        } else {
-          Alert.alert('Error', bulkResult.error);
-        }
-      }
-    } catch (error) {
-      console.error('Error with bulk import:', error);
-      Alert.alert('Error', 'Failed to import users');
-    }
-  };
-
-  const handleUpdateUserRole = async (userId, newRole) => {
-    try {
-      const result = await EnterpriseService.updateUserRole(
-        organizationId,
-        userId,
-        newRole,
-        {},
-        'current-user-id'
-      );
-
-      if (result.success) {
-        Alert.alert('Success', 'User role updated successfully');
-        loadUsers();
-      } else {
-        Alert.alert('Error', result.error);
-      }
-    } catch (error) {
-      console.error('Error updating user role:', error);
-      Alert.alert('Error', 'Failed to update user role');
-    }
-  };
-
-  const handleUpdateUserStatus = async (userId, newStatus) => {
-    try {
-      const result = await EnterpriseService.updateUserStatus(
-        organizationId,
-        userId,
-        newStatus,
-        'current-user-id'
-      );
-
-      if (result.success) {
-        Alert.alert('Success', `User ${newStatus} successfully`);
-        loadUsers();
-      } else {
-        Alert.alert('Error', result.error);
-      }
-    } catch (error) {
-      console.error('Error updating user status:', error);
-      Alert.alert('Error', 'Failed to update user status');
-    }
-  };
-
-  const showUserActions = (user) => {
-    const actions = [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Change Role',
-        onPress: () => showRoleSelector(user)
-      },
-      {
-        text: user.status === 'active' ? 'Suspend' : 'Activate',
-        onPress: () => handleUpdateUserStatus(
-          user.user_id,
-          user.status === 'active' ? 'suspended' : 'active'
-        )
-      }
-    ];
-
-    Alert.alert('User Actions', `Select action for ${user.user_id}`, actions);
-  };
-
-  const showRoleSelector = (user) => {
-    const roleActions = roles.map(role => ({
-      text: role.label,
-      onPress: () => handleUpdateUserRole(user.user_id, role.value)
-    }));
-    roleActions.push({ text: 'Cancel', style: 'cancel' });
-
-    Alert.alert('Select Role', `Choose new role for ${user.user_id}`, roleActions);
-  };
-
-  const parseCsvFile = async (fileUri) => {
-    // Implement CSV parsing logic
-    // This is a placeholder - implement actual CSV parsing
-    return [
-      { email: 'user1@example.com', role: 'member' },
-      { email: 'user2@example.com', role: 'viewer' }
-    ];
-  };
-
-  const renderUserItem = (user) => (
-    <TouchableOpacity
-      key={user.id}
-      style={styles.userItem}
-      onPress={() => showUserActions(user)}
-    >
-      <View style={styles.userInfo}>
-        <Ionicons name="person-circle" size={40} color="#8641f4" />
-        <View style={styles.userDetails}>
-          <Text style={styles.userName}>{user.user_id}</Text>
-          <View style={styles.userMeta}>
-            <View style={[styles.roleBadge, { backgroundColor: getRoleColor(user.role) }]}>
-              <Text style={styles.roleText}>{user.role}</Text>
-            </View>
-            <Text style={styles.joinDate}>
-              Joined {new Date(user.created_at).toLocaleDateString()}
-            </Text>
-          </View>
-        </View>
-      </View>
-      <View style={styles.userActions}>
-        <View style={[
-          styles.statusBadge,
-          { backgroundColor: getStatusColor(user.status) }
-        ]}>
-          <Text style={styles.statusText}>{user.status}</Text>
-        </View>
-        <Ionicons name="chevron-forward" size={20} color="#ccc" />
-      </View>
-    </TouchableOpacity>
-  );
-
-  const getRoleColor = (role) => {
-    const colors = {
-      admin: '#FF5722',
-      manager: '#FF9800',
-      member: '#4CAF50',
-      viewer: '#2196F3'
-    };
-    return colors[role] || '#999';
-  };
-
-  const getStatusColor = (status) => {
-    const colors = {
-      active: '#4CAF50',
-      invited: '#FF9800',
-      suspended: '#F44336'
-    };
-    return colors[status] || '#999';
-  };
-
-  const renderFilterBar = () => (
-    <View style={styles.filterBar}>
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search users..."
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-      </View>
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>
-        <TouchableOpacity
-          style={[styles.filterButton, selectedRole === 'all' && styles.filterButtonActive]}
-          onPress={() => setSelectedRole('all')}
-        >
-          <Text style={[styles.filterText, selectedRole === 'all' && styles.filterTextActive]}>
-            All Roles
-          </Text>
-        </TouchableOpacity>
-
-        {roles.map(role => (
-          <TouchableOpacity
-            key={role.value}
-            style={[styles.filterButton, selectedRole === role.value && styles.filterButtonActive]}
-            onPress={() => setSelectedRole(role.value)}
-          >
-            <Text style={[styles.filterText, selectedRole === role.value && styles.filterTextActive]}>
-              {role.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-    </View>
-  );
-
-  const renderPagination = () => (
-    <View style={styles.pagination}>
-      <TouchableOpacity
-        style={[styles.pageButton, pagination.page === 1 && styles.pageButtonDisabled]}
-        onPress={() => setPagination(prev => ({ ...prev, page: prev.page - 1 }))}
-        disabled={pagination.page === 1}
-      >
-        <Text style={styles.pageButtonText}>Previous</Text>
-      </TouchableOpacity>
-
-      <Text style={styles.pageInfo}>
-        Page {pagination.page} of {pagination.totalPages}
-      </Text>
-
-      <TouchableOpacity
-        style={[styles.pageButton, pagination.page === pagination.totalPages && styles.pageButtonDisabled]}
-        onPress={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}
-        disabled={pagination.page === pagination.totalPages}
-      >
-        <Text style={styles.pageButtonText}>Next</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color="white" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>User Management</Text>
-        <TouchableOpacity onPress={() => setShowInviteModal(true)}>
-          <Ionicons name="add" size={24} color="white" />
-        </TouchableOpacity>
-      </View>
-
-      {/* Action Buttons */}
-      <View style={styles.actionButtons}>
-        <TouchableOpacity
-          style={[styles.actionButton, { backgroundColor: '#4CAF50' }]}
-          onPress={() => setShowInviteModal(true)}
-        >
-          <Ionicons name="person-add" size={20} color="white" />
-          <Text style={styles.actionButtonText}>Invite User</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.actionButton, { backgroundColor: '#2196F3' }]}
-          onPress={() => setShowBulkModal(true)}
-        >
-          <Ionicons name="cloud-upload" size={20} color="white" />
-          <Text style={styles.actionButtonText}>Bulk Import</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Filter Bar */}
-      {renderFilterBar()}
-
-      {/* Users List */}
-      <ScrollView
-        style={styles.usersList}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      >
-        {users.map(renderUserItem)}
-        {users.length === 0 && !loading && (
-          <View style={styles.emptyState}>
-            <Ionicons name="people-outline" size={64} color="#ccc" />
-            <Text style={styles.emptyStateText}>No users found</Text>
-          </View>
-        )}
-      </ScrollView>
-
-      {/* Pagination */}
-      {pagination.totalPages > 1 && renderPagination()}
-
-      {/* Invite User Modal */}
-      <Modal
-        visible={showInviteModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowInviteModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Invite New User</Text>
-
-            <TextInput
-              style={styles.modalInput}
-              placeholder="Email address"
-              value={inviteForm.email}
-              onChangeText={(email) => setInviteForm(prev => ({ ...prev, email }))}
-              keyboardType="email-address"
-              autoCapitalize="none"
-            />
-
-            <Text style={styles.modalLabel}>Role</Text>
-            {roles.map(role => (
-              <TouchableOpacity
-                key={role.value}
-                style={[
-                  styles.roleOption,
-                  inviteForm.role === role.value && styles.roleOptionSelected
-                ]}
-                onPress={() => setInviteForm(prev => ({ ...prev, role: role.value }))}
-              >
-                <Text style={[
-                  styles.roleOptionText,
-                  inviteForm.role === role.value && styles.roleOptionTextSelected
-                ]}>
-                  {role.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonSecondary]}
-                onPress={() => setShowInviteModal(false)}
-              >
-                <Text style={styles.modalButtonSecondaryText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonPrimary]}
-                onPress={handleInviteUser}
-              >
-                <Text style={styles.modalButtonPrimaryText}>Send Invite</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Bulk Import Modal */}
-      <Modal
-        visible={showBulkModal}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setShowBulkModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Bulk Import Users</Text>
-            <Text style={styles.modalDescription}>
-              Upload a CSV file with columns: email, role
-            </Text>
-
-            <TouchableOpacity
-              style={styles.uploadButton}
-              onPress={handleBulkImport}
-            >
-              <Ionicons name="cloud-upload" size={24} color="#8641f4" />
-              <Text style={styles.uploadButtonText}>Select CSV File</Text>
-            </TouchableOpacity>
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[styles.modalButton, styles.modalButtonSecondary]}
-                onPress={() => setShowBulkModal(false)}
-              >
-                <Text style={styles.modalButtonSecondaryText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-    </View>
-  );
-};
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5'
-  },
-  header: {
-    backgroundColor: '#8641f4',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 40,
-    paddingBottom: 20
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: 'white'
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    padding: 20,
-    gap: 12
-  },
-  actionButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 12,
-    borderRadius: 8,
-    gap: 8
-  },
-  actionButtonText: {
-    color: 'white',
-    fontWeight: '500'
-  },
-  filterBar: {
-    paddingHorizontal: 20,
-    paddingBottom: 16
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'white',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#ddd'
-  },
-  searchIcon: {
-    marginRight: 8
-  },
-  searchInput: {
-    flex: 1,
-    height: 40,
-    fontSize: 16
-  },
-  filterScroll: {
-    flexDirection: 'row'
-  },
-  filterButton: {
-    backgroundColor: 'white',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginRight: 8,
-    borderWidth: 1,
-    borderColor: '#ddd'
-  },
-  filterButtonActive: {
-    backgroundColor: '#8641f4',
-    borderColor: '#8641f4'
-  },
-  filterText: {
-    color: '#666',
-    fontSize: 14,
-    fontWeight: '500'
-  },
-  filterTextActive: {
-    color: 'white'
-  },
-  usersList: {
-    flex: 1,
-    paddingHorizontal: 20
-  },
-  userItem: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3
-  },
-  userInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1
-  },
-  userDetails: {
-    marginLeft: 12,
-    flex: 1
-  },
-  userName: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#333',
-    marginBottom: 4
-  },
-  userMeta: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8
-  },
-  roleBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10
-  },
-  roleText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: '500'
-  },
-  joinDate: {
-    fontSize: 12,
-    color: '#666'
-  },
-  userActions: {
-    alignItems: 'center',
-    gap: 8
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12
-  },
-  statusText: {
-    color: 'white',
-    fontSize: 12,
-    fontWeight: '500'
-  },
-  pagination: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 20,
-    backgroundColor: 'white',
-    borderTopWidth: 1,
-    borderTopColor: '#eee'
-  },
-  pageButton: {
-    backgroundColor: '#8641f4',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6
-  },
-  pageButtonDisabled: {
-    backgroundColor: '#ccc'
-  },
-  pageButtonText: {
-    color: 'white',
-    fontWeight: '500'
-  },
-  pageInfo: {
-    fontSize: 16,
-    color: '#333'
-  },
-  emptyState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 60
-  },
-  emptyStateText: {
-    fontSize: 16,
-    color: '#999',
-    marginTop: 12
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  modalContent: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 24,
-    width: '90%',
-    maxWidth: 400
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 16,
-    textAlign: 'center'
-  },
-  modalDescription: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 20
-  },
-  modalInput: {
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
-    marginBottom: 16
-  },
-  modalLabel: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#333',
-    marginBottom: 12
-  },
-  roleOption: {
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#ddd',
-    marginBottom: 8
-  },
-  roleOptionSelected: {
-    backgroundColor: '#8641f4',
-    borderColor: '#8641f4'
-  },
-  roleOptionText: {
-    fontSize: 16,
-    color: '#333',
-    textAlign: 'center'
-  },
-  roleOptionTextSelected: {
-    color: 'white'
-  },
-  uploadButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#f8f9fa',
-    borderWidth: 2,
-    borderColor: '#8641f4',
-    borderStyle: 'dashed',
-    borderRadius: 8,
-    padding: 20,
-    marginBottom: 20
-  },
-  uploadButtonText: {
-    fontSize: 16,
-    color: '#8641f4',
-    fontWeight: '500',
-    marginLeft: 8
-  },
-  modalActions: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12
-  },
-  modalButton: {
-    flex: 1,
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center'
-  },
-  modalButtonPrimary: {
-    backgroundColor: '#8641f4'
-  },
-  modalButtonSecondary: {
-    backgroundColor: '#f0f0f0'
-  },
-  modalButtonPrimaryText: {
-    color: 'white',
-    fontWeight: '500'
-  },
-  modalButtonSecondaryText: {
-    color: '#333',
-    fontWeight: '500'
-  }
-});
-
-export default UserManagement;
+/** * Enterprise User Management Screen * Handles user provisioning, role management, and bulk operations */import React, { useState, useEffect } from 'react';import {  View,  Text,  StyleSheet,  ScrollView,  TouchableOpacity,  Alert,  TextInput,  Modal,  RefreshControl,  Platform} from 'react-native';import { Ionicons } from '@expo/vector-icons';import * as DocumentPicker from 'expo-document-picker';import EnterpriseService from '../../services/EnterpriseService';const UserManagement = ({ navigation, route }) => {  const [users, setUsers] = useState([]);  const [loading, setLoading] = useState(true);  const [refreshing, setRefreshing] = useState(false);  const [searchQuery, setSearchQuery] = useState('');  const [selectedRole, setSelectedRole] = useState('all');  const [selectedStatus, setSelectedStatus] = useState('all');  const [showInviteModal, setShowInviteModal] = useState(false);  const [showBulkModal, setShowBulkModal] = useState(false);  const [inviteForm, setInviteForm] = useState({ email: '', role: 'member' });  const [pagination, setPagination] = useState({ page: 1, totalPages: 1 });  const { organizationId } = route.params;  const roles = [    { value: 'admin', label: 'Admin' },    { value: 'manager', label: 'Manager' },    { value: 'member', label: 'Member' },    { value: 'viewer', label: 'Viewer' }  ];  const statuses = [    { value: 'active', label: 'Active' },    { value: 'invited', label: 'Invited' },    { value: 'suspended', label: 'Suspended' }  ];  useEffect(() => {    loadUsers();  }, [organizationId, searchQuery, selectedRole, selectedStatus, pagination.page]);  const loadUsers = async () => {    try {      const filters = {        page: pagination.page,        limit: 20,        search: searchQuery || undefined,        role: selectedRole !== 'all' ? selectedRole : undefined,        status: selectedStatus !== 'all' ? selectedStatus : undefined      };      const result = await EnterpriseService.getOrganizationUsers(organizationId, filters);      if (result.success) {        setUsers(result.data.users);        setPagination(result.data.pagination);      } else {        Alert.alert('Error', result.error);      }    } catch (error) {      console.error('Error loading users:', error);      Alert.alert('Error', 'Failed to load users');    } finally {      setLoading(false);      setRefreshing(false);    }  };  const onRefresh = () => {    setRefreshing(true);    setPagination(prev => ({ ...prev, page: 1 }));    loadUsers();  };  const handleInviteUser = async () => {    if (!inviteForm.email) {      Alert.alert('Error', 'Please enter an email address');      return;    }    try {      const result = await EnterpriseService.inviteUser(        organizationId,        inviteForm,        'current-user-id' // Replace with actual current user ID      );      if (result.success) {        Alert.alert('Success', 'User invitation sent successfully');        setShowInviteModal(false);        setInviteForm({ email: '', role: 'member' });        loadUsers();      } else {        Alert.alert('Error', result.error);      }    } catch (error) {      console.error('Error inviting user:', error);      Alert.alert('Error', 'Failed to send invitation');    }  };  const handleBulkImport = async () => {    try {      const result = await DocumentPicker.getDocumentAsync({        type: ['text/csv', 'application/vnd.ms-excel'],        copyToCacheDirectory: true      });      if (result.type === 'success') {        // Parse CSV file and bulk import users        const csvData = await parseCsvFile(result.uri);        const bulkResult = await EnterpriseService.bulkProvisionUsers(          organizationId,          csvData,          'current-user-id'        );        if (bulkResult.success) {          Alert.alert(            'Bulk Import Complete',            `${bulkResult.data.successful} users imported successfully, ${bulkResult.data.failed} failed`          );          setShowBulkModal(false);          loadUsers();        } else {          Alert.alert('Error', bulkResult.error);        }      }    } catch (error) {      console.error('Error with bulk import:', error);      Alert.alert('Error', 'Failed to import users');    }  };  const handleUpdateUserRole = async (userId, newRole) => {    try {      const result = await EnterpriseService.updateUserRole(        organizationId,        userId,        newRole,        {},        'current-user-id'      );      if (result.success) {        Alert.alert('Success', 'User role updated successfully');        loadUsers();      } else {        Alert.alert('Error', result.error);      }    } catch (error) {      console.error('Error updating user role:', error);      Alert.alert('Error', 'Failed to update user role');    }  };  const handleUpdateUserStatus = async (userId, newStatus) => {    try {      const result = await EnterpriseService.updateUserStatus(        organizationId,        userId,        newStatus,        'current-user-id'      );      if (result.success) {        Alert.alert('Success', `User ${newStatus} successfully`);        loadUsers();      } else {        Alert.alert('Error', result.error);      }    } catch (error) {      console.error('Error updating user status:', error);      Alert.alert('Error', 'Failed to update user status');    }  };  const showUserActions = (user) => {    const actions = [      { text: 'Cancel', style: 'cancel' },      {        text: 'Change Role',        onPress: () => showRoleSelector(user)      },      {        text: user.status === 'active' ? 'Suspend' : 'Activate',        onPress: () => handleUpdateUserStatus(          user.user_id,          user.status === 'active' ? 'suspended' : 'active'        )      }    ];    Alert.alert('User Actions', `Select action for ${user.user_id}`, actions);  };  const showRoleSelector = (user) => {    const roleActions = roles.map(role => ({      text: role.label,      onPress: () => handleUpdateUserRole(user.user_id, role.value)    }));    roleActions.push({ text: 'Cancel', style: 'cancel' });    Alert.alert('Select Role', `Choose new role for ${user.user_id}`, roleActions);  };  const parseCsvFile = async (fileUri) => {    // Implement CSV parsing logic    // This is a placeholder - implement actual CSV parsing    return [      { email: 'user1@example.com', role: 'member' },      { email: 'user2@example.com', role: 'viewer' }    ];  };  const renderUserItem = (user) => (    <TouchableOpacity      key={user.id}      style={styles.userItem}      onPress={() => showUserActions(user)}    >      <View style={styles.userInfo}>        <Ionicons name="person-circle" size={40} color="#8641f4" />        <View style={styles.userDetails}>          <Text style={styles.userName}>{user.user_id}</Text>          <View style={styles.userMeta}>            <View style={[styles.roleBadge, { backgroundColor: getRoleColor(user.role) }]}>              <Text style={styles.roleText}>{user.role}</Text>            </View>            <Text style={styles.joinDate}>              Joined {new Date(user.created_at).toLocaleDateString()}            </Text>          </View>        </View>      </View>      <View style={styles.userActions}>        <View style={[          styles.statusBadge,          { backgroundColor: getStatusColor(user.status) }        ]}>          <Text style={styles.statusText}>{user.status}</Text>        </View>        <Ionicons name="chevron-forward" size={20} color="#ccc" />      </View>    </TouchableOpacity>  );  const getRoleColor = (role) => {    const colors = {      admin: '#FF5722',      manager: '#FF9800',      member: '#4CAF50',      viewer: '#2196F3'    };    return colors[role] || '#999';  };  const getStatusColor = (status) => {    const colors = {      active: '#4CAF50',      invited: '#FF9800',      suspended: '#F44336'    };    return colors[status] || '#999';  };  const renderFilterBar = () => (    <View style={styles.filterBar}>      <View style={styles.searchContainer}>        <Ionicons name="search" size={20} color="#999" style={styles.searchIcon} />        <TextInput          style={styles.searchInput}          placeholder="Search users..."          value={searchQuery}          onChangeText={setSearchQuery}        />      </View>      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll}>        <TouchableOpacity          style={[styles.filterButton, selectedRole === 'all' && styles.filterButtonActive]}          onPress={() => setSelectedRole('all')}        >          <Text style={[styles.filterText, selectedRole === 'all' && styles.filterTextActive]}>            All Roles          </Text>        </TouchableOpacity>        {roles.map(role => (          <TouchableOpacity            key={role.value}            style={[styles.filterButton, selectedRole === role.value && styles.filterButtonActive]}            onPress={() => setSelectedRole(role.value)}          >            <Text style={[styles.filterText, selectedRole === role.value && styles.filterTextActive]}>              {role.label}            </Text>          </TouchableOpacity>        ))}      </ScrollView>    </View>  );  const renderPagination = () => (    <View style={styles.pagination}>      <TouchableOpacity        style={[styles.pageButton, pagination.page === 1 && styles.pageButtonDisabled]}        onPress={() => setPagination(prev => ({ ...prev, page: prev.page - 1 }))}        disabled={pagination.page === 1}      >        <Text style={styles.pageButtonText}>Previous</Text>      </TouchableOpacity>      <Text style={styles.pageInfo}>        Page {pagination.page} of {pagination.totalPages}      </Text>      <TouchableOpacity        style={[styles.pageButton, pagination.page === pagination.totalPages && styles.pageButtonDisabled]}        onPress={() => setPagination(prev => ({ ...prev, page: prev.page + 1 }))}        disabled={pagination.page === pagination.totalPages}      >        <Text style={styles.pageButtonText}>Next</Text>      </TouchableOpacity>    </View>  );  return (    <View style={styles.container}>      {/* Header */}      <View style={styles.header}>        <TouchableOpacity onPress={() => navigation.goBack()}>          <Ionicons name="arrow-back" size={24} color="white" />        </TouchableOpacity>        <Text style={styles.headerTitle}>User Management</Text>        <TouchableOpacity onPress={() => setShowInviteModal(true)}>          <Ionicons name="add" size={24} color="white" />        </TouchableOpacity>      </View>      {/* Action Buttons */}      <View style={styles.actionButtons}>        <TouchableOpacity          style={[styles.actionButton, { backgroundColor: '#4CAF50' }]}          onPress={() => setShowInviteModal(true)}        >          <Ionicons name="person-add" size={20} color="white" />          <Text style={styles.actionButtonText}>Invite User</Text>        </TouchableOpacity>        <TouchableOpacity          style={[styles.actionButton, { backgroundColor: '#2196F3' }]}          onPress={() => setShowBulkModal(true)}        >          <Ionicons name="cloud-upload" size={20} color="white" />          <Text style={styles.actionButtonText}>Bulk Import</Text>        </TouchableOpacity>      </View>      {/* Filter Bar */}      {renderFilterBar()}      {/* Users List */}      <ScrollView        style={styles.usersList}        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}      >        {users.map(renderUserItem)}        {users.length === 0 && !loading && (          <View style={styles.emptyState}>            <Ionicons name="people-outline" size={64} color="#ccc" />            <Text style={styles.emptyStateText}>No users found</Text>          </View>        )}      </ScrollView>      {/* Pagination */}      {pagination.totalPages > 1 && renderPagination()}      {/* Invite User Modal */}      <Modal        visible={showInviteModal}        animationType="slide"        transparent={true}        onRequestClose={() => setShowInviteModal(false)}      >        <View style={styles.modalOverlay}>          <View style={styles.modalContent}>            <Text style={styles.modalTitle}>Invite New User</Text>            <TextInput              style={styles.modalInput}              placeholder="Email address"              value={inviteForm.email}              onChangeText={(email) => setInviteForm(prev => ({ ...prev, email }))}              keyboardType="email-address"              autoCapitalize="none"            />            <Text style={styles.modalLabel}>Role</Text>            {roles.map(role => (              <TouchableOpacity                key={role.value}                style={[                  styles.roleOption,                  inviteForm.role === role.value && styles.roleOptionSelected                ]}                onPress={() => setInviteForm(prev => ({ ...prev, role: role.value }))}              >                <Text style={[                  styles.roleOptionText,                  inviteForm.role === role.value && styles.roleOptionTextSelected                ]}>                  {role.label}                </Text>              </TouchableOpacity>            ))}            <View style={styles.modalActions}>              <TouchableOpacity                style={[styles.modalButton, styles.modalButtonSecondary]}                onPress={() => setShowInviteModal(false)}              >                <Text style={styles.modalButtonSecondaryText}>Cancel</Text>              </TouchableOpacity>              <TouchableOpacity                style={[styles.modalButton, styles.modalButtonPrimary]}                onPress={handleInviteUser}              >                <Text style={styles.modalButtonPrimaryText}>Send Invite</Text>              </TouchableOpacity>            </View>          </View>        </View>      </Modal>      {/* Bulk Import Modal */}      <Modal        visible={showBulkModal}        animationType="slide"        transparent={true}        onRequestClose={() => setShowBulkModal(false)}      >        <View style={styles.modalOverlay}>          <View style={styles.modalContent}>            <Text style={styles.modalTitle}>Bulk Import Users</Text>            <Text style={styles.modalDescription}>              Upload a CSV file with columns: email, role            </Text>            <TouchableOpacity              style={styles.uploadButton}              onPress={handleBulkImport}            >              <Ionicons name="cloud-upload" size={24} color="#8641f4" />              <Text style={styles.uploadButtonText}>Select CSV File</Text>            </TouchableOpacity>            <View style={styles.modalActions}>              <TouchableOpacity                style={[styles.modalButton, styles.modalButtonSecondary]}                onPress={() => setShowBulkModal(false)}              >                <Text style={styles.modalButtonSecondaryText}>Cancel</Text>              </TouchableOpacity>            </View>          </View>        </View>      </Modal>    </View>  );};const styles = StyleSheet.create({  container: {    flex: 1,    backgroundColor: '#f5f5f5'  },  header: {    backgroundColor: '#8641f4',    flexDirection: 'row',    alignItems: 'center',    justifyContent: 'space-between',    paddingHorizontal: 20,    paddingTop: 40,    paddingBottom: 20  },  headerTitle: {    fontSize: 20,    fontWeight: 'bold',    color: 'white'  },  actionButtons: {    flexDirection: 'row',    padding: 20,    gap: 12  },  actionButton: {    flex: 1,    flexDirection: 'row',    alignItems: 'center',    justifyContent: 'center',    padding: 12,    borderRadius: 8,    gap: 8  },  actionButtonText: {    color: 'white',    fontWeight: '500'  },  filterBar: {    paddingHorizontal: 20,    paddingBottom: 16  },  searchContainer: {    flexDirection: 'row',    alignItems: 'center',    backgroundColor: 'white',    borderRadius: 8,    paddingHorizontal: 12,    marginBottom: 12,    borderWidth: 1,    borderColor: '#ddd'  },  searchIcon: {    marginRight: 8  },  searchInput: {    flex: 1,    height: 40,    fontSize: 16  },  filterScroll: {    flexDirection: 'row'  },  filterButton: {    backgroundColor: 'white',    paddingHorizontal: 16,    paddingVertical: 8,    borderRadius: 20,    marginRight: 8,    borderWidth: 1,    borderColor: '#ddd'  },  filterButtonActive: {    backgroundColor: '#8641f4',    borderColor: '#8641f4'  },  filterText: {    color: '#666',    fontSize: 14,    fontWeight: '500'  },  filterTextActive: {    color: 'white'  },  usersList: {    flex: 1,    paddingHorizontal: 20  },  userItem: {    backgroundColor: 'white',    borderRadius: 12,    padding: 16,    marginBottom: 12,    flexDirection: 'row',    alignItems: 'center',    justifyContent: 'space-between',    shadowColor: '#000',    shadowOffset: { width: 0, height: 2 },    shadowOpacity: 0.1,    shadowRadius: 4,    elevation: 3  },  userInfo: {    flexDirection: 'row',    alignItems: 'center',    flex: 1  },  userDetails: {    marginLeft: 12,    flex: 1  },  userName: {    fontSize: 16,    fontWeight: '500',    color: '#333',    marginBottom: 4  },  userMeta: {    flexDirection: 'row',    alignItems: 'center',    gap: 8  },  roleBadge: {    paddingHorizontal: 8,    paddingVertical: 2,    borderRadius: 10  },  roleText: {    color: 'white',    fontSize: 12,    fontWeight: '500'  },  joinDate: {    fontSize: 12,    color: '#666'  },  userActions: {    alignItems: 'center',    gap: 8  },  statusBadge: {    paddingHorizontal: 8,    paddingVertical: 4,    borderRadius: 12  },  statusText: {    color: 'white',    fontSize: 12,    fontWeight: '500'  },  pagination: {    flexDirection: 'row',    alignItems: 'center',    justifyContent: 'space-between',    padding: 20,    backgroundColor: 'white',    borderTopWidth: 1,    borderTopColor: '#eee'  },  pageButton: {    backgroundColor: '#8641f4',    paddingHorizontal: 16,    paddingVertical: 8,    borderRadius: 6  },  pageButtonDisabled: {    backgroundColor: '#ccc'  },  pageButtonText: {    color: 'white',    fontWeight: '500'  },  pageInfo: {    fontSize: 16,    color: '#333'  },  emptyState: {    alignItems: 'center',    justifyContent: 'center',    paddingVertical: 60  },  emptyStateText: {    fontSize: 16,    color: '#999',    marginTop: 12  },  modalOverlay: {    flex: 1,    backgroundColor: 'rgba(0, 0, 0, 0.5)',    justifyContent: 'center',    alignItems: 'center'  },  modalContent: {    backgroundColor: 'white',    borderRadius: 12,    padding: 24,    width: '90%',    maxWidth: 400  },  modalTitle: {    fontSize: 20,    fontWeight: 'bold',    color: '#333',    marginBottom: 16,    textAlign: 'center'  },  modalDescription: {    fontSize: 14,    color: '#666',    textAlign: 'center',    marginBottom: 20  },  modalInput: {    borderWidth: 1,    borderColor: '#ddd',    borderRadius: 8,    padding: 12,    fontSize: 16,    marginBottom: 16  },  modalLabel: {    fontSize: 16,    fontWeight: '500',    color: '#333',    marginBottom: 12  },  roleOption: {    padding: 12,    borderRadius: 8,    borderWidth: 1,    borderColor: '#ddd',    marginBottom: 8  },  roleOptionSelected: {    backgroundColor: '#8641f4',    borderColor: '#8641f4'  },  roleOptionText: {    fontSize: 16,    color: '#333',    textAlign: 'center'  },  roleOptionTextSelected: {    color: 'white'  },  uploadButton: {    flexDirection: 'row',    alignItems: 'center',    justifyContent: 'center',    backgroundColor: '#f8f9fa',    borderWidth: 2,    borderColor: '#8641f4',    borderStyle: 'dashed',    borderRadius: 8,    padding: 20,    marginBottom: 20  },  uploadButtonText: {    fontSize: 16,    color: '#8641f4',    fontWeight: '500',    marginLeft: 8  },  modalActions: {    flexDirection: 'row',    justifyContent: 'space-between',    gap: 12  },  modalButton: {    flex: 1,    padding: 12,    borderRadius: 8,    alignItems: 'center'  },  modalButtonPrimary: {    backgroundColor: '#8641f4'  },  modalButtonSecondary: {    backgroundColor: '#f0f0f0'  },  modalButtonPrimaryText: {    color: 'white',    fontWeight: '500'  },  modalButtonSecondaryText: {    color: '#333',    fontWeight: '500'  }});export default UserManagement;

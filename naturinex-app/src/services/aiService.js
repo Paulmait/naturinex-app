@@ -1,214 +1,1 @@
-// AI Service for Naturinex
-// Handles medication analysis and natural alternative suggestions
-
-import { APP_CONFIG } from '../constants/appConfig';
-
-class AIService {
-  constructor() {
-    this.baseUrl = APP_CONFIG.API.BASE_URL;
-    this.timeout = APP_CONFIG.API.TIMEOUT;
-  }
-
-  // Analyze medication and get natural alternatives
-  async analyzeMedication(medicationName, imageData = null) {
-    try {
-      // TODO: Replace with actual AI API call
-      // For now, using mock data for development
-      
-      // const requestData = {
-      //   medicationName: medicationName.trim(),
-      //   imageData: imageData,
-      //   timestamp: new Date().toISOString(),
-      //   deviceInfo: {
-      //     userAgent: navigator.userAgent,
-      //     screenSize: `${window.screen.width}x${window.screen.height}`,
-      //     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-      //   }
-      // };
-
-      // Simulate API call delay
-      await new Promise(resolve => setTimeout(resolve, 1500 + Math.random() * 1000));
-
-      // Mock response - replace with actual AI service integration
-      return this.generateMockResponse(medicationName);
-      
-    } catch (error) {
-      console.error('AI analysis error:', error);
-      throw new Error('Failed to analyze medication. Please try again.');
-    }
-  }
-
-  // Generate mock AI response for development
-  generateMockResponse(medicationName) {
-    const alternatives = [
-      {
-        id: 'alt_1',
-        name: 'Turmeric Curcumin',
-        description: 'Natural anti-inflammatory compound with potential benefits for pain relief',
-        effectiveness: 'High',
-        sideEffects: 'Minimal - may cause stomach upset in some individuals',
-        dosage: '500-1000mg daily with meals',
-        category: 'Anti-inflammatory',
-        researchLevel: 'Well-studied',
-        contraindications: 'Avoid if pregnant or on blood thinners',
-        cost: '$15-30/month'
-      },
-      {
-        id: 'alt_2',
-        name: 'Omega-3 Fish Oil',
-        description: 'Essential fatty acids that support heart health and reduce inflammation',
-        effectiveness: 'Moderate',
-        sideEffects: 'Rare - may cause fishy burps',
-        dosage: '1000-2000mg daily',
-        category: 'Heart Health',
-        researchLevel: 'Extensively studied',
-        contraindications: 'Consult doctor if on blood thinners',
-        cost: '$20-40/month'
-      },
-      {
-        id: 'alt_3',
-        name: 'Magnesium Glycinate',
-        description: 'Natural mineral that supports muscle relaxation and sleep',
-        effectiveness: 'Moderate',
-        sideEffects: 'May cause loose stools at high doses',
-        dosage: '200-400mg daily',
-        category: 'Mineral Supplement',
-        researchLevel: 'Well-studied',
-        contraindications: 'Avoid if you have kidney disease',
-        cost: '$10-25/month'
-      }
-    ];
-
-    const warnings = [
-      'Always consult with a healthcare provider before switching medications',
-      'Natural alternatives may not be suitable for all individuals',
-      'Results are for informational purposes only and not medical advice',
-      'Individual responses to natural supplements may vary',
-      'Some supplements may interact with prescription medications'
-    ];
-
-    const recommendations = [
-      'Start with one supplement at a time to monitor effects',
-      'Give supplements 4-6 weeks to see full benefits',
-      'Purchase from reputable brands with third-party testing',
-      'Keep a journal to track your response to supplements',
-      'Regular blood work can help monitor supplement effects'
-    ];
-
-    return {
-      medicationName: medicationName.trim(),
-      analyzedAt: new Date().toISOString(),
-      alternatives: alternatives,
-      warnings: warnings,
-      recommendations: recommendations,
-      disclaimer: 'This analysis is for educational purposes only. Always consult with a qualified healthcare provider before making any changes to your medication regimen.',
-      confidence: Math.floor(Math.random() * 30) + 70, // 70-100%
-      processingTime: Math.floor(Math.random() * 2000) + 1000 // 1-3 seconds
-    };
-  }
-
-  // Validate medication name with enhanced security
-  validateMedicationName(name) {
-    if (!name || typeof name !== 'string') {
-      return { isValid: false, error: 'Medication name is required' };
-    }
-
-    // Sanitize input first
-    const sanitizedName = name
-      .trim()
-      .replace(/[<>]/g, '') // Remove potential HTML tags
-      .replace(/[^\w\s\-.()]/g, ''); // Keep only allowed characters
-
-    if (sanitizedName.length < 2) {
-      return { isValid: false, error: 'Medication name must be at least 2 characters' };
-    }
-
-    if (sanitizedName.length > 100) {
-      return { isValid: false, error: 'Medication name is too long' };
-    }
-
-    // Check for suspicious patterns (SQL injection, XSS, etc.)
-    const suspiciousPatterns = [
-      /(\.|%2e){2,}/i, // Directory traversal
-      /<script/i, // Script injection
-      /union.*select/i, // SQL injection
-      /javascript:/i, // JavaScript protocol
-      /on\w+\s*=/i // Event handlers
-    ];
-
-    for (const pattern of suspiciousPatterns) {
-      if (pattern.test(name)) {
-        return { isValid: false, error: 'Invalid characters detected' };
-      }
-    }
-
-    // Basic validation for common medication name patterns
-    const validPattern = /^[a-zA-Z0-9\s\-.()]+$/;
-    if (!validPattern.test(sanitizedName)) {
-      return { isValid: false, error: 'Medication name contains invalid characters' };
-    }
-
-    return { isValid: true, error: null, sanitized: sanitizedName };
-  }
-
-  // Process image for OCR (placeholder for future implementation)
-  async processImageForOCR(imageFile) {
-    try {
-      // TODO: Implement actual OCR processing
-      // This would typically involve:
-      // 1. Upload image to OCR service
-      // 2. Extract text from medication label
-      // 3. Parse medication information
-      
-      console.log('OCR processing not yet implemented');
-      return null;
-      
-    } catch (error) {
-      console.error('OCR processing error:', error);
-      throw new Error('Failed to process image. Please try again.');
-    }
-  }
-
-  // Get medication information from database
-  async getMedicationInfo(medicationName) {
-    try {
-      // TODO: Implement database lookup for medication information
-      // This would typically involve:
-      // 1. Search local/remote medication database
-      // 2. Return medication details, side effects, etc.
-      
-      console.log('Medication database lookup not yet implemented');
-      return null;
-      
-    } catch (error) {
-      console.error('Medication lookup error:', error);
-      throw new Error('Failed to retrieve medication information.');
-    }
-  }
-
-  // Rate limiting and quota management
-  async checkQuota(userId, deviceId) {
-    try {
-      // TODO: Implement quota checking logic
-      // This would typically involve:
-      // 1. Check user's daily/monthly scan limits
-      // 2. Check device-based limits
-      // 3. Return quota status
-      
-      return {
-        canScan: true,
-        remainingScans: 999,
-        resetTime: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours from now
-      };
-      
-    } catch (error) {
-      console.error('Quota check error:', error);
-      return { canScan: true, remainingScans: 999, resetTime: null };
-    }
-  }
-}
-
-// Create singleton instance
-const aiService = new AIService();
-
-export default aiService; 
+// AI Service for Naturinex// Handles medication analysis and natural alternative suggestionsimport { APP_CONFIG } from '../constants/appConfig';class AIService {  constructor() {    this.baseUrl = APP_CONFIG.API.BASE_URL;    this.timeout = APP_CONFIG.API.TIMEOUT;  }  // Analyze medication and get natural alternatives  async analyzeMedication(medicationName, imageData = null) {    try {      // TODO: Replace with actual AI API call      // For now, using mock data for development      // const requestData = {      //   medicationName: medicationName.trim(),      //   imageData: imageData,      //   timestamp: new Date().toISOString(),      //   deviceInfo: {      //     userAgent: navigator.userAgent,      //     screenSize: `${window.screen.width}x${window.screen.height}`,      //     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone      //   }      // };      // Simulate API call delay      await new Promise(resolve => setTimeout(resolve, 1500 + Math.random() * 1000));      // Mock response - replace with actual AI service integration      return this.generateMockResponse(medicationName);    } catch (error) {      console.error('AI analysis error:', error);      throw new Error('Failed to analyze medication. Please try again.');    }  }  // Generate mock AI response for development  generateMockResponse(medicationName) {    const alternatives = [      {        id: 'alt_1',        name: 'Turmeric Curcumin',        description: 'Natural anti-inflammatory compound with potential benefits for pain relief',        effectiveness: 'High',        sideEffects: 'Minimal - may cause stomach upset in some individuals',        dosage: '500-1000mg daily with meals',        category: 'Anti-inflammatory',        researchLevel: 'Well-studied',        contraindications: 'Avoid if pregnant or on blood thinners',        cost: '$15-30/month'      },      {        id: 'alt_2',        name: 'Omega-3 Fish Oil',        description: 'Essential fatty acids that support heart health and reduce inflammation',        effectiveness: 'Moderate',        sideEffects: 'Rare - may cause fishy burps',        dosage: '1000-2000mg daily',        category: 'Heart Health',        researchLevel: 'Extensively studied',        contraindications: 'Consult doctor if on blood thinners',        cost: '$20-40/month'      },      {        id: 'alt_3',        name: 'Magnesium Glycinate',        description: 'Natural mineral that supports muscle relaxation and sleep',        effectiveness: 'Moderate',        sideEffects: 'May cause loose stools at high doses',        dosage: '200-400mg daily',        category: 'Mineral Supplement',        researchLevel: 'Well-studied',        contraindications: 'Avoid if you have kidney disease',        cost: '$10-25/month'      }    ];    const warnings = [      'Always consult with a healthcare provider before switching medications',      'Natural alternatives may not be suitable for all individuals',      'Results are for informational purposes only and not medical advice',      'Individual responses to natural supplements may vary',      'Some supplements may interact with prescription medications'    ];    const recommendations = [      'Start with one supplement at a time to monitor effects',      'Give supplements 4-6 weeks to see full benefits',      'Purchase from reputable brands with third-party testing',      'Keep a journal to track your response to supplements',      'Regular blood work can help monitor supplement effects'    ];    return {      medicationName: medicationName.trim(),      analyzedAt: new Date().toISOString(),      alternatives: alternatives,      warnings: warnings,      recommendations: recommendations,      disclaimer: 'This analysis is for educational purposes only. Always consult with a qualified healthcare provider before making any changes to your medication regimen.',      confidence: Math.floor(Math.random() * 30) + 70, // 70-100%      processingTime: Math.floor(Math.random() * 2000) + 1000 // 1-3 seconds    };  }  // Validate medication name with enhanced security  validateMedicationName(name) {    if (!name || typeof name !== 'string') {      return { isValid: false, error: 'Medication name is required' };    }    // Sanitize input first    const sanitizedName = name      .trim()      .replace(/[<>]/g, '') // Remove potential HTML tags      .replace(/[^\w\s\-.()]/g, ''); // Keep only allowed characters    if (sanitizedName.length < 2) {      return { isValid: false, error: 'Medication name must be at least 2 characters' };    }    if (sanitizedName.length > 100) {      return { isValid: false, error: 'Medication name is too long' };    }    // Check for suspicious patterns (SQL injection, XSS, etc.)    const suspiciousPatterns = [      /(\.|%2e){2,}/i, // Directory traversal      /<script/i, // Script injection      /union.*select/i, // SQL injection      /javascript:/i, // JavaScript protocol      /on\w+\s*=/i // Event handlers    ];    for (const pattern of suspiciousPatterns) {      if (pattern.test(name)) {        return { isValid: false, error: 'Invalid characters detected' };      }    }    // Basic validation for common medication name patterns    const validPattern = /^[a-zA-Z0-9\s\-.()]+$/;    if (!validPattern.test(sanitizedName)) {      return { isValid: false, error: 'Medication name contains invalid characters' };    }    return { isValid: true, error: null, sanitized: sanitizedName };  }  // Process image for OCR (placeholder for future implementation)  async processImageForOCR(imageFile) {    try {      // TODO: Implement actual OCR processing      // This would typically involve:      // 1. Upload image to OCR service      // 2. Extract text from medication label      // 3. Parse medication information      return null;    } catch (error) {      console.error('OCR processing error:', error);      throw new Error('Failed to process image. Please try again.');    }  }  // Get medication information from database  async getMedicationInfo(medicationName) {    try {      // TODO: Implement database lookup for medication information      // This would typically involve:      // 1. Search local/remote medication database      // 2. Return medication details, side effects, etc.      return null;    } catch (error) {      console.error('Medication lookup error:', error);      throw new Error('Failed to retrieve medication information.');    }  }  // Rate limiting and quota management  async checkQuota(userId, deviceId) {    try {      // TODO: Implement quota checking logic      // This would typically involve:      // 1. Check user's daily/monthly scan limits      // 2. Check device-based limits      // 3. Return quota status      return {        canScan: true,        remainingScans: 999,        resetTime: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours from now      };    } catch (error) {      console.error('Quota check error:', error);      return { canScan: true, remainingScans: 999, resetTime: null };    }  }}// Create singleton instanceconst aiService = new AIService();export default aiService; 

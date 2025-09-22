@@ -1,2 +1,1 @@
-// Empty module for React Native dependencies in web build
-export default {};
+// Empty module for React Native dependencies in web buildexport default {};

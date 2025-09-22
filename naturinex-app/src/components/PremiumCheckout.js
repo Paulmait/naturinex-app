@@ -3,17 +3,13 @@ import { doc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import getStripe from '../stripe';
 import Constants from 'expo-constants';
-
 const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-1.onrender.com';
-
 function PremiumCheckout({ user, onSuccess, onCancel }) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState(null);
-
   const handleCheckout = async () => {
     setIsLoading(true);
     setError(null);
-
     try {
       // Create checkout session
       const response = await fetch(`${API_URL}/create-checkout-session`, {
@@ -26,15 +22,12 @@ function PremiumCheckout({ user, onSuccess, onCancel }) {
           userEmail: user.email,
         }),
       });
-
       const { sessionId } = await response.json();
-      
       // Redirect to Stripe Checkout
       const stripe = await getStripe();
       const { error } = await stripe.redirectToCheckout({
         sessionId,
       });
-
       if (error) {
         setError(error.message);
       }
@@ -48,7 +41,6 @@ function PremiumCheckout({ user, onSuccess, onCancel }) {
   const handleTestUpgrade = async () => {
     setIsLoading(true);
     setError(null);
-
     try {
       // Test endpoint for demo purposes
       const response = await fetch(`${API_URL}/test-premium-upgrade`, {
@@ -60,9 +52,7 @@ function PremiumCheckout({ user, onSuccess, onCancel }) {
           userId: user.uid,
         }),
       });
-
       const result = await response.json();
-      
       if (result.success) {
         // Update Firestore with premium status
         const userRef = doc(db, 'users', user.uid);
@@ -72,8 +62,6 @@ function PremiumCheckout({ user, onSuccess, onCancel }) {
           subscriptionType: 'test_upgrade',
           lastUpdated: new Date()
         }, { merge: true });
-        
-        console.log('✅ Premium status updated in Firestore');
         onSuccess();
       } else {
         setError(result.error || 'Test upgrade failed');
@@ -85,7 +73,6 @@ function PremiumCheckout({ user, onSuccess, onCancel }) {
       setIsLoading(false);
     }
   };
-
   return (
     <div style={{
       padding: '20px',
@@ -94,7 +81,6 @@ function PremiumCheckout({ user, onSuccess, onCancel }) {
       <h3 style={{ color: '#2c5530', marginBottom: '20px' }}>
         🚀 Upgrade to Premium
       </h3>
-      
       <div style={{
         backgroundColor: '#f8f9fa',
         padding: '20px',
@@ -114,7 +100,6 @@ function PremiumCheckout({ user, onSuccess, onCancel }) {
           $9.99/month
         </div>
       </div>
-
       {error && (
         <div style={{
           backgroundColor: '#f8d7da',
@@ -126,7 +111,6 @@ function PremiumCheckout({ user, onSuccess, onCancel }) {
           {error}
         </div>
       )}
-
       <div style={{ display: 'flex', gap: '10px', flexDirection: 'column' }}>
         <button
           onClick={handleCheckout}
@@ -144,7 +128,6 @@ function PremiumCheckout({ user, onSuccess, onCancel }) {
         >
           {isLoading ? 'Processing...' : '💳 Pay with Stripe'}
         </button>
-
         <button
           onClick={handleTestUpgrade}
           disabled={isLoading}
@@ -161,7 +144,6 @@ function PremiumCheckout({ user, onSuccess, onCancel }) {
         >
           {isLoading ? 'Processing...' : '🧪 Test Upgrade (Demo)'}
         </button>
-
         <button
           onClick={onCancel}
           style={{
@@ -177,7 +159,6 @@ function PremiumCheckout({ user, onSuccess, onCancel }) {
           Cancel
         </button>
       </div>
-
       <div style={{
         marginTop: '20px',
         padding: '15px',
@@ -192,5 +173,4 @@ function PremiumCheckout({ user, onSuccess, onCancel }) {
     </div>
   );
 }
-
 export default PremiumCheckout;

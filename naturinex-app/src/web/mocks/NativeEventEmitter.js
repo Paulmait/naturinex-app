@@ -1,83 +1,1 @@
-// Mock NativeEventEmitter for web build
-// This replaces the React Native EventEmitter that causes build issues
-
-class EventSubscription {
-  constructor(emitter, eventName, callback) {
-    this.emitter = emitter;
-    this.eventName = eventName;
-    this.callback = callback;
-  }
-
-  remove() {
-    this.emitter.removeListener(this.eventName, this.callback);
-  }
-}
-
-class EventEmitter {
-  constructor() {
-    this.listeners = {};
-  }
-
-  addListener(eventName, callback) {
-    if (!this.listeners[eventName]) {
-      this.listeners[eventName] = [];
-    }
-    this.listeners[eventName].push(callback);
-    
-    return new EventSubscription(this, eventName, callback);
-  }
-
-  removeListener(eventName, callback) {
-    if (this.listeners[eventName]) {
-      const index = this.listeners[eventName].indexOf(callback);
-      if (index > -1) {
-        this.listeners[eventName].splice(index, 1);
-      }
-    }
-  }
-
-  removeAllListeners(eventName) {
-    if (eventName) {
-      delete this.listeners[eventName];
-    } else {
-      this.listeners = {};
-    }
-  }
-
-  emit(eventName, ...args) {
-    if (this.listeners[eventName]) {
-      this.listeners[eventName].forEach(callback => callback(...args));
-    }
-  }
-
-  listenerCount(eventName) {
-    return this.listeners[eventName] ? this.listeners[eventName].length : 0;
-  }
-
-  on(eventName, callback) {
-    return this.addListener(eventName, callback);
-  }
-
-  once(eventName, callback) {
-    const onceWrapper = (...args) => {
-      this.removeListener(eventName, onceWrapper);
-      callback(...args);
-    };
-    return this.addListener(eventName, onceWrapper);
-  }
-
-  off(eventName, callback) {
-    this.removeListener(eventName, callback);
-  }
-}
-
-class NativeEventEmitter extends EventEmitter {
-  constructor(nativeModule) {
-    super();
-    this.nativeModule = nativeModule;
-  }
-}
-
-// Export both default and named exports to handle different import styles
-export default NativeEventEmitter;
-export { NativeEventEmitter, EventEmitter, EventSubscription };
+// Mock NativeEventEmitter for web build// This replaces the React Native EventEmitter that causes build issuesclass EventSubscription {  constructor(emitter, eventName, callback) {    this.emitter = emitter;    this.eventName = eventName;    this.callback = callback;  }  remove() {    this.emitter.removeListener(this.eventName, this.callback);  }}class EventEmitter {  constructor() {    this.listeners = {};  }  addListener(eventName, callback) {    if (!this.listeners[eventName]) {      this.listeners[eventName] = [];    }    this.listeners[eventName].push(callback);    return new EventSubscription(this, eventName, callback);  }  removeListener(eventName, callback) {    if (this.listeners[eventName]) {      const index = this.listeners[eventName].indexOf(callback);      if (index > -1) {        this.listeners[eventName].splice(index, 1);      }    }  }  removeAllListeners(eventName) {    if (eventName) {      delete this.listeners[eventName];    } else {      this.listeners = {};    }  }  emit(eventName, ...args) {    if (this.listeners[eventName]) {      this.listeners[eventName].forEach(callback => callback(...args));    }  }  listenerCount(eventName) {    return this.listeners[eventName] ? this.listeners[eventName].length : 0;  }  on(eventName, callback) {    return this.addListener(eventName, callback);  }  once(eventName, callback) {    const onceWrapper = (...args) => {      this.removeListener(eventName, onceWrapper);      callback(...args);    };    return this.addListener(eventName, onceWrapper);  }  off(eventName, callback) {    this.removeListener(eventName, callback);  }}class NativeEventEmitter extends EventEmitter {  constructor(nativeModule) {    super();    this.nativeModule = nativeModule;  }}// Export both default and named exports to handle different import stylesexport default NativeEventEmitter;export { NativeEventEmitter, EventEmitter, EventSubscription };

@@ -1,359 +1,1 @@
-// 📷 Barcode Recognition Utility
-// Provides camera-based barcode scanning and image-to-medication-name extraction
-
-import { trackEvent } from './analytics';
-
-// Common medication barcodes and their mappings
-const MEDICATION_BARCODE_DATABASE = {
-  // Example mappings - in production, this would be a proper pharmaceutical database
-  "123456789012": "Aspirin",
-  "123456789013": "Ibuprofen", 
-  "123456789014": "Acetaminophen",
-  "123456789015": "Lisinopril",
-  "123456789016": "Metformin",
-  "123456789017": "Atorvastatin",
-  "123456789018": "Levothyroxine",
-  "123456789019": "Amlodipine",
-  "123456789020": "Omeprazole",
-  "123456789021": "Losartan"
-};
-
-// Barcode format patterns
-const BARCODE_PATTERNS = {
-  UPC: /^\d{12}$/,          // 12 digits
-  EAN13: /^\d{13}$/,        // 13 digits
-  EAN8: /^\d{8}$/,          // 8 digits
-  CODE128: /^[ -~]+$/, // ASCII printable characters
-  NDC: /^\d{4,5}-\d{3,4}-\d{1,2}$/ // National Drug Code format
-};
-
-/**
- * Initialize camera stream for barcode scanning
- * @param {HTMLVideoElement} videoElement - Video element to display camera feed
- * @param {Object} constraints - Camera constraints
- * @returns {Promise<MediaStream>} Camera stream
- */
-export const initCamera = async (videoElement, constraints = {}) => {
-  try {
-    await trackEvent('barcode_camera_init_started');
-    
-    const defaultConstraints = {
-      video: {
-        facingMode: 'environment', // Use rear camera
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-        focusMode: 'continuous',
-        ...constraints.video
-      },
-      audio: false,
-      ...constraints
-    };
-
-    const stream = await navigator.mediaDevices.getUserMedia(defaultConstraints);
-    
-    if (videoElement) {
-      videoElement.srcObject = stream;
-      videoElement.play();
-    }
-
-    await trackEvent('barcode_camera_init_success', {
-      constraints: defaultConstraints,
-      deviceId: stream.getVideoTracks()[0]?.getSettings()?.deviceId
-    });
-
-    return stream;
-  } catch (error) {
-    console.error('Error initializing camera:', error);
-    
-    await trackEvent('barcode_camera_init_failed', {
-      error: error.message,
-      name: error.name
-    });
-    
-    throw new Error(`Camera access failed: ${error.message}`);
-  }
-};
-
-/**
- * Stop camera stream and cleanup
- * @param {MediaStream} stream - Camera stream to stop
- */
-export const stopCamera = (stream) => {
-  if (stream) {
-    stream.getTracks().forEach(track => {
-      track.stop();
-    });
-    trackEvent('barcode_camera_stopped');
-  }
-};
-
-/**
- * Capture frame from video element
- * @param {HTMLVideoElement} videoElement - Video element
- * @returns {Promise<string>} Base64 image data
- */
-export const captureFrame = async (videoElement) => {
-  try {
-    if (!videoElement || videoElement.readyState < 2) {
-      throw new Error('Video not ready');
-    }
-
-    const canvas = document.createElement('canvas');
-    const context = canvas.getContext('2d');
-    
-    canvas.width = videoElement.videoWidth;
-    canvas.height = videoElement.videoHeight;
-    
-    context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
-    
-    const imageData = canvas.toDataURL('image/jpeg', 0.8);
-    
-    await trackEvent('barcode_frame_captured', {
-      width: canvas.width,
-      height: canvas.height,
-      size: Math.round(imageData.length / 1024) // KB
-    });
-
-    return imageData;
-  } catch (error) {
-    console.error('Error capturing frame:', error);
-    await trackEvent('barcode_frame_capture_failed', { error: error.message });
-    throw error;
-  }
-};
-
-/**
- * Analyze image for barcode patterns using simple pattern matching
- * @param {string} imageData - Base64 image data
- * @returns {Promise<Object>} Scan result
- */
-export const scanBarcodeFromImage = async (imageData) => {
-  try {
-    await trackEvent('barcode_scan_started');
-
-    // Simulate barcode scanning (in production, use a proper barcode library like QuaggaJS)
-    const mockScanResult = simulateBarcodeDetection(imageData);
-    
-    if (mockScanResult.found) {
-      const medicationName = lookupMedicationByBarcode(mockScanResult.code);
-      
-      const result = {
-        success: true,
-        barcode: mockScanResult.code,
-        format: mockScanResult.format,
-        medicationName: medicationName,
-        confidence: mockScanResult.confidence,
-        timestamp: new Date()
-      };
-
-      await trackEvent('barcode_scan_success', {
-        barcode: mockScanResult.code,
-        format: mockScanResult.format,
-        medicationFound: !!medicationName,
-        confidence: mockScanResult.confidence
-      });
-
-      return result;
-    } else {
-      await trackEvent('barcode_scan_no_code_found');
-      
-      return {
-        success: false,
-        error: 'No barcode detected',
-        suggestions: [
-          'Ensure barcode is clearly visible',
-          'Try better lighting',
-          'Hold camera steady',
-          'Move closer to the barcode'
-        ]
-      };
-    }
-  } catch (error) {
-    console.error('Error scanning barcode:', error);
-    
-    await trackEvent('barcode_scan_failed', {
-      error: error.message
-    });
-    
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-};
-
-/**
- * Simulate barcode detection (replace with real library in production)
- * @param {string} imageData - Base64 image data
- * @returns {Object} Mock scan result
- */
-const simulateBarcodeDetection = (imageData) => {
-  // Mock implementation - randomly detect barcodes for demo
-  const shouldDetect = Math.random() > 0.3; // 70% success rate
-  
-  if (shouldDetect) {
-    // Generate random barcode from our database
-    const barcodes = Object.keys(MEDICATION_BARCODE_DATABASE);
-    const randomBarcode = barcodes[Math.floor(Math.random() * barcodes.length)];
-    
-    return {
-      found: true,
-      code: randomBarcode,
-      format: detectBarcodeFormat(randomBarcode),
-      confidence: Math.random() * 0.3 + 0.7 // 70-100% confidence
-    };
-  }
-  
-  return { found: false };
-};
-
-/**
- * Detect barcode format based on pattern
- * @param {string} barcode - Barcode string
- * @returns {string} Detected format
- */
-const detectBarcodeFormat = (barcode) => {
-  for (const [format, pattern] of Object.entries(BARCODE_PATTERNS)) {
-    if (pattern.test(barcode)) {
-      return format;
-    }
-  }
-  return 'UNKNOWN';
-};
-
-/**
- * Look up medication name by barcode
- * @param {string} barcode - Barcode to lookup
- * @returns {string|null} Medication name or null
- */
-const lookupMedicationByBarcode = (barcode) => {
-  return MEDICATION_BARCODE_DATABASE[barcode] || null;
-};
-
-/**
- * Validate if camera is supported
- * @returns {boolean} Camera support status
- */
-export const isCameraSupported = () => {
-  return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-};
-
-/**
- * Get available camera devices
- * @returns {Promise<Array>} List of camera devices
- */
-export const getCameraDevices = async () => {
-  try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const cameras = devices.filter(device => device.kind === 'videoinput');
-    
-    await trackEvent('camera_devices_enumerated', {
-      count: cameras.length,
-      hasRearCamera: cameras.some(c => c.label.toLowerCase().includes('back'))
-    });
-    
-    return cameras;
-  } catch (error) {
-    console.error('Error enumerating cameras:', error);
-    await trackEvent('camera_enumeration_failed', { error: error.message });
-    return [];
-  }
-};
-
-/**
- * Process uploaded image file for barcode scanning
- * @param {File} file - Image file
- * @returns {Promise<Object>} Scan result
- */
-export const processUploadedImage = async (file) => {
-  try {
-    await trackEvent('barcode_file_upload_started', {
-      fileName: file.name,
-      fileSize: file.size,
-      fileType: file.type
-    });
-
-    if (!file.type.startsWith('image/')) {
-      throw new Error('File must be an image');
-    }
-
-    if (file.size > 10 * 1024 * 1024) { // 10MB limit
-      throw new Error('Image file too large (max 10MB)');
-    }
-
-    const imageData = await fileToBase64(file);
-    const result = await scanBarcodeFromImage(imageData);
-
-    await trackEvent('barcode_file_processed', {
-      success: result.success,
-      medicationFound: !!result.medicationName
-    });
-
-    return result;
-  } catch (error) {
-    console.error('Error processing uploaded image:', error);
-    
-    await trackEvent('barcode_file_process_failed', {
-      error: error.message,
-      fileName: file.name
-    });
-    
-    return {
-      success: false,
-      error: error.message
-    };
-  }
-};
-
-/**
- * Convert file to base64 string
- * @param {File} file - File to convert
- * @returns {Promise<string>} Base64 string
- */
-const fileToBase64 = (file) => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-};
-
-/**
- * Add more medications to the barcode database
- * @param {Object} newMedications - Object with barcode: medication pairs
- */
-export const addMedicationsToDatabase = (newMedications) => {
-  Object.assign(MEDICATION_BARCODE_DATABASE, newMedications);
-  trackEvent('barcode_database_updated', {
-    newCount: Object.keys(newMedications).length,
-    totalCount: Object.keys(MEDICATION_BARCODE_DATABASE).length
-  });
-};
-
-/**
- * Get current medication database stats
- * @returns {Object} Database statistics
- */
-export const getDatabaseStats = () => {
-  return {
-    totalMedications: Object.keys(MEDICATION_BARCODE_DATABASE).length,
-    supportedFormats: Object.keys(BARCODE_PATTERNS),
-    lastUpdated: new Date()
-  };
-};
-
-// Default export
-const barcodeRecognition = {
-  initCamera,
-  stopCamera,
-  captureFrame,
-  scanBarcodeFromImage,
-  processUploadedImage,
-  isCameraSupported,
-  getCameraDevices,
-  addMedicationsToDatabase,
-  getDatabaseStats
-};
-
-export default barcodeRecognition;
+// 📷 Barcode Recognition Utility// Provides camera-based barcode scanning and image-to-medication-name extractionimport { trackEvent } from './analytics';// Common medication barcodes and their mappingsconst MEDICATION_BARCODE_DATABASE = {  // Example mappings - in production, this would be a proper pharmaceutical database  "123456789012": "Aspirin",  "123456789013": "Ibuprofen",   "123456789014": "Acetaminophen",  "123456789015": "Lisinopril",  "123456789016": "Metformin",  "123456789017": "Atorvastatin",  "123456789018": "Levothyroxine",  "123456789019": "Amlodipine",  "123456789020": "Omeprazole",  "123456789021": "Losartan"};// Barcode format patternsconst BARCODE_PATTERNS = {  UPC: /^\d{12}$/,          // 12 digits  EAN13: /^\d{13}$/,        // 13 digits  EAN8: /^\d{8}$/,          // 8 digits  CODE128: /^[ -~]+$/, // ASCII printable characters  NDC: /^\d{4,5}-\d{3,4}-\d{1,2}$/ // National Drug Code format};/** * Initialize camera stream for barcode scanning * @param {HTMLVideoElement} videoElement - Video element to display camera feed * @param {Object} constraints - Camera constraints * @returns {Promise<MediaStream>} Camera stream */export const initCamera = async (videoElement, constraints = {}) => {  try {    await trackEvent('barcode_camera_init_started');    const defaultConstraints = {      video: {        facingMode: 'environment', // Use rear camera        width: { ideal: 1280 },        height: { ideal: 720 },        focusMode: 'continuous',        ...constraints.video      },      audio: false,      ...constraints    };    const stream = await navigator.mediaDevices.getUserMedia(defaultConstraints);    if (videoElement) {      videoElement.srcObject = stream;      videoElement.play();    }    await trackEvent('barcode_camera_init_success', {      constraints: defaultConstraints,      deviceId: stream.getVideoTracks()[0]?.getSettings()?.deviceId    });    return stream;  } catch (error) {    console.error('Error initializing camera:', error);    await trackEvent('barcode_camera_init_failed', {      error: error.message,      name: error.name    });    throw new Error(`Camera access failed: ${error.message}`);  }};/** * Stop camera stream and cleanup * @param {MediaStream} stream - Camera stream to stop */export const stopCamera = (stream) => {  if (stream) {    stream.getTracks().forEach(track => {      track.stop();    });    trackEvent('barcode_camera_stopped');  }};/** * Capture frame from video element * @param {HTMLVideoElement} videoElement - Video element * @returns {Promise<string>} Base64 image data */export const captureFrame = async (videoElement) => {  try {    if (!videoElement || videoElement.readyState < 2) {      throw new Error('Video not ready');    }    const canvas = document.createElement('canvas');    const context = canvas.getContext('2d');    canvas.width = videoElement.videoWidth;    canvas.height = videoElement.videoHeight;    context.drawImage(videoElement, 0, 0, canvas.width, canvas.height);    const imageData = canvas.toDataURL('image/jpeg', 0.8);    await trackEvent('barcode_frame_captured', {      width: canvas.width,      height: canvas.height,      size: Math.round(imageData.length / 1024) // KB    });    return imageData;  } catch (error) {    console.error('Error capturing frame:', error);    await trackEvent('barcode_frame_capture_failed', { error: error.message });    throw error;  }};/** * Analyze image for barcode patterns using simple pattern matching * @param {string} imageData - Base64 image data * @returns {Promise<Object>} Scan result */export const scanBarcodeFromImage = async (imageData) => {  try {    await trackEvent('barcode_scan_started');    // Simulate barcode scanning (in production, use a proper barcode library like QuaggaJS)    const mockScanResult = simulateBarcodeDetection(imageData);    if (mockScanResult.found) {      const medicationName = lookupMedicationByBarcode(mockScanResult.code);      const result = {        success: true,        barcode: mockScanResult.code,        format: mockScanResult.format,        medicationName: medicationName,        confidence: mockScanResult.confidence,        timestamp: new Date()      };      await trackEvent('barcode_scan_success', {        barcode: mockScanResult.code,        format: mockScanResult.format,        medicationFound: !!medicationName,        confidence: mockScanResult.confidence      });      return result;    } else {      await trackEvent('barcode_scan_no_code_found');      return {        success: false,        error: 'No barcode detected',        suggestions: [          'Ensure barcode is clearly visible',          'Try better lighting',          'Hold camera steady',          'Move closer to the barcode'        ]      };    }  } catch (error) {    console.error('Error scanning barcode:', error);    await trackEvent('barcode_scan_failed', {      error: error.message    });    return {      success: false,      error: error.message    };  }};/** * Simulate barcode detection (replace with real library in production) * @param {string} imageData - Base64 image data * @returns {Object} Mock scan result */const simulateBarcodeDetection = (imageData) => {  // Mock implementation - randomly detect barcodes for demo  const shouldDetect = Math.random() > 0.3; // 70% success rate  if (shouldDetect) {    // Generate random barcode from our database    const barcodes = Object.keys(MEDICATION_BARCODE_DATABASE);    const randomBarcode = barcodes[Math.floor(Math.random() * barcodes.length)];    return {      found: true,      code: randomBarcode,      format: detectBarcodeFormat(randomBarcode),      confidence: Math.random() * 0.3 + 0.7 // 70-100% confidence    };  }  return { found: false };};/** * Detect barcode format based on pattern * @param {string} barcode - Barcode string * @returns {string} Detected format */const detectBarcodeFormat = (barcode) => {  for (const [format, pattern] of Object.entries(BARCODE_PATTERNS)) {    if (pattern.test(barcode)) {      return format;    }  }  return 'UNKNOWN';};/** * Look up medication name by barcode * @param {string} barcode - Barcode to lookup * @returns {string|null} Medication name or null */const lookupMedicationByBarcode = (barcode) => {  return MEDICATION_BARCODE_DATABASE[barcode] || null;};/** * Validate if camera is supported * @returns {boolean} Camera support status */export const isCameraSupported = () => {  return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);};/** * Get available camera devices * @returns {Promise<Array>} List of camera devices */export const getCameraDevices = async () => {  try {    const devices = await navigator.mediaDevices.enumerateDevices();    const cameras = devices.filter(device => device.kind === 'videoinput');    await trackEvent('camera_devices_enumerated', {      count: cameras.length,      hasRearCamera: cameras.some(c => c.label.toLowerCase().includes('back'))    });    return cameras;  } catch (error) {    console.error('Error enumerating cameras:', error);    await trackEvent('camera_enumeration_failed', { error: error.message });    return [];  }};/** * Process uploaded image file for barcode scanning * @param {File} file - Image file * @returns {Promise<Object>} Scan result */export const processUploadedImage = async (file) => {  try {    await trackEvent('barcode_file_upload_started', {      fileName: file.name,      fileSize: file.size,      fileType: file.type    });    if (!file.type.startsWith('image/')) {      throw new Error('File must be an image');    }    if (file.size > 10 * 1024 * 1024) { // 10MB limit      throw new Error('Image file too large (max 10MB)');    }    const imageData = await fileToBase64(file);    const result = await scanBarcodeFromImage(imageData);    await trackEvent('barcode_file_processed', {      success: result.success,      medicationFound: !!result.medicationName    });    return result;  } catch (error) {    console.error('Error processing uploaded image:', error);    await trackEvent('barcode_file_process_failed', {      error: error.message,      fileName: file.name    });    return {      success: false,      error: error.message    };  }};/** * Convert file to base64 string * @param {File} file - File to convert * @returns {Promise<string>} Base64 string */const fileToBase64 = (file) => {  return new Promise((resolve, reject) => {    const reader = new FileReader();    reader.onload = () => resolve(reader.result);    reader.onerror = reject;    reader.readAsDataURL(file);  });};/** * Add more medications to the barcode database * @param {Object} newMedications - Object with barcode: medication pairs */export const addMedicationsToDatabase = (newMedications) => {  Object.assign(MEDICATION_BARCODE_DATABASE, newMedications);  trackEvent('barcode_database_updated', {    newCount: Object.keys(newMedications).length,    totalCount: Object.keys(MEDICATION_BARCODE_DATABASE).length  });};/** * Get current medication database stats * @returns {Object} Database statistics */export const getDatabaseStats = () => {  return {    totalMedications: Object.keys(MEDICATION_BARCODE_DATABASE).length,    supportedFormats: Object.keys(BARCODE_PATTERNS),    lastUpdated: new Date()  };};// Default exportconst barcodeRecognition = {  initCamera,  stopCamera,  captureFrame,  scanBarcodeFromImage,  processUploadedImage,  isCameraSupported,  getCameraDevices,  addMedicationsToDatabase,  getDatabaseStats};export default barcodeRecognition;

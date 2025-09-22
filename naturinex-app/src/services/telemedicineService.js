@@ -1,718 +1,1 @@
-/**
- * TelemedicineService - Comprehensive telemedicine integration for NaturineX
- * Handles video calls, appointment scheduling, secure messaging, consultation recording, and provider management
- */
-
-import { supabase } from '../config/supabase';
-import { encryptionService } from './encryptionService';
-import { notificationService } from './notificationService';
-
-class TelemedicineService {
-  constructor() {
-    this.currentCall = null;
-    this.localStream = null;
-    this.remoteStream = null;
-    this.peerConnection = null;
-    this.consultationStartTime = null;
-    this.isRecording = false;
-    this.recordedChunks = [];
-    this.mediaRecorder = null;
-  }
-
-  // WebRTC Configuration
-  getWebRTCConfig() {
-    return {
-      iceServers: [
-        { urls: 'stun:stun.l.google.com:19302' },
-        { urls: 'stun:stun1.l.google.com:19302' },
-        {
-          urls: 'turn:numb.viagenie.ca',
-          credential: 'muazkh',
-          username: 'webrtc@live.com'
-        }
-      ],
-      iceCandidatePoolSize: 10
-    };
-  }
-
-  // Provider Management
-  async registerProvider(providerData) {
-    try {
-      const encryptedData = await encryptionService.encryptPHI({
-        ...providerData,
-        registration_date: new Date().toISOString(),
-        status: 'pending_verification',
-        verification_documents_uploaded: false
-      });
-
-      const { data, error } = await supabase
-        .from('providers')
-        .insert([encryptedData])
-        .select();
-
-      if (error) throw error;
-
-      // Send verification email
-      await this.sendProviderVerificationEmail(data[0].id, providerData.email);
-
-      return {
-        success: true,
-        provider: data[0],
-        message: 'Provider registration submitted for verification'
-      };
-    } catch (error) {
-      console.error('Provider registration error:', error);
-      throw new Error('Failed to register provider');
-    }
-  }
-
-  async verifyProvider(providerId, verificationData) {
-    try {
-      const { error } = await supabase
-        .from('providers')
-        .update({
-          status: 'verified',
-          license_verified: true,
-          verification_date: new Date().toISOString(),
-          verification_documents: await encryptionService.encryptPHI(verificationData)
-        })
-        .eq('id', providerId);
-
-      if (error) throw error;
-
-      // Send welcome email to verified provider
-      await this.sendProviderWelcomeEmail(providerId);
-
-      return { success: true, message: 'Provider verified successfully' };
-    } catch (error) {
-      console.error('Provider verification error:', error);
-      throw new Error('Failed to verify provider');
-    }
-  }
-
-  async updateProviderAvailability(providerId, availability) {
-    try {
-      const { error } = await supabase
-        .from('provider_availability')
-        .upsert({
-          provider_id: providerId,
-          availability_schedule: availability,
-          updated_at: new Date().toISOString()
-        });
-
-      if (error) throw error;
-
-      return { success: true, message: 'Availability updated successfully' };
-    } catch (error) {
-      console.error('Availability update error:', error);
-      throw new Error('Failed to update availability');
-    }
-  }
-
-  async getAvailableProviders(specialty = null, date = null, timeSlot = null) {
-    try {
-      let query = supabase
-        .from('providers')
-        .select(`
-          *,
-          provider_availability(*)
-        `)
-        .eq('status', 'verified')
-        .eq('is_available', true);
-
-      if (specialty) {
-        query = query.contains('specialties', [specialty]);
-      }
-
-      const { data, error } = await query;
-
-      if (error) throw error;
-
-      // Filter by date and time availability if specified
-      let filteredProviders = data;
-      if (date && timeSlot) {
-        filteredProviders = data.filter(provider =>
-          this.isProviderAvailable(provider, date, timeSlot)
-        );
-      }
-
-      return {
-        success: true,
-        providers: filteredProviders.map(provider => ({
-          ...provider,
-          // Decrypt sensitive data for display
-          decrypted_data: encryptionService.decryptPHI(provider.encrypted_data)
-        }))
-      };
-    } catch (error) {
-      console.error('Get available providers error:', error);
-      throw new Error('Failed to get available providers');
-    }
-  }
-
-  // Appointment Management
-  async scheduleAppointment(appointmentData) {
-    try {
-      const encryptedAppointment = await encryptionService.encryptPHI({
-        ...appointmentData,
-        status: 'scheduled',
-        created_at: new Date().toISOString(),
-        consultation_id: null
-      });
-
-      const { data, error } = await supabase
-        .from('appointments')
-        .insert([encryptedAppointment])
-        .select();
-
-      if (error) throw error;
-
-      // Send confirmation notifications
-      await Promise.all([
-        this.sendAppointmentConfirmation(appointmentData.patient_id, data[0]),
-        this.sendProviderNotification(appointmentData.provider_id, data[0])
-      ]);
-
-      // Set up reminder notifications
-      await this.scheduleAppointmentReminders(data[0]);
-
-      return {
-        success: true,
-        appointment: data[0],
-        message: 'Appointment scheduled successfully'
-      };
-    } catch (error) {
-      console.error('Schedule appointment error:', error);
-      throw new Error('Failed to schedule appointment');
-    }
-  }
-
-  async rescheduleAppointment(appointmentId, newDateTime, reason) {
-    try {
-      const { data: appointment, error: fetchError } = await supabase
-        .from('appointments')
-        .select('*')
-        .eq('id', appointmentId)
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      const { error } = await supabase
-        .from('appointments')
-        .update({
-          scheduled_datetime: newDateTime,
-          reschedule_reason: reason,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', appointmentId);
-
-      if (error) throw error;
-
-      // Notify both parties
-      await Promise.all([
-        this.sendRescheduleNotification(appointment.patient_id, appointmentId, newDateTime),
-        this.sendRescheduleNotification(appointment.provider_id, appointmentId, newDateTime)
-      ]);
-
-      return { success: true, message: 'Appointment rescheduled successfully' };
-    } catch (error) {
-      console.error('Reschedule appointment error:', error);
-      throw new Error('Failed to reschedule appointment');
-    }
-  }
-
-  async cancelAppointment(appointmentId, reason, cancelledBy) {
-    try {
-      const { error } = await supabase
-        .from('appointments')
-        .update({
-          status: 'cancelled',
-          cancellation_reason: reason,
-          cancelled_by: cancelledBy,
-          cancelled_at: new Date().toISOString()
-        })
-        .eq('id', appointmentId);
-
-      if (error) throw error;
-
-      // Handle refunds if applicable
-      await this.processAppointmentRefund(appointmentId);
-
-      return { success: true, message: 'Appointment cancelled successfully' };
-    } catch (error) {
-      console.error('Cancel appointment error:', error);
-      throw new Error('Failed to cancel appointment');
-    }
-  }
-
-  // Video Call Management
-  async initiateVideoCall(appointmentId, userId, userType) {
-    try {
-      // Verify appointment and permissions
-      const appointment = await this.verifyAppointmentAccess(appointmentId, userId, userType);
-
-      // Create consultation record
-      const consultation = await this.createConsultation(appointmentId);
-
-      // Set up WebRTC peer connection
-      this.peerConnection = new RTCPeerConnection(this.getWebRTCConfig());
-      this.consultationStartTime = new Date();
-
-      // Get user media
-      this.localStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 1280, height: 720, facingMode: 'user' },
-        audio: { echoCancellation: true, noiseSuppression: true }
-      });
-
-      // Add tracks to peer connection
-      this.localStream.getTracks().forEach(track => {
-        this.peerConnection.addTrack(track, this.localStream);
-      });
-
-      // Set up event handlers
-      this.setupPeerConnectionHandlers(consultation.id);
-
-      // Start recording for compliance
-      await this.startConsultationRecording();
-
-      this.currentCall = {
-        appointmentId,
-        consultationId: consultation.id,
-        status: 'connecting',
-        startTime: this.consultationStartTime
-      };
-
-      return {
-        success: true,
-        consultationId: consultation.id,
-        localStream: this.localStream
-      };
-    } catch (error) {
-      console.error('Initiate video call error:', error);
-      throw new Error('Failed to initiate video call');
-    }
-  }
-
-  async createOffer(consultationId) {
-    try {
-      const offer = await this.peerConnection.createOffer();
-      await this.peerConnection.setLocalDescription(offer);
-
-      // Store offer in database for signaling
-      await this.storeSignalingData(consultationId, 'offer', offer);
-
-      return { success: true, offer };
-    } catch (error) {
-      console.error('Create offer error:', error);
-      throw new Error('Failed to create offer');
-    }
-  }
-
-  async createAnswer(consultationId, offer) {
-    try {
-      await this.peerConnection.setRemoteDescription(offer);
-      const answer = await this.peerConnection.createAnswer();
-      await this.peerConnection.setLocalDescription(answer);
-
-      // Store answer in database
-      await this.storeSignalingData(consultationId, 'answer', answer);
-
-      return { success: true, answer };
-    } catch (error) {
-      console.error('Create answer error:', error);
-      throw new Error('Failed to create answer');
-    }
-  }
-
-  async addIceCandidate(consultationId, candidate) {
-    try {
-      await this.peerConnection.addIceCandidate(candidate);
-      await this.storeSignalingData(consultationId, 'ice-candidate', candidate);
-      return { success: true };
-    } catch (error) {
-      console.error('Add ICE candidate error:', error);
-      throw new Error('Failed to add ICE candidate');
-    }
-  }
-
-  async endVideoCall(consultationId, reason = 'completed') {
-    try {
-      const endTime = new Date();
-      const duration = this.consultationStartTime ?
-        Math.floor((endTime - this.consultationStartTime) / 1000) : 0;
-
-      // Stop recording
-      await this.stopConsultationRecording();
-
-      // Clean up WebRTC resources
-      if (this.localStream) {
-        this.localStream.getTracks().forEach(track => track.stop());
-        this.localStream = null;
-      }
-
-      if (this.peerConnection) {
-        this.peerConnection.close();
-        this.peerConnection = null;
-      }
-
-      // Update consultation record
-      await supabase
-        .from('consultations')
-        .update({
-          status: 'completed',
-          end_time: endTime.toISOString(),
-          duration_seconds: duration,
-          end_reason: reason
-        })
-        .eq('id', consultationId);
-
-      // Update appointment status
-      if (this.currentCall) {
-        await supabase
-          .from('appointments')
-          .update({ status: 'completed' })
-          .eq('id', this.currentCall.appointmentId);
-      }
-
-      this.currentCall = null;
-      this.consultationStartTime = null;
-
-      return { success: true, duration };
-    } catch (error) {
-      console.error('End video call error:', error);
-      throw new Error('Failed to end video call');
-    }
-  }
-
-  // Secure Messaging
-  async sendMessage(senderId, receiverId, message, messageType = 'text', appointmentId = null) {
-    try {
-      const encryptedMessage = await encryptionService.encryptPHI({
-        sender_id: senderId,
-        receiver_id: receiverId,
-        message_content: message,
-        message_type: messageType,
-        appointment_id: appointmentId,
-        timestamp: new Date().toISOString(),
-        read_status: false
-      });
-
-      const { data, error } = await supabase
-        .from('messages')
-        .insert([encryptedMessage])
-        .select();
-
-      if (error) throw error;
-
-      // Send push notification if recipient is offline
-      await this.sendMessageNotification(receiverId, senderId, messageType);
-
-      return { success: true, message: data[0] };
-    } catch (error) {
-      console.error('Send message error:', error);
-      throw new Error('Failed to send message');
-    }
-  }
-
-  async getMessageHistory(userId, otherUserId, appointmentId = null) {
-    try {
-      let query = supabase
-        .from('messages')
-        .select('*')
-        .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)
-        .or(`sender_id.eq.${otherUserId},receiver_id.eq.${otherUserId}`)
-        .order('timestamp', { ascending: true });
-
-      if (appointmentId) {
-        query = query.eq('appointment_id', appointmentId);
-      }
-
-      const { data, error } = await query;
-
-      if (error) throw error;
-
-      // Decrypt messages
-      const decryptedMessages = await Promise.all(
-        data.map(async (msg) => ({
-          ...msg,
-          decrypted_content: await encryptionService.decryptPHI(msg.encrypted_content)
-        }))
-      );
-
-      return { success: true, messages: decryptedMessages };
-    } catch (error) {
-      console.error('Get message history error:', error);
-      throw new Error('Failed to get message history');
-    }
-  }
-
-  async markMessagesAsRead(messageIds, userId) {
-    try {
-      const { error } = await supabase
-        .from('messages')
-        .update({ read_status: true, read_at: new Date().toISOString() })
-        .in('id', messageIds)
-        .eq('receiver_id', userId);
-
-      if (error) throw error;
-
-      return { success: true };
-    } catch (error) {
-      console.error('Mark messages as read error:', error);
-      throw new Error('Failed to mark messages as read');
-    }
-  }
-
-  // Consultation Recording
-  async startConsultationRecording() {
-    try {
-      if (!this.localStream) {
-        throw new Error('No local stream available for recording');
-      }
-
-      const options = {
-        mimeType: 'video/webm;codecs=vp9,opus',
-        videoBitsPerSecond: 1000000,
-        audioBitsPerSecond: 128000
-      };
-
-      this.mediaRecorder = new MediaRecorder(this.localStream, options);
-      this.recordedChunks = [];
-
-      this.mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          this.recordedChunks.push(event.data);
-        }
-      };
-
-      this.mediaRecorder.onstop = async () => {
-        await this.saveRecordedConsultation();
-      };
-
-      this.mediaRecorder.start(10000); // Record in 10-second chunks
-      this.isRecording = true;
-
-      return { success: true };
-    } catch (error) {
-      console.error('Start recording error:', error);
-      throw new Error('Failed to start consultation recording');
-    }
-  }
-
-  async stopConsultationRecording() {
-    try {
-      if (this.mediaRecorder && this.isRecording) {
-        this.mediaRecorder.stop();
-        this.isRecording = false;
-      }
-      return { success: true };
-    } catch (error) {
-      console.error('Stop recording error:', error);
-      throw new Error('Failed to stop consultation recording');
-    }
-  }
-
-  async saveRecordedConsultation() {
-    try {
-      if (this.recordedChunks.length === 0) return;
-
-      const blob = new Blob(this.recordedChunks, { type: 'video/webm' });
-      const fileName = `consultation_${this.currentCall.consultationId}_${Date.now()}.webm`;
-
-      // Upload to secure storage
-      const { data, error } = await supabase.storage
-        .from('consultation-recordings')
-        .upload(fileName, blob, {
-          cacheControl: '3600',
-          upsert: false
-        });
-
-      if (error) throw error;
-
-      // Update consultation record with recording URL
-      await supabase
-        .from('consultations')
-        .update({
-          recording_url: data.path,
-          recording_size: blob.size,
-          recording_duration: this.calculateRecordingDuration()
-        })
-        .eq('id', this.currentCall.consultationId);
-
-      this.recordedChunks = [];
-
-      return { success: true, recordingPath: data.path };
-    } catch (error) {
-      console.error('Save recorded consultation error:', error);
-      throw new Error('Failed to save consultation recording');
-    }
-  }
-
-  // Utility Methods
-  async createConsultation(appointmentId) {
-    try {
-      const { data, error } = await supabase
-        .from('consultations')
-        .insert([{
-          appointment_id: appointmentId,
-          status: 'in_progress',
-          start_time: new Date().toISOString(),
-          consultation_notes: '',
-          recording_url: null
-        }])
-        .select()
-        .single();
-
-      if (error) throw error;
-      return data;
-    } catch (error) {
-      console.error('Create consultation error:', error);
-      throw new Error('Failed to create consultation');
-    }
-  }
-
-  async verifyAppointmentAccess(appointmentId, userId, userType) {
-    try {
-      const { data, error } = await supabase
-        .from('appointments')
-        .select('*')
-        .eq('id', appointmentId)
-        .single();
-
-      if (error) throw error;
-
-      const hasAccess = (userType === 'patient' && data.patient_id === userId) ||
-                       (userType === 'provider' && data.provider_id === userId);
-
-      if (!hasAccess) {
-        throw new Error('Unauthorized access to appointment');
-      }
-
-      return data;
-    } catch (error) {
-      console.error('Verify appointment access error:', error);
-      throw new Error('Failed to verify appointment access');
-    }
-  }
-
-  setupPeerConnectionHandlers(consultationId) {
-    this.peerConnection.onicecandidate = async (event) => {
-      if (event.candidate) {
-        await this.storeSignalingData(consultationId, 'ice-candidate', event.candidate);
-      }
-    };
-
-    this.peerConnection.ontrack = (event) => {
-      this.remoteStream = event.streams[0];
-    };
-
-    this.peerConnection.onconnectionstatechange = () => {
-      const state = this.peerConnection.connectionState;
-      console.log('Connection state:', state);
-
-      if (state === 'connected') {
-        this.currentCall.status = 'connected';
-      } else if (state === 'disconnected' || state === 'failed') {
-        this.handleConnectionFailure();
-      }
-    };
-  }
-
-  async storeSignalingData(consultationId, type, data) {
-    try {
-      await supabase
-        .from('consultation_signaling')
-        .insert([{
-          consultation_id: consultationId,
-          signal_type: type,
-          signal_data: JSON.stringify(data),
-          timestamp: new Date().toISOString()
-        }]);
-    } catch (error) {
-      console.error('Store signaling data error:', error);
-    }
-  }
-
-  isProviderAvailable(provider, date, timeSlot) {
-    // Implementation to check provider availability against their schedule
-    const availability = provider.provider_availability?.[0];
-    if (!availability) return false;
-
-    const schedule = availability.availability_schedule;
-    const dayOfWeek = new Date(date).getDay();
-    const daySchedule = schedule[dayOfWeek];
-
-    return daySchedule &&
-           daySchedule.available &&
-           daySchedule.timeSlots.includes(timeSlot);
-  }
-
-  calculateRecordingDuration() {
-    return this.consultationStartTime ?
-      Math.floor((new Date() - this.consultationStartTime) / 1000) : 0;
-  }
-
-  async handleConnectionFailure() {
-    console.log('Connection failed, attempting to reconnect...');
-    // Implement reconnection logic
-  }
-
-  // Notification helpers
-  async sendAppointmentConfirmation(patientId, appointment) {
-    await notificationService.sendNotification(patientId, {
-      type: 'appointment_confirmation',
-      title: 'Appointment Confirmed',
-      body: `Your telemedicine appointment has been scheduled for ${new Date(appointment.scheduled_datetime).toLocaleDateString()}`,
-      data: { appointmentId: appointment.id }
-    });
-  }
-
-  async sendProviderNotification(providerId, appointment) {
-    await notificationService.sendNotification(providerId, {
-      type: 'new_appointment',
-      title: 'New Appointment Scheduled',
-      body: `You have a new telemedicine appointment scheduled`,
-      data: { appointmentId: appointment.id }
-    });
-  }
-
-  async sendRescheduleNotification(userId, appointmentId, newDateTime) {
-    await notificationService.sendNotification(userId, {
-      type: 'appointment_rescheduled',
-      title: 'Appointment Rescheduled',
-      body: `Your appointment has been rescheduled to ${new Date(newDateTime).toLocaleDateString()}`,
-      data: { appointmentId }
-    });
-  }
-
-  async sendMessageNotification(receiverId, senderId, messageType) {
-    await notificationService.sendNotification(receiverId, {
-      type: 'new_message',
-      title: 'New Message',
-      body: `You have received a new ${messageType} message`,
-      data: { senderId }
-    });
-  }
-
-  async sendProviderVerificationEmail(providerId, email) {
-    // Implementation for sending provider verification email
-    console.log(`Sending verification email to provider ${providerId} at ${email}`);
-  }
-
-  async sendProviderWelcomeEmail(providerId) {
-    // Implementation for sending provider welcome email
-    console.log(`Sending welcome email to verified provider ${providerId}`);
-  }
-
-  async scheduleAppointmentReminders(appointment) {
-    // Implementation for scheduling appointment reminders
-    console.log(`Scheduling reminders for appointment ${appointment.id}`);
-  }
-
-  async processAppointmentRefund(appointmentId) {
-    // Implementation for processing appointment refunds
-    console.log(`Processing refund for cancelled appointment ${appointmentId}`);
-  }
-}
-
-export const telemedicineService = new TelemedicineService();
+/** * TelemedicineService - Comprehensive telemedicine integration for NaturineX * Handles video calls, appointment scheduling, secure messaging, consultation recording, and provider management */import { supabase } from '../config/supabase';import { encryptionService } from './encryptionService';import { notificationService } from './notificationService';class TelemedicineService {  constructor() {    this.currentCall = null;    this.localStream = null;    this.remoteStream = null;    this.peerConnection = null;    this.consultationStartTime = null;    this.isRecording = false;    this.recordedChunks = [];    this.mediaRecorder = null;  }  // WebRTC Configuration  getWebRTCConfig() {    return {      iceServers: [        { urls: 'stun:stun.l.google.com:19302' },        { urls: 'stun:stun1.l.google.com:19302' },        {          urls: 'turn:numb.viagenie.ca',          credential: 'muazkh',          username: 'webrtc@live.com'        }      ],      iceCandidatePoolSize: 10    };  }  // Provider Management  async registerProvider(providerData) {    try {      const encryptedData = await encryptionService.encryptPHI({        ...providerData,        registration_date: new Date().toISOString(),        status: 'pending_verification',        verification_documents_uploaded: false      });      const { data, error } = await supabase        .from('providers')        .insert([encryptedData])        .select();      if (error) throw error;      // Send verification email      await this.sendProviderVerificationEmail(data[0].id, providerData.email);      return {        success: true,        provider: data[0],        message: 'Provider registration submitted for verification'      };    } catch (error) {      console.error('Provider registration error:', error);      throw new Error('Failed to register provider');    }  }  async verifyProvider(providerId, verificationData) {    try {      const { error } = await supabase        .from('providers')        .update({          status: 'verified',          license_verified: true,          verification_date: new Date().toISOString(),          verification_documents: await encryptionService.encryptPHI(verificationData)        })        .eq('id', providerId);      if (error) throw error;      // Send welcome email to verified provider      await this.sendProviderWelcomeEmail(providerId);      return { success: true, message: 'Provider verified successfully' };    } catch (error) {      console.error('Provider verification error:', error);      throw new Error('Failed to verify provider');    }  }  async updateProviderAvailability(providerId, availability) {    try {      const { error } = await supabase        .from('provider_availability')        .upsert({          provider_id: providerId,          availability_schedule: availability,          updated_at: new Date().toISOString()        });      if (error) throw error;      return { success: true, message: 'Availability updated successfully' };    } catch (error) {      console.error('Availability update error:', error);      throw new Error('Failed to update availability');    }  }  async getAvailableProviders(specialty = null, date = null, timeSlot = null) {    try {      let query = supabase        .from('providers')        .select(`          *,          provider_availability(*)        `)        .eq('status', 'verified')        .eq('is_available', true);      if (specialty) {        query = query.contains('specialties', [specialty]);      }      const { data, error } = await query;      if (error) throw error;      // Filter by date and time availability if specified      let filteredProviders = data;      if (date && timeSlot) {        filteredProviders = data.filter(provider =>          this.isProviderAvailable(provider, date, timeSlot)        );      }      return {        success: true,        providers: filteredProviders.map(provider => ({          ...provider,          // Decrypt sensitive data for display          decrypted_data: encryptionService.decryptPHI(provider.encrypted_data)        }))      };    } catch (error) {      console.error('Get available providers error:', error);      throw new Error('Failed to get available providers');    }  }  // Appointment Management  async scheduleAppointment(appointmentData) {    try {      const encryptedAppointment = await encryptionService.encryptPHI({        ...appointmentData,        status: 'scheduled',        created_at: new Date().toISOString(),        consultation_id: null      });      const { data, error } = await supabase        .from('appointments')        .insert([encryptedAppointment])        .select();      if (error) throw error;      // Send confirmation notifications      await Promise.all([        this.sendAppointmentConfirmation(appointmentData.patient_id, data[0]),        this.sendProviderNotification(appointmentData.provider_id, data[0])      ]);      // Set up reminder notifications      await this.scheduleAppointmentReminders(data[0]);      return {        success: true,        appointment: data[0],        message: 'Appointment scheduled successfully'      };    } catch (error) {      console.error('Schedule appointment error:', error);      throw new Error('Failed to schedule appointment');    }  }  async rescheduleAppointment(appointmentId, newDateTime, reason) {    try {      const { data: appointment, error: fetchError } = await supabase        .from('appointments')        .select('*')        .eq('id', appointmentId)        .single();      if (fetchError) throw fetchError;      const { error } = await supabase        .from('appointments')        .update({          scheduled_datetime: newDateTime,          reschedule_reason: reason,          updated_at: new Date().toISOString()        })        .eq('id', appointmentId);      if (error) throw error;      // Notify both parties      await Promise.all([        this.sendRescheduleNotification(appointment.patient_id, appointmentId, newDateTime),        this.sendRescheduleNotification(appointment.provider_id, appointmentId, newDateTime)      ]);      return { success: true, message: 'Appointment rescheduled successfully' };    } catch (error) {      console.error('Reschedule appointment error:', error);      throw new Error('Failed to reschedule appointment');    }  }  async cancelAppointment(appointmentId, reason, cancelledBy) {    try {      const { error } = await supabase        .from('appointments')        .update({          status: 'cancelled',          cancellation_reason: reason,          cancelled_by: cancelledBy,          cancelled_at: new Date().toISOString()        })        .eq('id', appointmentId);      if (error) throw error;      // Handle refunds if applicable      await this.processAppointmentRefund(appointmentId);      return { success: true, message: 'Appointment cancelled successfully' };    } catch (error) {      console.error('Cancel appointment error:', error);      throw new Error('Failed to cancel appointment');    }  }  // Video Call Management  async initiateVideoCall(appointmentId, userId, userType) {    try {      // Verify appointment and permissions      const appointment = await this.verifyAppointmentAccess(appointmentId, userId, userType);      // Create consultation record      const consultation = await this.createConsultation(appointmentId);      // Set up WebRTC peer connection      this.peerConnection = new RTCPeerConnection(this.getWebRTCConfig());      this.consultationStartTime = new Date();      // Get user media      this.localStream = await navigator.mediaDevices.getUserMedia({        video: { width: 1280, height: 720, facingMode: 'user' },        audio: { echoCancellation: true, noiseSuppression: true }      });      // Add tracks to peer connection      this.localStream.getTracks().forEach(track => {        this.peerConnection.addTrack(track, this.localStream);      });      // Set up event handlers      this.setupPeerConnectionHandlers(consultation.id);      // Start recording for compliance      await this.startConsultationRecording();      this.currentCall = {        appointmentId,        consultationId: consultation.id,        status: 'connecting',        startTime: this.consultationStartTime      };      return {        success: true,        consultationId: consultation.id,        localStream: this.localStream      };    } catch (error) {      console.error('Initiate video call error:', error);      throw new Error('Failed to initiate video call');    }  }  async createOffer(consultationId) {    try {      const offer = await this.peerConnection.createOffer();      await this.peerConnection.setLocalDescription(offer);      // Store offer in database for signaling      await this.storeSignalingData(consultationId, 'offer', offer);      return { success: true, offer };    } catch (error) {      console.error('Create offer error:', error);      throw new Error('Failed to create offer');    }  }  async createAnswer(consultationId, offer) {    try {      await this.peerConnection.setRemoteDescription(offer);      const answer = await this.peerConnection.createAnswer();      await this.peerConnection.setLocalDescription(answer);      // Store answer in database      await this.storeSignalingData(consultationId, 'answer', answer);      return { success: true, answer };    } catch (error) {      console.error('Create answer error:', error);      throw new Error('Failed to create answer');    }  }  async addIceCandidate(consultationId, candidate) {    try {      await this.peerConnection.addIceCandidate(candidate);      await this.storeSignalingData(consultationId, 'ice-candidate', candidate);      return { success: true };    } catch (error) {      console.error('Add ICE candidate error:', error);      throw new Error('Failed to add ICE candidate');    }  }  async endVideoCall(consultationId, reason = 'completed') {    try {      const endTime = new Date();      const duration = this.consultationStartTime ?        Math.floor((endTime - this.consultationStartTime) / 1000) : 0;      // Stop recording      await this.stopConsultationRecording();      // Clean up WebRTC resources      if (this.localStream) {        this.localStream.getTracks().forEach(track => track.stop());        this.localStream = null;      }      if (this.peerConnection) {        this.peerConnection.close();        this.peerConnection = null;      }      // Update consultation record      await supabase        .from('consultations')        .update({          status: 'completed',          end_time: endTime.toISOString(),          duration_seconds: duration,          end_reason: reason        })        .eq('id', consultationId);      // Update appointment status      if (this.currentCall) {        await supabase          .from('appointments')          .update({ status: 'completed' })          .eq('id', this.currentCall.appointmentId);      }      this.currentCall = null;      this.consultationStartTime = null;      return { success: true, duration };    } catch (error) {      console.error('End video call error:', error);      throw new Error('Failed to end video call');    }  }  // Secure Messaging  async sendMessage(senderId, receiverId, message, messageType = 'text', appointmentId = null) {    try {      const encryptedMessage = await encryptionService.encryptPHI({        sender_id: senderId,        receiver_id: receiverId,        message_content: message,        message_type: messageType,        appointment_id: appointmentId,        timestamp: new Date().toISOString(),        read_status: false      });      const { data, error } = await supabase        .from('messages')        .insert([encryptedMessage])        .select();      if (error) throw error;      // Send push notification if recipient is offline      await this.sendMessageNotification(receiverId, senderId, messageType);      return { success: true, message: data[0] };    } catch (error) {      console.error('Send message error:', error);      throw new Error('Failed to send message');    }  }  async getMessageHistory(userId, otherUserId, appointmentId = null) {    try {      let query = supabase        .from('messages')        .select('*')        .or(`sender_id.eq.${userId},receiver_id.eq.${userId}`)        .or(`sender_id.eq.${otherUserId},receiver_id.eq.${otherUserId}`)        .order('timestamp', { ascending: true });      if (appointmentId) {        query = query.eq('appointment_id', appointmentId);      }      const { data, error } = await query;      if (error) throw error;      // Decrypt messages      const decryptedMessages = await Promise.all(        data.map(async (msg) => ({          ...msg,          decrypted_content: await encryptionService.decryptPHI(msg.encrypted_content)        }))      );      return { success: true, messages: decryptedMessages };    } catch (error) {      console.error('Get message history error:', error);      throw new Error('Failed to get message history');    }  }  async markMessagesAsRead(messageIds, userId) {    try {      const { error } = await supabase        .from('messages')        .update({ read_status: true, read_at: new Date().toISOString() })        .in('id', messageIds)        .eq('receiver_id', userId);      if (error) throw error;      return { success: true };    } catch (error) {      console.error('Mark messages as read error:', error);      throw new Error('Failed to mark messages as read');    }  }  // Consultation Recording  async startConsultationRecording() {    try {      if (!this.localStream) {        throw new Error('No local stream available for recording');      }      const options = {        mimeType: 'video/webm;codecs=vp9,opus',        videoBitsPerSecond: 1000000,        audioBitsPerSecond: 128000      };      this.mediaRecorder = new MediaRecorder(this.localStream, options);      this.recordedChunks = [];      this.mediaRecorder.ondataavailable = (event) => {        if (event.data.size > 0) {          this.recordedChunks.push(event.data);        }      };      this.mediaRecorder.onstop = async () => {        await this.saveRecordedConsultation();      };      this.mediaRecorder.start(10000); // Record in 10-second chunks      this.isRecording = true;      return { success: true };    } catch (error) {      console.error('Start recording error:', error);      throw new Error('Failed to start consultation recording');    }  }  async stopConsultationRecording() {    try {      if (this.mediaRecorder && this.isRecording) {        this.mediaRecorder.stop();        this.isRecording = false;      }      return { success: true };    } catch (error) {      console.error('Stop recording error:', error);      throw new Error('Failed to stop consultation recording');    }  }  async saveRecordedConsultation() {    try {      if (this.recordedChunks.length === 0) return;      const blob = new Blob(this.recordedChunks, { type: 'video/webm' });      const fileName = `consultation_${this.currentCall.consultationId}_${Date.now()}.webm`;      // Upload to secure storage      const { data, error } = await supabase.storage        .from('consultation-recordings')        .upload(fileName, blob, {          cacheControl: '3600',          upsert: false        });      if (error) throw error;      // Update consultation record with recording URL      await supabase        .from('consultations')        .update({          recording_url: data.path,          recording_size: blob.size,          recording_duration: this.calculateRecordingDuration()        })        .eq('id', this.currentCall.consultationId);      this.recordedChunks = [];      return { success: true, recordingPath: data.path };    } catch (error) {      console.error('Save recorded consultation error:', error);      throw new Error('Failed to save consultation recording');    }  }  // Utility Methods  async createConsultation(appointmentId) {    try {      const { data, error } = await supabase        .from('consultations')        .insert([{          appointment_id: appointmentId,          status: 'in_progress',          start_time: new Date().toISOString(),          consultation_notes: '',          recording_url: null        }])        .select()        .single();      if (error) throw error;      return data;    } catch (error) {      console.error('Create consultation error:', error);      throw new Error('Failed to create consultation');    }  }  async verifyAppointmentAccess(appointmentId, userId, userType) {    try {      const { data, error } = await supabase        .from('appointments')        .select('*')        .eq('id', appointmentId)        .single();      if (error) throw error;      const hasAccess = (userType === 'patient' && data.patient_id === userId) ||                       (userType === 'provider' && data.provider_id === userId);      if (!hasAccess) {        throw new Error('Unauthorized access to appointment');      }      return data;    } catch (error) {      console.error('Verify appointment access error:', error);      throw new Error('Failed to verify appointment access');    }  }  setupPeerConnectionHandlers(consultationId) {    this.peerConnection.onicecandidate = async (event) => {      if (event.candidate) {        await this.storeSignalingData(consultationId, 'ice-candidate', event.candidate);      }    };    this.peerConnection.ontrack = (event) => {      this.remoteStream = event.streams[0];    };    this.peerConnection.onconnectionstatechange = () => {      const state = this.peerConnection.connectionState;      if (state === 'connected') {        this.currentCall.status = 'connected';      } else if (state === 'disconnected' || state === 'failed') {        this.handleConnectionFailure();      }    };  }  async storeSignalingData(consultationId, type, data) {    try {      await supabase        .from('consultation_signaling')        .insert([{          consultation_id: consultationId,          signal_type: type,          signal_data: JSON.stringify(data),          timestamp: new Date().toISOString()        }]);    } catch (error) {      console.error('Store signaling data error:', error);    }  }  isProviderAvailable(provider, date, timeSlot) {    // Implementation to check provider availability against their schedule    const availability = provider.provider_availability?.[0];    if (!availability) return false;    const schedule = availability.availability_schedule;    const dayOfWeek = new Date(date).getDay();    const daySchedule = schedule[dayOfWeek];    return daySchedule &&           daySchedule.available &&           daySchedule.timeSlots.includes(timeSlot);  }  calculateRecordingDuration() {    return this.consultationStartTime ?      Math.floor((new Date() - this.consultationStartTime) / 1000) : 0;  }  async handleConnectionFailure() {    // Implement reconnection logic  }  // Notification helpers  async sendAppointmentConfirmation(patientId, appointment) {    await notificationService.sendNotification(patientId, {      type: 'appointment_confirmation',      title: 'Appointment Confirmed',      body: `Your telemedicine appointment has been scheduled for ${new Date(appointment.scheduled_datetime).toLocaleDateString()}`,      data: { appointmentId: appointment.id }    });  }  async sendProviderNotification(providerId, appointment) {    await notificationService.sendNotification(providerId, {      type: 'new_appointment',      title: 'New Appointment Scheduled',      body: `You have a new telemedicine appointment scheduled`,      data: { appointmentId: appointment.id }    });  }  async sendRescheduleNotification(userId, appointmentId, newDateTime) {    await notificationService.sendNotification(userId, {      type: 'appointment_rescheduled',      title: 'Appointment Rescheduled',      body: `Your appointment has been rescheduled to ${new Date(newDateTime).toLocaleDateString()}`,      data: { appointmentId }    });  }  async sendMessageNotification(receiverId, senderId, messageType) {    await notificationService.sendNotification(receiverId, {      type: 'new_message',      title: 'New Message',      body: `You have received a new ${messageType} message`,      data: { senderId }    });  }  async sendProviderVerificationEmail(providerId, email) {    // Implementation for sending provider verification email  }  async sendProviderWelcomeEmail(providerId) {    // Implementation for sending provider welcome email  }  async scheduleAppointmentReminders(appointment) {    // Implementation for scheduling appointment reminders  }  async processAppointmentRefund(appointmentId) {    // Implementation for processing appointment refunds  }}export const telemedicineService = new TelemedicineService();

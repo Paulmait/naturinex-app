@@ -1,588 +1,1 @@
-// Subscription Manager Service
-// Handles subscription tracking, access control, and 1-click cancellation
-
-import { supabase } from '../config/supabase';
-import { auth as firebaseAuth } from '../config/firebase.web';
-import { PRICING_TIERS } from '../config/pricing';
-
-class SubscriptionManager {
-  constructor() {
-    this.currentSubscription = null;
-    this.accessCache = new Map();
-    this.checkInterval = null;
-  }
-
-  // Initialize subscription monitoring
-  async init(userId) {
-    this.userId = userId;
-
-    // Load current subscription
-    await this.loadSubscription();
-
-    // Start monitoring subscription status
-    this.startMonitoring();
-
-    // Listen for real-time updates
-    this.setupRealtimeListener();
-  }
-
-  // Load user's subscription details
-  async loadSubscription() {
-    try {
-      // Try Supabase first
-      if (supabase) {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('subscription_status, subscription_tier, subscription_expires_at, stripe_subscription_id')
-          .eq('user_id', this.userId)
-          .single();
-
-        if (!error && data) {
-          this.currentSubscription = {
-            status: data.subscription_status || 'free',
-            tier: data.subscription_tier || 'free',
-            expiresAt: data.subscription_expires_at,
-            stripeId: data.stripe_subscription_id,
-            isActive: this.isSubscriptionActive(data),
-          };
-
-          // Update access cache
-          this.updateAccessCache();
-          return this.currentSubscription;
-        }
-      }
-
-      // Fallback to Firebase
-      const user = firebaseAuth.currentUser;
-      if (user) {
-        const idToken = await user.getIdTokenResult();
-        const claims = idToken.claims;
-
-        this.currentSubscription = {
-          status: claims.subscription_status || 'free',
-          tier: claims.subscription_tier || 'free',
-          expiresAt: claims.subscription_expires_at,
-          stripeId: claims.stripe_subscription_id,
-          isActive: claims.subscription_active || false,
-        };
-      }
-
-      return this.currentSubscription;
-    } catch (error) {
-      console.error('Error loading subscription:', error);
-      return this.getDefaultSubscription();
-    }
-  }
-
-  // Check if subscription is active
-  isSubscriptionActive(subscription) {
-    if (!subscription) return false;
-
-    // Check status
-    if (subscription.subscription_status !== 'active' &&
-        subscription.subscription_status !== 'trialing') {
-      return false;
-    }
-
-    // Check expiration
-    if (subscription.subscription_expires_at) {
-      const expiresAt = new Date(subscription.subscription_expires_at);
-      if (expiresAt < new Date()) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  // Get default (free) subscription
-  getDefaultSubscription() {
-    return {
-      status: 'free',
-      tier: 'free',
-      expiresAt: null,
-      stripeId: null,
-      isActive: true, // Free tier is always "active"
-    };
-  }
-
-  // Start monitoring subscription status
-  startMonitoring() {
-    // Check subscription status every 5 minutes
-    this.checkInterval = setInterval(() => {
-      this.checkSubscriptionStatus();
-    }, 5 * 60 * 1000);
-
-    // Also check on visibility change
-    document.addEventListener('visibilitychange', () => {
-      if (!document.hidden) {
-        this.checkSubscriptionStatus();
-      }
-    });
-  }
-
-  // Check current subscription status
-  async checkSubscriptionStatus() {
-    const previousStatus = this.currentSubscription?.status;
-    const previousTier = this.currentSubscription?.tier;
-
-    await this.loadSubscription();
-
-    // If subscription changed, notify user
-    if (previousStatus !== this.currentSubscription.status ||
-        previousTier !== this.currentSubscription.tier) {
-      this.handleSubscriptionChange(previousStatus, previousTier);
-    }
-  }
-
-  // Handle subscription changes
-  handleSubscriptionChange(previousStatus, previousTier) {
-    const { status, tier } = this.currentSubscription;
-
-    // Subscription downgraded or expired
-    if (this.getTierLevel(tier) < this.getTierLevel(previousTier)) {
-      this.notifyDowngrade(previousTier, tier);
-      this.revokeAccess(previousTier);
-    }
-
-    // Subscription upgraded
-    if (this.getTierLevel(tier) > this.getTierLevel(previousTier)) {
-      this.notifyUpgrade(previousTier, tier);
-      this.grantAccess(tier);
-    }
-
-    // Subscription expired or canceled
-    if (status === 'canceled' || status === 'past_due') {
-      this.notifyExpiration();
-      this.restrictToFreeTier();
-    }
-
-    // Emit event for UI updates
-    window.dispatchEvent(new CustomEvent('subscriptionChanged', {
-      detail: {
-        previous: { status: previousStatus, tier: previousTier },
-        current: this.currentSubscription
-      }
-    }));
-  }
-
-  // Get tier level for comparison
-  getTierLevel(tier) {
-    const levels = { 'free': 0, 'plus': 1, 'pro': 2, 'enterprise': 3 };
-    return levels[tier?.toLowerCase()] || 0;
-  }
-
-  // Update access cache based on current subscription
-  updateAccessCache() {
-    const tier = this.currentSubscription?.tier || 'free';
-    const tierFeatures = PRICING_TIERS[tier.toUpperCase()]?.features || {};
-
-    // Cache feature access
-    this.accessCache.clear();
-    Object.entries(tierFeatures).forEach(([feature, value]) => {
-      this.accessCache.set(feature, value === true || value > 0 || value === -1);
-    });
-  }
-
-  // Check if user has access to feature
-  hasAccess(feature) {
-    // Quick check from cache
-    if (this.accessCache.has(feature)) {
-      return this.accessCache.get(feature);
-    }
-
-    // Check based on tier
-    const tier = this.currentSubscription?.tier || 'free';
-    const tierFeatures = PRICING_TIERS[tier.toUpperCase()]?.features || {};
-
-    const hasAccess = tierFeatures[feature] === true ||
-                     tierFeatures[feature] > 0 ||
-                     tierFeatures[feature] === -1;
-
-    // Update cache
-    this.accessCache.set(feature, hasAccess);
-
-    return hasAccess;
-  }
-
-  // Revoke access when subscription downgrades
-  async revokeAccess(previousTier) {
-    // Clear cached permissions
-    this.accessCache.clear();
-
-    // Clear local storage items specific to premium features
-    const premiumKeys = [
-      'ai_insights_cache',
-      'family_members',
-      'api_tokens',
-      'export_history'
-    ];
-
-    premiumKeys.forEach(key => localStorage.removeItem(key));
-
-    // Notify backend to revoke API access if needed
-    if (previousTier === 'pro') {
-      await this.revokeAPIAccess();
-    }
-  }
-
-  // Grant access when subscription upgrades
-  async grantAccess(newTier) {
-    // Update access cache
-    this.updateAccessCache();
-
-    // Grant specific permissions based on tier
-    if (newTier === 'pro') {
-      await this.enableFamilySharing();
-      await this.enableAPIAccess();
-    }
-  }
-
-  // Restrict user to free tier features
-  restrictToFreeTier() {
-    this.currentSubscription = this.getDefaultSubscription();
-    this.updateAccessCache();
-
-    // Clear all premium data
-    this.clearPremiumData();
-  }
-
-  // ONE-CLICK CANCELLATION
-  async cancelSubscription() {
-    try {
-      // Show confirmation
-      const confirmed = await this.showCancellationConfirmation();
-      if (!confirmed) return { canceled: false };
-
-      // Call backend to cancel Stripe subscription
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/subscription/cancel`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await this.getAuthToken()}`,
-        },
-        body: JSON.stringify({
-          subscriptionId: this.currentSubscription.stripeId,
-          reason: await this.getCancellationReason(),
-          immediately: false, // Keep access until end of billing period
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to cancel subscription');
-      }
-
-      const result = await response.json();
-
-      // Update local subscription status
-      this.currentSubscription = {
-        ...this.currentSubscription,
-        status: 'canceled',
-        canceledAt: new Date(),
-        accessUntil: result.accessUntil,
-      };
-
-      // Show success message
-      this.showCancellationSuccess(result.accessUntil);
-
-      // Track cancellation
-      this.trackCancellation();
-
-      return {
-        canceled: true,
-        accessUntil: result.accessUntil
-      };
-
-    } catch (error) {
-      console.error('Cancellation error:', error);
-      this.showCancellationError();
-      return { canceled: false, error: error.message };
-    }
-  }
-
-  // Show cancellation confirmation dialog
-  async showCancellationConfirmation() {
-    return new Promise((resolve) => {
-      const message = `Are you sure you want to cancel your ${this.currentSubscription.tier} subscription?\n\n` +
-                     `You'll keep access until ${this.formatDate(this.currentSubscription.expiresAt)}.`;
-
-      // Use custom modal or native confirm
-      if (window.confirmCancellation) {
-        window.confirmCancellation(message, resolve);
-      } else {
-        resolve(window.confirm(message));
-      }
-    });
-  }
-
-  // Get cancellation reason
-  async getCancellationReason() {
-    // Show reason selection dialog
-    const reasons = [
-      'Too expensive',
-      'Not using enough',
-      'Found alternative',
-      'Technical issues',
-      'Other',
-    ];
-
-    return new Promise((resolve) => {
-      if (window.selectCancellationReason) {
-        window.selectCancellationReason(reasons, resolve);
-      } else {
-        resolve('Not specified');
-      }
-    });
-  }
-
-  // Show cancellation success message
-  showCancellationSuccess(accessUntil) {
-    const message = `Your subscription has been canceled.\n\n` +
-                   `You'll continue to have access until ${this.formatDate(accessUntil)}.\n\n` +
-                   `We're sorry to see you go! You can resubscribe anytime.`;
-
-    if (window.showNotification) {
-      window.showNotification('Subscription Canceled', message, 'info');
-    } else {
-      alert(message);
-    }
-  }
-
-  // Show cancellation error
-  showCancellationError() {
-    const message = 'Unable to cancel subscription. Please try again or contact support.';
-
-    if (window.showNotification) {
-      window.showNotification('Cancellation Failed', message, 'error');
-    } else {
-      alert(message);
-    }
-  }
-
-  // REACTIVATION
-  async reactivateSubscription() {
-    try {
-      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/subscription/reactivate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await this.getAuthToken()}`,
-        },
-        body: JSON.stringify({
-          subscriptionId: this.currentSubscription.stripeId,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to reactivate subscription');
-      }
-
-      const result = await response.json();
-
-      // Update local subscription
-      await this.loadSubscription();
-
-      // Show success
-      this.showReactivationSuccess();
-
-      return { reactivated: true };
-
-    } catch (error) {
-      console.error('Reactivation error:', error);
-      this.showReactivationError();
-      return { reactivated: false, error: error.message };
-    }
-  }
-
-  // Setup real-time subscription updates
-  setupRealtimeListener() {
-    if (!supabase) return;
-
-    // Subscribe to profile changes
-    const subscription = supabase
-      .channel(`profile_${this.userId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'profiles',
-          filter: `user_id=eq.${this.userId}`,
-        },
-        (payload) => {
-          console.log('Subscription updated:', payload);
-          this.handleRealtimeUpdate(payload.new);
-        }
-      )
-      .subscribe();
-
-    // Store subscription for cleanup
-    this.realtimeSubscription = subscription;
-  }
-
-  // Handle real-time updates
-  handleRealtimeUpdate(newData) {
-    const previousStatus = this.currentSubscription?.status;
-    const previousTier = this.currentSubscription?.tier;
-
-    this.currentSubscription = {
-      status: newData.subscription_status || 'free',
-      tier: newData.subscription_tier || 'free',
-      expiresAt: newData.subscription_expires_at,
-      stripeId: newData.stripe_subscription_id,
-      isActive: this.isSubscriptionActive(newData),
-    };
-
-    this.handleSubscriptionChange(previousStatus, previousTier);
-  }
-
-  // Notify user of downgrade
-  notifyDowngrade(fromTier, toTier) {
-    const message = toTier === 'free'
-      ? `Your ${fromTier} subscription has expired. You now have limited access.`
-      : `Your subscription has been downgraded from ${fromTier} to ${toTier}.`;
-
-    this.showNotification('Subscription Changed', message, 'warning');
-  }
-
-  // Notify user of upgrade
-  notifyUpgrade(fromTier, toTier) {
-    const message = `Congratulations! You've been upgraded to ${toTier}.`;
-    this.showNotification('Subscription Upgraded', message, 'success');
-  }
-
-  // Notify expiration
-  notifyExpiration() {
-    const message = 'Your subscription has expired. Upgrade to continue enjoying premium features.';
-    this.showNotification('Subscription Expired', message, 'warning');
-  }
-
-  // Show notification
-  showNotification(title, message, type = 'info') {
-    if (window.showNotification) {
-      window.showNotification(title, message, type);
-    } else {
-      console.log(`[${type.toUpperCase()}] ${title}: ${message}`);
-    }
-
-    // Emit event for UI
-    window.dispatchEvent(new CustomEvent('subscriptionNotification', {
-      detail: { title, message, type }
-    }));
-  }
-
-  // Helper functions
-  async getAuthToken() {
-    if (supabase) {
-      const { data: { session } } = await supabase.auth.getSession();
-      return session?.access_token;
-    } else {
-      const user = firebaseAuth.currentUser;
-      return user ? await user.getIdToken() : null;
-    }
-  }
-
-  formatDate(date) {
-    if (!date) return 'N/A';
-    return new Date(date).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-  }
-
-  async revokeAPIAccess() {
-    // Revoke API keys
-    await fetch(`${process.env.REACT_APP_API_URL}/api/revoke-api-access`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${await this.getAuthToken()}`,
-      },
-    });
-  }
-
-  async enableFamilySharing() {
-    // Enable family sharing features
-    localStorage.setItem('family_sharing_enabled', 'true');
-  }
-
-  async enableAPIAccess() {
-    // Generate API keys for pro users
-    const response = await fetch(`${process.env.REACT_APP_API_URL}/api/generate-api-key`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${await this.getAuthToken()}`,
-      },
-    });
-
-    if (response.ok) {
-      const { apiKey } = await response.json();
-      localStorage.setItem('api_key', apiKey);
-    }
-  }
-
-  clearPremiumData() {
-    // Clear all premium feature data
-    const keysToRemove = [
-      'ai_insights_cache',
-      'family_members',
-      'api_tokens',
-      'api_key',
-      'export_history',
-      'consultation_credits',
-      'family_sharing_enabled',
-    ];
-
-    keysToRemove.forEach(key => localStorage.removeItem(key));
-  }
-
-  trackCancellation() {
-    // Track cancellation for analytics
-    if (window.gtag) {
-      window.gtag('event', 'subscription_canceled', {
-        subscription_tier: this.currentSubscription.tier,
-        subscription_duration: this.getSubscriptionDuration(),
-      });
-    }
-  }
-
-  getSubscriptionDuration() {
-    // Calculate how long user has been subscribed
-    // Implementation depends on your tracking
-    return 'unknown';
-  }
-
-  showReactivationSuccess() {
-    this.showNotification(
-      'Subscription Reactivated',
-      'Your subscription has been successfully reactivated!',
-      'success'
-    );
-  }
-
-  showReactivationError() {
-    this.showNotification(
-      'Reactivation Failed',
-      'Unable to reactivate subscription. Please contact support.',
-      'error'
-    );
-  }
-
-  // Cleanup
-  destroy() {
-    if (this.checkInterval) {
-      clearInterval(this.checkInterval);
-    }
-
-    if (this.realtimeSubscription) {
-      this.realtimeSubscription.unsubscribe();
-    }
-
-    this.accessCache.clear();
-  }
-}
-
-// Create singleton instance
-const subscriptionManager = new SubscriptionManager();
-
-export default subscriptionManager;
+// Subscription Manager Service// Handles subscription tracking, access control, and 1-click cancellationimport { supabase } from '../config/supabase';import { auth as firebaseAuth } from '../config/firebase.web';import { PRICING_TIERS } from '../config/pricing';class SubscriptionManager {  constructor() {    this.currentSubscription = null;    this.accessCache = new Map();    this.checkInterval = null;  }  // Initialize subscription monitoring  async init(userId) {    this.userId = userId;    // Load current subscription    await this.loadSubscription();    // Start monitoring subscription status    this.startMonitoring();    // Listen for real-time updates    this.setupRealtimeListener();  }  // Load user's subscription details  async loadSubscription() {    try {      // Try Supabase first      if (supabase) {        const { data, error } = await supabase          .from('profiles')          .select('subscription_status, subscription_tier, subscription_expires_at, stripe_subscription_id')          .eq('user_id', this.userId)          .single();        if (!error && data) {          this.currentSubscription = {            status: data.subscription_status || 'free',            tier: data.subscription_tier || 'free',            expiresAt: data.subscription_expires_at,            stripeId: data.stripe_subscription_id,            isActive: this.isSubscriptionActive(data),          };          // Update access cache          this.updateAccessCache();          return this.currentSubscription;        }      }      // Fallback to Firebase      const user = firebaseAuth.currentUser;      if (user) {        const idToken = await user.getIdTokenResult();        const claims = idToken.claims;        this.currentSubscription = {          status: claims.subscription_status || 'free',          tier: claims.subscription_tier || 'free',          expiresAt: claims.subscription_expires_at,          stripeId: claims.stripe_subscription_id,          isActive: claims.subscription_active || false,        };      }      return this.currentSubscription;    } catch (error) {      console.error('Error loading subscription:', error);      return this.getDefaultSubscription();    }  }  // Check if subscription is active  isSubscriptionActive(subscription) {    if (!subscription) return false;    // Check status    if (subscription.subscription_status !== 'active' &&        subscription.subscription_status !== 'trialing') {      return false;    }    // Check expiration    if (subscription.subscription_expires_at) {      const expiresAt = new Date(subscription.subscription_expires_at);      if (expiresAt < new Date()) {        return false;      }    }    return true;  }  // Get default (free) subscription  getDefaultSubscription() {    return {      status: 'free',      tier: 'free',      expiresAt: null,      stripeId: null,      isActive: true, // Free tier is always "active"    };  }  // Start monitoring subscription status  startMonitoring() {    // Check subscription status every 5 minutes    this.checkInterval = setInterval(() => {      this.checkSubscriptionStatus();    }, 5 * 60 * 1000);    // Also check on visibility change    document.addEventListener('visibilitychange', () => {      if (!document.hidden) {        this.checkSubscriptionStatus();      }    });  }  // Check current subscription status  async checkSubscriptionStatus() {    const previousStatus = this.currentSubscription?.status;    const previousTier = this.currentSubscription?.tier;    await this.loadSubscription();    // If subscription changed, notify user    if (previousStatus !== this.currentSubscription.status ||        previousTier !== this.currentSubscription.tier) {      this.handleSubscriptionChange(previousStatus, previousTier);    }  }  // Handle subscription changes  handleSubscriptionChange(previousStatus, previousTier) {    const { status, tier } = this.currentSubscription;    // Subscription downgraded or expired    if (this.getTierLevel(tier) < this.getTierLevel(previousTier)) {      this.notifyDowngrade(previousTier, tier);      this.revokeAccess(previousTier);    }    // Subscription upgraded    if (this.getTierLevel(tier) > this.getTierLevel(previousTier)) {      this.notifyUpgrade(previousTier, tier);      this.grantAccess(tier);    }    // Subscription expired or canceled    if (status === 'canceled' || status === 'past_due') {      this.notifyExpiration();      this.restrictToFreeTier();    }    // Emit event for UI updates    window.dispatchEvent(new CustomEvent('subscriptionChanged', {      detail: {        previous: { status: previousStatus, tier: previousTier },        current: this.currentSubscription      }    }));  }  // Get tier level for comparison  getTierLevel(tier) {    const levels = { 'free': 0, 'plus': 1, 'pro': 2, 'enterprise': 3 };    return levels[tier?.toLowerCase()] || 0;  }  // Update access cache based on current subscription  updateAccessCache() {    const tier = this.currentSubscription?.tier || 'free';    const tierFeatures = PRICING_TIERS[tier.toUpperCase()]?.features || {};    // Cache feature access    this.accessCache.clear();    Object.entries(tierFeatures).forEach(([feature, value]) => {      this.accessCache.set(feature, value === true || value > 0 || value === -1);    });  }  // Check if user has access to feature  hasAccess(feature) {    // Quick check from cache    if (this.accessCache.has(feature)) {      return this.accessCache.get(feature);    }    // Check based on tier    const tier = this.currentSubscription?.tier || 'free';    const tierFeatures = PRICING_TIERS[tier.toUpperCase()]?.features || {};    const hasAccess = tierFeatures[feature] === true ||                     tierFeatures[feature] > 0 ||                     tierFeatures[feature] === -1;    // Update cache    this.accessCache.set(feature, hasAccess);    return hasAccess;  }  // Revoke access when subscription downgrades  async revokeAccess(previousTier) {    // Clear cached permissions    this.accessCache.clear();    // Clear local storage items specific to premium features    const premiumKeys = [      'ai_insights_cache',      'family_members',      'api_tokens',      'export_history'    ];    premiumKeys.forEach(key => localStorage.removeItem(key));    // Notify backend to revoke API access if needed    if (previousTier === 'pro') {      await this.revokeAPIAccess();    }  }  // Grant access when subscription upgrades  async grantAccess(newTier) {    // Update access cache    this.updateAccessCache();    // Grant specific permissions based on tier    if (newTier === 'pro') {      await this.enableFamilySharing();      await this.enableAPIAccess();    }  }  // Restrict user to free tier features  restrictToFreeTier() {    this.currentSubscription = this.getDefaultSubscription();    this.updateAccessCache();    // Clear all premium data    this.clearPremiumData();  }  // ONE-CLICK CANCELLATION  async cancelSubscription() {    try {      // Show confirmation      const confirmed = await this.showCancellationConfirmation();      if (!confirmed) return { canceled: false };      // Call backend to cancel Stripe subscription      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/subscription/cancel`, {        method: 'POST',        headers: {          'Content-Type': 'application/json',          'Authorization': `Bearer ${await this.getAuthToken()}`,        },        body: JSON.stringify({          subscriptionId: this.currentSubscription.stripeId,          reason: await this.getCancellationReason(),          immediately: false, // Keep access until end of billing period        }),      });      if (!response.ok) {        throw new Error('Failed to cancel subscription');      }      const result = await response.json();      // Update local subscription status      this.currentSubscription = {        ...this.currentSubscription,        status: 'canceled',        canceledAt: new Date(),        accessUntil: result.accessUntil,      };      // Show success message      this.showCancellationSuccess(result.accessUntil);      // Track cancellation      this.trackCancellation();      return {        canceled: true,        accessUntil: result.accessUntil      };    } catch (error) {      console.error('Cancellation error:', error);      this.showCancellationError();      return { canceled: false, error: error.message };    }  }  // Show cancellation confirmation dialog  async showCancellationConfirmation() {    return new Promise((resolve) => {      const message = `Are you sure you want to cancel your ${this.currentSubscription.tier} subscription?\n\n` +                     `You'll keep access until ${this.formatDate(this.currentSubscription.expiresAt)}.`;      // Use custom modal or native confirm      if (window.confirmCancellation) {        window.confirmCancellation(message, resolve);      } else {        resolve(window.confirm(message));      }    });  }  // Get cancellation reason  async getCancellationReason() {    // Show reason selection dialog    const reasons = [      'Too expensive',      'Not using enough',      'Found alternative',      'Technical issues',      'Other',    ];    return new Promise((resolve) => {      if (window.selectCancellationReason) {        window.selectCancellationReason(reasons, resolve);      } else {        resolve('Not specified');      }    });  }  // Show cancellation success message  showCancellationSuccess(accessUntil) {    const message = `Your subscription has been canceled.\n\n` +                   `You'll continue to have access until ${this.formatDate(accessUntil)}.\n\n` +                   `We're sorry to see you go! You can resubscribe anytime.`;    if (window.showNotification) {      window.showNotification('Subscription Canceled', message, 'info');    } else {      alert(message);    }  }  // Show cancellation error  showCancellationError() {    const message = 'Unable to cancel subscription. Please try again or contact support.';    if (window.showNotification) {      window.showNotification('Cancellation Failed', message, 'error');    } else {      alert(message);    }  }  // REACTIVATION  async reactivateSubscription() {    try {      const response = await fetch(`${process.env.REACT_APP_API_URL}/api/subscription/reactivate`, {        method: 'POST',        headers: {          'Content-Type': 'application/json',          'Authorization': `Bearer ${await this.getAuthToken()}`,        },        body: JSON.stringify({          subscriptionId: this.currentSubscription.stripeId,        }),      });      if (!response.ok) {        throw new Error('Failed to reactivate subscription');      }      const result = await response.json();      // Update local subscription      await this.loadSubscription();      // Show success      this.showReactivationSuccess();      return { reactivated: true };    } catch (error) {      console.error('Reactivation error:', error);      this.showReactivationError();      return { reactivated: false, error: error.message };    }  }  // Setup real-time subscription updates  setupRealtimeListener() {    if (!supabase) return;    // Subscribe to profile changes    const subscription = supabase      .channel(`profile_${this.userId}`)      .on(        'postgres_changes',        {          event: 'UPDATE',          schema: 'public',          table: 'profiles',          filter: `user_id=eq.${this.userId}`,        },        (payload) => {          this.handleRealtimeUpdate(payload.new);        }      )      .subscribe();    // Store subscription for cleanup    this.realtimeSubscription = subscription;  }  // Handle real-time updates  handleRealtimeUpdate(newData) {    const previousStatus = this.currentSubscription?.status;    const previousTier = this.currentSubscription?.tier;    this.currentSubscription = {      status: newData.subscription_status || 'free',      tier: newData.subscription_tier || 'free',      expiresAt: newData.subscription_expires_at,      stripeId: newData.stripe_subscription_id,      isActive: this.isSubscriptionActive(newData),    };    this.handleSubscriptionChange(previousStatus, previousTier);  }  // Notify user of downgrade  notifyDowngrade(fromTier, toTier) {    const message = toTier === 'free'      ? `Your ${fromTier} subscription has expired. You now have limited access.`      : `Your subscription has been downgraded from ${fromTier} to ${toTier}.`;    this.showNotification('Subscription Changed', message, 'warning');  }  // Notify user of upgrade  notifyUpgrade(fromTier, toTier) {    const message = `Congratulations! You've been upgraded to ${toTier}.`;    this.showNotification('Subscription Upgraded', message, 'success');  }  // Notify expiration  notifyExpiration() {    const message = 'Your subscription has expired. Upgrade to continue enjoying premium features.';    this.showNotification('Subscription Expired', message, 'warning');  }  // Show notification  showNotification(title, message, type = 'info') {    if (window.showNotification) {      window.showNotification(title, message, type);    } else {      }] ${title}: ${message}`);    }    // Emit event for UI    window.dispatchEvent(new CustomEvent('subscriptionNotification', {      detail: { title, message, type }    }));  }  // Helper functions  async getAuthToken() {    if (supabase) {      const { data: { session } } = await supabase.auth.getSession();      return session?.access_token;    } else {      const user = firebaseAuth.currentUser;      return user ? await user.getIdToken() : null;    }  }  formatDate(date) {    if (!date) return 'N/A';    return new Date(date).toLocaleDateString('en-US', {      year: 'numeric',      month: 'long',      day: 'numeric',    });  }  async revokeAPIAccess() {    // Revoke API keys    await fetch(`${process.env.REACT_APP_API_URL}/api/revoke-api-access`, {      method: 'POST',      headers: {        'Authorization': `Bearer ${await this.getAuthToken()}`,      },    });  }  async enableFamilySharing() {    // Enable family sharing features    localStorage.setItem('family_sharing_enabled', 'true');  }  async enableAPIAccess() {    // Generate API keys for pro users    const response = await fetch(`${process.env.REACT_APP_API_URL}/api/generate-api-key`, {      method: 'POST',      headers: {        'Authorization': `Bearer ${await this.getAuthToken()}`,      },    });    if (response.ok) {      const { apiKey } = await response.json();      localStorage.setItem('api_key', apiKey);    }  }  clearPremiumData() {    // Clear all premium feature data    const keysToRemove = [      'ai_insights_cache',      'family_members',      'api_tokens',      'api_key',      'export_history',      'consultation_credits',      'family_sharing_enabled',    ];    keysToRemove.forEach(key => localStorage.removeItem(key));  }  trackCancellation() {    // Track cancellation for analytics    if (window.gtag) {      window.gtag('event', 'subscription_canceled', {        subscription_tier: this.currentSubscription.tier,        subscription_duration: this.getSubscriptionDuration(),      });    }  }  getSubscriptionDuration() {    // Calculate how long user has been subscribed    // Implementation depends on your tracking    return 'unknown';  }  showReactivationSuccess() {    this.showNotification(      'Subscription Reactivated',      'Your subscription has been successfully reactivated!',      'success'    );  }  showReactivationError() {    this.showNotification(      'Reactivation Failed',      'Unable to reactivate subscription. Please contact support.',      'error'    );  }  // Cleanup  destroy() {    if (this.checkInterval) {      clearInterval(this.checkInterval);    }    if (this.realtimeSubscription) {      this.realtimeSubscription.unsubscribe();    }    this.accessCache.clear();  }}// Create singleton instanceconst subscriptionManager = new SubscriptionManager();export default subscriptionManager;

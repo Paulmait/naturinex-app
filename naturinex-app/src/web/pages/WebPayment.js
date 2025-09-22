@@ -19,9 +19,7 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebase.web';
 import { useNavigate } from 'react-router-dom';
 import webConfig from '../../config/webConfig';
-
 const stripePromise = loadStripe(webConfig.STRIPE_PUBLISHABLE_KEY);
-
 function CheckoutForm({ priceId, onSuccess }) {
   const stripe = useStripe();
   const elements = useElements();
@@ -32,26 +30,20 @@ function CheckoutForm({ priceId, onSuccess }) {
   const [name, setName] = useState('');
   const user = auth.currentUser;
   const navigate = useNavigate();
-  
   const API_URL = webConfig.API_URL;
-
   useEffect(() => {
     if (user) {
       setEmail(user.email || '');
       setName(user.displayName || '');
     }
   }, [user]);
-
   const handleSubmit = async (event) => {
     event.preventDefault();
-
     if (!stripe || !elements) {
       return;
     }
-
     setProcessing(true);
     setError(null);
-
     try {
       // Create payment intent
       const response = await fetch(`${API_URL}/api/create-payment-intent`, {
@@ -66,13 +58,10 @@ function CheckoutForm({ priceId, onSuccess }) {
           name,
         }),
       });
-
       const data = await response.json();
-
       if (!response.ok) {
         throw new Error(data.error || 'Payment failed');
       }
-
       // Confirm payment
       const result = await stripe.confirmCardPayment(data.clientSecret, {
         payment_method: {
@@ -83,13 +72,11 @@ function CheckoutForm({ priceId, onSuccess }) {
           },
         },
       });
-
       if (result.error) {
         setError(result.error.message);
       } else {
         if (result.paymentIntent.status === 'succeeded') {
           setSucceeded(true);
-          
           // Update user subscription in Firestore
           await updateDoc(doc(db, 'users', user.uid), {
             subscriptionType: 'premium',
@@ -97,7 +84,6 @@ function CheckoutForm({ priceId, onSuccess }) {
             stripeCustomerId: data.customerId,
             stripeSubscriptionId: data.subscriptionId,
           });
-          
           if (onSuccess) {
             onSuccess();
           } else {
@@ -114,7 +100,6 @@ function CheckoutForm({ priceId, onSuccess }) {
       setProcessing(false);
     }
   };
-
   const cardElementOptions = {
     style: {
       base: {
@@ -129,7 +114,6 @@ function CheckoutForm({ priceId, onSuccess }) {
       },
     },
   };
-
   return (
     <form onSubmit={handleSubmit}>
       <Grid container spacing={2}>
@@ -161,19 +145,16 @@ function CheckoutForm({ priceId, onSuccess }) {
           </Box>
         </Grid>
       </Grid>
-
       {error && (
         <Alert severity="error" sx={{ mt: 2 }}>
           {error}
         </Alert>
       )}
-
       {succeeded && (
         <Alert severity="success" sx={{ mt: 2 }}>
           Payment successful! Redirecting to dashboard...
         </Alert>
       )}
-
       <Button
         type="submit"
         fullWidth
@@ -188,7 +169,6 @@ function CheckoutForm({ priceId, onSuccess }) {
           'Subscribe for $9.99/month'
         )}
       </Button>
-
       <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block', textAlign: 'center' }}>
         Your subscription will automatically renew each month.
         Cancel anytime from your profile.
@@ -196,10 +176,8 @@ function CheckoutForm({ priceId, onSuccess }) {
     </form>
   );
 }
-
 function WebPayment() {
   const [selectedPlan, setSelectedPlan] = useState('monthly');
-  
   const plans = {
     monthly: {
       name: 'Monthly Premium',
@@ -229,7 +207,6 @@ function WebPayment() {
       ],
     },
   };
-
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
       <Typography variant="h4" fontWeight="bold" align="center" gutterBottom>
@@ -238,7 +215,6 @@ function WebPayment() {
       <Typography variant="body1" align="center" color="text.secondary" sx={{ mb: 4 }}>
         Unlock premium features and take control of your wellness journey
       </Typography>
-
       <Grid container spacing={3} sx={{ mb: 4 }}>
         {Object.entries(plans).map(([key, plan]) => (
           <Grid item xs={12} md={6} key={key}>
@@ -294,7 +270,6 @@ function WebPayment() {
           </Grid>
         ))}
       </Grid>
-
       <Card>
         <CardContent>
           <Typography variant="h6" gutterBottom>
@@ -305,7 +280,6 @@ function WebPayment() {
           </Elements>
         </CardContent>
       </Card>
-
       <Box sx={{ mt: 4, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
         <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
           Secure Payment
@@ -318,5 +292,4 @@ function WebPayment() {
     </Container>
   );
 }
-
 export default WebPayment;

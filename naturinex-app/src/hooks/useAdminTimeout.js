@@ -1,128 +1,1 @@
-import { useEffect, useRef } from 'react';
-import { Alert } from 'react-native';
-import { getAuth, signOut } from 'firebase/auth';
-import { AppState } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
-
-const ADMIN_TIMEOUT = 15 * 60 * 1000; // 15 minutes
-const WARNING_TIME = 2 * 60 * 1000; // 2 minutes before timeout
-
-export function useAdminTimeout(navigation, isAdmin) {
-  const timeoutRef = useRef(null);
-  const warningRef = useRef(null);
-  const lastActivityRef = useRef(Date.now());
-  const auth = getAuth();
-
-  const resetTimeout = () => {
-    lastActivityRef.current = Date.now();
-    
-    // Clear existing timeouts
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-    }
-    if (warningRef.current) {
-      clearTimeout(warningRef.current);
-    }
-
-    if (!isAdmin) return;
-
-    // Set warning timeout
-    warningRef.current = setTimeout(() => {
-      Alert.alert(
-        '⏰ Session Timeout Warning',
-        'Your admin session will expire in 2 minutes due to inactivity.',
-        [
-          {
-            text: 'Continue Working',
-            onPress: resetTimeout,
-            style: 'cancel'
-          },
-          {
-            text: 'Logout Now',
-            style: 'destructive',
-            onPress: handleTimeout
-          }
-        ]
-      );
-    }, ADMIN_TIMEOUT - WARNING_TIME);
-
-    // Set final timeout
-    timeoutRef.current = setTimeout(() => {
-      handleTimeout();
-    }, ADMIN_TIMEOUT);
-  };
-
-  const handleTimeout = async () => {
-    Alert.alert(
-      '🔒 Session Expired',
-      'Your admin session has expired for security reasons. Please log in again.',
-      [{ text: 'OK' }]
-    );
-
-    try {
-      await signOut(auth);
-      await SecureStore.deleteItemAsync('auth_token');
-      await SecureStore.deleteItemAsync('admin_session');
-      navigation.replace('Login');
-    } catch (error) {
-      console.error('Error during timeout logout:', error);
-    }
-  };
-
-  useEffect(() => {
-    if (!isAdmin) return;
-
-    // Set up activity listeners
-    const activityEvents = [
-      'touchstart',
-      'touchmove',
-      'keypress',
-      'scroll',
-      'click'
-    ];
-
-    // Reset timeout on any activity
-    const handleActivity = () => {
-      const now = Date.now();
-      // Only reset if more than 1 second since last activity
-      if (now - lastActivityRef.current > 1000) {
-        resetTimeout();
-      }
-    };
-
-    // Monitor app state changes
-    const appStateSubscription = AppState.addEventListener('change', (nextAppState) => {
-      if (nextAppState === 'active') {
-        // Check if session should have expired while app was in background
-        const inactiveTime = Date.now() - lastActivityRef.current;
-        if (inactiveTime > ADMIN_TIMEOUT) {
-          handleTimeout();
-        } else {
-          resetTimeout();
-        }
-      }
-    });
-
-    // Start the timeout
-    resetTimeout();
-
-    // Cleanup
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-      if (warningRef.current) {
-        clearTimeout(warningRef.current);
-      }
-      appStateSubscription.remove();
-    };
-  }, [isAdmin]);
-
-  return {
-    resetTimeout,
-    timeUntilTimeout: () => {
-      const elapsed = Date.now() - lastActivityRef.current;
-      return Math.max(0, ADMIN_TIMEOUT - elapsed);
-    }
-  };
-}
+import { useEffect, useRef } from 'react';import { Alert } from 'react-native';import { getAuth, signOut } from 'firebase/auth';import { AppState } from 'react-native';import * as SecureStore from 'expo-secure-store';const ADMIN_TIMEOUT = 15 * 60 * 1000; // 15 minutesconst WARNING_TIME = 2 * 60 * 1000; // 2 minutes before timeoutexport function useAdminTimeout(navigation, isAdmin) {  const timeoutRef = useRef(null);  const warningRef = useRef(null);  const lastActivityRef = useRef(Date.now());  const auth = getAuth();  const resetTimeout = () => {    lastActivityRef.current = Date.now();    // Clear existing timeouts    if (timeoutRef.current) {      clearTimeout(timeoutRef.current);    }    if (warningRef.current) {      clearTimeout(warningRef.current);    }    if (!isAdmin) return;    // Set warning timeout    warningRef.current = setTimeout(() => {      Alert.alert(        '⏰ Session Timeout Warning',        'Your admin session will expire in 2 minutes due to inactivity.',        [          {            text: 'Continue Working',            onPress: resetTimeout,            style: 'cancel'          },          {            text: 'Logout Now',            style: 'destructive',            onPress: handleTimeout          }        ]      );    }, ADMIN_TIMEOUT - WARNING_TIME);    // Set final timeout    timeoutRef.current = setTimeout(() => {      handleTimeout();    }, ADMIN_TIMEOUT);  };  const handleTimeout = async () => {    Alert.alert(      '🔒 Session Expired',      'Your admin session has expired for security reasons. Please log in again.',      [{ text: 'OK' }]    );    try {      await signOut(auth);      await SecureStore.deleteItemAsync('auth_token');      await SecureStore.deleteItemAsync('admin_session');      navigation.replace('Login');    } catch (error) {      console.error('Error during timeout logout:', error);    }  };  useEffect(() => {    if (!isAdmin) return;    // Set up activity listeners    const activityEvents = [      'touchstart',      'touchmove',      'keypress',      'scroll',      'click'    ];    // Reset timeout on any activity    const handleActivity = () => {      const now = Date.now();      // Only reset if more than 1 second since last activity      if (now - lastActivityRef.current > 1000) {        resetTimeout();      }    };    // Monitor app state changes    const appStateSubscription = AppState.addEventListener('change', (nextAppState) => {      if (nextAppState === 'active') {        // Check if session should have expired while app was in background        const inactiveTime = Date.now() - lastActivityRef.current;        if (inactiveTime > ADMIN_TIMEOUT) {          handleTimeout();        } else {          resetTimeout();        }      }    });    // Start the timeout    resetTimeout();    // Cleanup    return () => {      if (timeoutRef.current) {        clearTimeout(timeoutRef.current);      }      if (warningRef.current) {        clearTimeout(warningRef.current);      }      appStateSubscription.remove();    };  }, [isAdmin]);  return {    resetTimeout,    timeUntilTimeout: () => {      const elapsed = Date.now() - lastActivityRef.current;      return Math.max(0, ADMIN_TIMEOUT - elapsed);    }  };}

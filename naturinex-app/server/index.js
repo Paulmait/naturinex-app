@@ -1,1940 +1,1 @@
-const express = require('express');
-const cors = require('cors');
-const rateLimit = require('express-rate-limit');
-const helmet = require('helmet');
-const { body, validationResult } = require('express-validator');
-require('dotenv').config();
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-// Add Firebase Admin SDK for webhook handling
-const { initializeFirebase, isFirebaseAvailable, getFirestore, getAuth, admin } = require('./config/firebase-init');
-const multer = require('multer');
-const axios = require('axios');
-const { extractProductInfo } = require('./utils/productExtraction');
-const { getDeviceId, checkScanLimit, recordScan } = require('./utils/deviceTracking');
-const { getWellnessAlternatives } = require('./data/wellnessAlternatives');
-const { saveScanToHistory, checkPremiumStatus } = require('./services/scanTracking');
-const { getUserPricingGroup, getAllPricingTiers, getPromotionalOffer, trackPricingEvent, validCoupons } = require('./services/pricingAB');
-const { checkStudentStatus, verifyStudent, getStudentBenefits } = require('./services/studentVerification');
-const { getApplicableCoupons, trackCouponUsage, trackReferral } = require('./services/couponTracking');
-const { IntegratedNaturalAPI } = require('./services/externalAPIs');
-const adminRoutes = require('./routes/adminRoutes');
-const optimizedSearch = require('./services/optimizedSearch');
-const DataIngestionOrchestrator = require('./services/dataIngestion/dataIngestionOrchestrator');
-// Cloud functions - these will be deployed separately
-// const { scheduledIngestion, manualIngestion } = require('./functions/dataIngestion');
-// const { handleIngestionTask, handleBatchIngestion } = require('./functions/cloudTasks');
-const dataIngestionRoutes = require('./routes/dataIngestionRoute');
-
-// Configure multer for image uploads
-const upload = multer({ 
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
-  fileFilter: (req, file, cb) => {
-    // Accept images only
-    if (!file.mimetype.startsWith('image/')) {
-      return cb(new Error('Only image files are allowed'), false);
-    }
-    cb(null, true);
-  }
-});
-
-// Validate required environment variables
-const requiredEnvVars = [
-  'GEMINI_API_KEY',
-  'STRIPE_SECRET_KEY',
-  'STRIPE_WEBHOOK_SECRET'
-];
-
-const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);
-if (missingEnvVars.length > 0) {
-  console.error('❌ Missing required environment variables:', missingEnvVars);
-  console.error('Please check your .env file and ensure all required variables are set.');
-  process.exit(1);
-}
-
-// Initialize Firebase Admin SDK
-initializeFirebase();
-
-const app = express();
-
-// Trust proxy headers (required for cloud platforms like Render)
-// Set trust proxy based on environment
-// For Render.com, we trust their proxy headers
-if (process.env.NODE_ENV === 'production') {
-  // Render uses specific proxy headers
-  app.set('trust proxy', 1); // Trust first proxy
-} else {
-  app.set('trust proxy', false); // No proxy in development
-}
-
-// 🔒 COMPREHENSIVE SECURITY CONFIGURATION
-
-// Request size limits to prevent DoS
-// Note: express.json() is added later after webhook routes
-app.use(express.urlencoded({ limit: '1mb', extended: true }));
-
-// Enhanced security headers
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "https:"],
-      scriptSrc: ["'self'"],
-      connectSrc: ["'self'", "https://api.stripe.com"],
-      frameSrc: ["https://js.stripe.com"]
-    }
-  },
-  hsts: {
-    maxAge: 31536000,
-    includeSubDomains: true,
-    preload: true
-  }
-}));
-
-// Additional security headers
-app.use((req, res, next) => {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('X-XSS-Protection', '1; mode=block');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
-  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-  next();
-});
-
-// Rate limiting for different endpoints
-const generalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // 100 requests per window
-  message: { error: 'Too many requests, please try again later' },
-  standardHeaders: true,
-  legacyHeaders: false,
-  // Properly handle proxy for Render deployment
-  keyGenerator: (req) => {
-    // Use X-Forwarded-For header if in production (Render)
-    if (process.env.NODE_ENV === 'production') {
-      return req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip;
-    }
-    return req.ip;
-  },
-  skip: (req) => {
-    // Skip rate limiting for health checks
-    return req.path === '/health';
-  }
-});
-
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 authentication attempts per window
-  message: { error: 'Too many authentication attempts' },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => {
-    if (process.env.NODE_ENV === 'production') {
-      return req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip;
-    }
-    return req.ip;
-  }
-});
-
-const apiLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
-  max: 10, // 10 API calls per minute
-  message: { error: 'API rate limit exceeded' },
-  standardHeaders: true,
-  legacyHeaders: false,
-  keyGenerator: (req) => {
-    if (process.env.NODE_ENV === 'production') {
-      return req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip;
-    }
-    return req.ip;
-  }
-});
-
-// Apply rate limiting
-app.use('/api/auth', authLimiter);
-app.use('/api/analyze', apiLimiter);
-app.use(generalLimiter);
-
-// Input validation middleware
-const validateInput = (req, res, next) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({ 
-      error: 'Invalid input',
-      details: errors.array().map(err => ({
-        field: err.param,
-        message: err.msg
-      }))
-    });
-  }
-  next();
-};
-
-// Enhanced error handling middleware
-const errorHandler = (err, req, res, next) => {
-  // Log full error for debugging (never send to client)
-  console.error('🚨 Server Error:', {
-    error: err.message,
-    stack: err.stack,
-    url: req.url,
-    method: req.method,
-    ip: req.ip,
-    userAgent: req.get('User-Agent'),
-    timestamp: new Date().toISOString()
-  });
-  
-  // Send sanitized error to client
-  res.status(err.status || 500).json({
-    error: process.env.NODE_ENV === 'production' 
-      ? 'Internal server error' 
-      : err.message,
-    requestId: req.id || 'unknown',
-    timestamp: new Date().toISOString()
-  });
-};
-
-// Webhook verification middleware
-const verifyStripeWebhook = (req, res, next) => {
-  const signature = req.headers['stripe-signature'];
-  
-  try {
-    // Verify webhook signature
-    stripe.webhooks.constructEvent(req.body, signature, process.env.STRIPE_WEBHOOK_SECRET);
-    next();
-  } catch (err) {
-    console.error('⚠️ Webhook signature verification failed:', err.message);
-    return res.status(400).send('Invalid webhook signature');
-  }
-};
-
-// Security middleware
-app.use(helmet());
-app.use(cors({
-  origin: process.env.CORS_ORIGIN ? 
-    process.env.CORS_ORIGIN.split(',') : 
-    (process.env.NODE_ENV === 'production' 
-      ? ['https://naturinex.com', 'https://www.naturinex.com'] 
-      : [
-          'http://localhost:3000', 
-          'http://localhost:3001', 
-          'http://localhost:3003', 
-          'http://localhost:3004', 
-          'http://127.0.0.1:3000',
-          'http://10.0.0.74:3000',    // Mobile testing
-          'http://10.0.0.74:3001',    // Mobile testing
-          'http://10.0.0.74:3003',    // Mobile testing
-          'http://10.0.0.74:3004'     // Mobile testing
-        ]),
-  credentials: true
-}));
-
-// Rate limiting
-const createRateLimit = (windowMs, max, message) => rateLimit({
-  windowMs,
-  max,
-  message: { error: message },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-// General API rate limit
-app.use('/api/', createRateLimit(15 * 60 * 1000, 100, 'Too many API requests'));
-
-// Strict rate limit for AI suggestions
-app.use('/suggest', createRateLimit(60 * 1000, 10, 'Too many AI requests - please wait'));
-
-// Stripe webhook endpoints need raw body - must be before express.json()
-app.use('/webhook', express.raw({ type: 'application/json' }));
-app.use('/webhooks/stripe', express.raw({ type: 'application/json' }));
-
-app.use(express.json({ limit: '10mb' }));
-
-// Request logging middleware
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - IP: ${req.ip}`);
-  next();
-});
-
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({ 
-    error: process.env.NODE_ENV === 'production' 
-      ? 'Internal server error' 
-      : err.message 
-  });
-});
-
-// Check if API key is configured
-if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_api_key_here') {
-  console.warn('⚠️  Warning: GEMINI_API_KEY is not properly configured in .env file');
-}
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
-// Firebase Authentication middleware
-const authenticateUser = async (req, res, next) => {
-  try {
-    // Get the authorization header
-    const authHeader = req.headers.authorization;
-    
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized: No token provided' });
-    }
-    
-    // Extract the token
-    const token = authHeader.split('Bearer ')[1];
-    
-    try {
-      // Check if Firebase is available
-      const auth = getAuth();
-      if (!auth) {
-        console.warn('Firebase Auth not available, skipping authentication');
-        // For development, allow guest access
-        req.user = {
-          uid: 'guest_' + Date.now(),
-          email: 'guest@example.com',
-          emailVerified: false
-        };
-        return next();
-      }
-      
-      // Verify the token with Firebase Admin
-      const decodedToken = await auth.verifyIdToken(token);
-      
-      // Attach user info to request
-      req.user = {
-        uid: decodedToken.uid,
-        email: decodedToken.email,
-        emailVerified: decodedToken.email_verified
-      };
-      
-      next();
-    } catch (error) {
-      console.error('Token verification failed:', error.message);
-      return res.status(401).json({ error: 'Unauthorized: Invalid token' });
-    }
-  } catch (error) {
-    console.error('Authentication error:', error);
-    return res.status(500).json({ error: 'Authentication failed' });
-  }
-};
-
-// Input validation middleware
-const validateMedicationInput = (req, res, next) => {
-  const { medicationName } = req.body;
-  
-  if (!medicationName || typeof medicationName !== 'string') {
-    return res.status(400).json({ error: 'Medication name is required and must be a string' });
-  }
-  
-  const trimmed = medicationName.trim();
-  if (trimmed.length === 0) {
-    return res.status(400).json({ error: 'Medication name cannot be empty' });
-  }
-  
-  if (trimmed.length > 100) {
-    return res.status(400).json({ error: 'Medication name too long (max 100 characters)' });
-  }
-  
-  // Basic sanitization - remove potentially harmful characters
-  const sanitized = trimmed.replace(/[<>\"'&]/g, '');
-  req.body.medicationName = sanitized;
-  
-  next();
-};
-
-// Initialize integrated natural APIs
-const integratedAPI = new IntegratedNaturalAPI();
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'Server is running', 
-    timestamp: new Date().toISOString(),
-    version: '2.0.0',
-    features: ['AI Analysis', 'Premium Tiers', 'Rate Limiting', 'Security Headers', 'External APIs'],
-    environment: process.env.NODE_ENV || 'development'
-  });
-});
-
-// Admin routes (protected)
-app.use('/api/admin', adminRoutes);
-
-// Data ingestion routes
-app.use('/api/data', dataIngestionRoutes);
-
-// Enhanced alternatives endpoint - now using pre-ingested data for speed
-app.get('/api/alternatives/:medication', apiLimiter, async (req, res) => {
-  try {
-    const { medication } = req.params;
-    const { useCache = true } = req.query; // Allow forcing real-time API calls
-    
-    // Use optimized search by default (pre-ingested data)
-    if (useCache) {
-      const cachedResults = await optimizedSearch.searchByMedication(medication);
-      
-      if (cachedResults.alternatives.length > 0) {
-        return res.json({
-          medication,
-          alternatives: cachedResults.alternatives,
-          searchTime: cachedResults.searchTime,
-          dataSource: 'optimized-cache',
-          lastUpdated: cachedResults.lastUpdated
-        });
-      }
-    }
-    
-    // Fallback to real-time API calls if needed
-    const [localAlternatives, externalData] = await Promise.all([
-      getWellnessAlternatives(medication),
-      integratedAPI.getComprehensiveAlternatives(medication)
-    ]);
-    
-    // Combine and enhance the results
-    const combinedAlternatives = {
-      medication,
-      localDatabase: localAlternatives,
-      pubchem: externalData?.chemicalData,
-      traditionalMedicine: externalData?.traditionalMedicine,
-      herbsSupplements: externalData?.herbsSupplements,
-      naturalSources: externalData?.naturalSources,
-      recommendations: generateSmartRecommendations(
-        localAlternatives,
-        externalData
-      ),
-      dataSource: 'real-time-api'
-    };
-    
-    res.json(combinedAlternatives);
-  } catch (error) {
-    console.error('Alternatives API error:', error);
-    res.status(500).json({ error: 'Failed to fetch alternatives' });
-  }
-});
-
-// Search alternatives by condition
-app.get('/api/alternatives/condition/:condition', apiLimiter, async (req, res) => {
-  try {
-    const { condition } = req.params;
-    const results = await integratedAPI.searchByCondition(condition);
-    res.json(results);
-  } catch (error) {
-    console.error('Condition search error:', error);
-    res.status(500).json({ error: 'Failed to search by condition' });
-  }
-});
-
-// Helper function to generate smart recommendations
-function generateSmartRecommendations(local, external) {
-  const recommendations = [];
-  
-  // Combine all sources
-  if (local?.alternatives) {
-    recommendations.push(...local.alternatives.map(alt => ({
-      ...alt,
-      source: 'Naturinex Database',
-      confidence: 'High'
-    })));
-  }
-  
-  if (external?.traditionalMedicine?.length > 0) {
-    recommendations.push(...external.traditionalMedicine.map(tm => ({
-      name: tm.name,
-      effectiveness: 'Traditional',
-      description: tm.traditionalUse,
-      dosage: tm.dosage,
-      source: 'WHO Traditional Medicine',
-      confidence: 'Established'
-    })));
-  }
-  
-  if (external?.herbsSupplements?.length > 0) {
-    recommendations.push(...external.herbsSupplements.map(herb => ({
-      name: herb.name,
-      effectiveness: herb.clinicalEvidence,
-      description: herb.mechanism,
-      dosage: herb.dosage,
-      source: 'MSKCC Database',
-      confidence: herb.clinicalEvidence
-    })));
-  }
-  
-  // Sort by confidence/effectiveness
-  return recommendations.sort((a, b) => {
-    const rank = { 'High': 4, 'Established': 3, 'Good': 3, 'Moderate': 2, 'Traditional': 1 };
-    return (rank[b.confidence] || 0) - (rank[a.confidence] || 0);
-  });
-}
-
-app.post('/suggest', [
-  body('medicationName')
-    .isLength({ min: 1, max: 100 })
-    .trim()
-    .escape()
-    .matches(/^[a-zA-Z0-9\s\-\.\/]+$/)
-    .withMessage('Medication name contains invalid characters'),
-  body('userTier')
-    .optional()
-    .isIn(['free', 'basic', 'premium', 'professional', 'beta'])
-    .withMessage('Invalid user tier'),
-  body('advancedAnalysis')
-    .optional()
-    .isBoolean()
-    .withMessage('Advanced analysis must be boolean'),
-  validateInput
-], async (req, res) => {
-  const { medicationName, userTier = 'free', advancedAnalysis = false } = req.body;
-  
-  // Validate input
-  if (!medicationName || typeof medicationName !== 'string' || !medicationName.trim()) {
-    return res.status(400).json({ error: 'Medication name is required and must be a non-empty string' });
-  }
-
-  // Check API key
-  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_api_key_here') {
-    return res.status(500).json({ error: 'AI service not configured properly' });
-  }
-  
-  // Debug logging to verify tier and advanced analysis
-  console.log(`🔍 AI Request: ${medicationName}`);
-  console.log(`👤 User Tier: ${userTier}`);
-  console.log(`🧠 Advanced Analysis: ${advancedAnalysis}`);
-  console.log(`🤖 AI Model: ${(userTier === 'premium' || userTier === 'professional') && advancedAnalysis ? 'Gemini Pro' : 'Gemini Flash'}`);
-  
-  try {
-    let suggestions;
-    
-    if ((userTier === 'premium' || userTier === 'professional') && advancedAnalysis) {
-      // Premium/Professional users get comprehensive analysis with Gemini Pro
-      console.log('🎯 Using Premium AI Response with Gemini Pro');
-      suggestions = await getPremiumAIResponse(medicationName.trim());
-    } else {
-      // Free/Basic users get standard response with Gemini Flash
-      console.log('📱 Using Basic AI Response with Gemini Flash');
-      suggestions = await getBasicAIResponse(medicationName.trim());
-    }
-    
-    res.json({ suggestions });
-  } catch (error) {
-    console.error('AI API Error:', error);
-    
-    if (error.message.includes('API_KEY')) {
-      res.status(500).json({ error: 'Invalid API key configuration' });
-    } else if (error.message.includes('quota')) {
-      res.status(429).json({ error: 'API quota exceeded. Please try again later.' });
-    } else {
-      res.status(500).json({ error: 'AI service temporarily unavailable' });
-    }
-  }
-});
-
-// Premium AI response with comprehensive analysis
-async function getPremiumAIResponse(medicationName) {
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" }); // Use Pro model for premium
-  
-  const prompt = `As a comprehensive medical AI assistant with access to clinical research databases, provide an in-depth analysis for the medication "${medicationName}":
-
-🔍 COMPREHENSIVE MEDICATION OVERVIEW:
-- Primary therapeutic uses and FDA-approved indications
-- Detailed mechanism of action (molecular level)
-- Pharmacokinetics: absorption, distribution, metabolism, excretion
-- Standard dosing protocols for different conditions
-- Onset of action and therapeutic duration
-- Bioavailability and factors affecting absorption
-
-🧬 DRUG INTERACTIONS & CONTRAINDICATIONS:
-- Major drug-drug interactions (CYP450 pathways)
-- Drug-food interactions with clinical significance
-- Drug-supplement interactions (vitamins, minerals, herbs)
-- Contraindications and relative contraindications
-- Special populations: pregnancy, breastfeeding, elderly, pediatric
-- Genetic polymorphisms affecting drug response
-
-🌿 EVIDENCE-BASED NATURAL ALTERNATIVES:
-- Clinical trials supporting natural alternatives (provide study references when possible)
-- Herbal medicines with comparable efficacy
-- Nutritional interventions with research backing
-- Supplement protocols with dosing recommendations
-- Comparative effectiveness vs conventional treatment
-- Safety profiles and potential side effects of alternatives
-
-💊 COMPREHENSIVE SIDE EFFECT PROFILE:
-- Common adverse effects (>10% incidence)
-- Serious but rare adverse effects (<1% but clinically significant)
-- Long-term effects and dependency potential
-- Monitoring requirements and frequency
-- Early warning signs of toxicity
-
-🍃 HOLISTIC TREATMENT APPROACH:
-- Lifestyle modifications with evidence-based support
-- Dietary changes specific to the medication's therapeutic goals
-- Exercise protocols tailored to the medical condition
-- Stress reduction techniques with clinical validation
-- Sleep hygiene recommendations
-- Mindfulness and behavioral interventions
-
-📊 CLINICAL MONITORING PROTOCOLS:
-- Baseline assessments before starting treatment
-- Routine monitoring intervals and specific tests
-- Therapeutic drug monitoring when applicable
-- Biomarkers for efficacy and safety
-- Patient-reported outcome measures
-- Red flag symptoms requiring immediate medical attention
-
-🔄 TAPERING & DISCONTINUATION:
-- Evidence-based tapering schedules
-- Withdrawal syndrome characteristics and management
-- Natural bridging therapies during transition
-- Timeline for safe discontinuation
-- Rebound effect prevention strategies
-- When to seek immediate medical supervision
-
-⚕️ CLINICAL PEARLS:
-- Optimization strategies for maximum therapeutic benefit
-- Patient counseling points for adherence
-- Cost-effective alternatives within the same drug class
-- Emerging research and future directions
-- Integration with complementary therapies
-
-IMPORTANT MEDICAL DISCLAIMER: This analysis is for educational purposes only. All medication decisions require consultation with qualified healthcare professionals. Never discontinue prescribed medications without medical supervision. In emergency situations, contact emergency medical services immediately.
-
-Please provide specific, evidence-based recommendations while emphasizing the critical importance of professional medical oversight for any treatment modifications.`;
-  const result = await model.generateContent(prompt);
-  return result.response.text();
-}
-
-// Basic AI response for free/basic users
-async function getBasicAIResponse(medicationName) {
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // Use Flash model for basic
-  
-  const prompt = `Suggest natural alternatives and complementary approaches for the medication "${medicationName}". 
-
-Please provide:
-- Safe, evidence-based natural alternatives
-- Lifestyle changes that may help
-- Dietary modifications to consider
-- Important safety considerations
-
-Always emphasize consulting healthcare professionals before making any changes to prescribed medications.
-
-Keep the response concise but informative.`;
-
-  const result = await model.generateContent(prompt);
-  return result.response.text();
-}
-
-// Medication analysis endpoints
-app.post('/api/analyze/name', [
-  body('medicationName')
-    .isLength({ min: 1, max: 100 })
-    .trim()
-    .escape()
-    .withMessage('Invalid medication name'),
-  validateInput
-], async (req, res) => {
-  try {
-    const { medicationName } = req.body;
-    
-    // Check API key
-    if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_api_key_here') {
-      return res.status(500).json({ error: 'AI service not configured properly' });
-    }
-
-    console.log(`📊 Analyzing medication by name: ${medicationName}`);
-    
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    
-    const prompt = `Analyze the medication "${medicationName}" and provide educational wellness information.
-    
-    Format the response as a JSON object with the following structure:
-    {
-      "medicationName": "string",
-      "medicationType": "string (e.g., 'Pain Relief', 'Antibiotic', etc.)",
-      "wellness_info": [
-        {
-          "name": "string",
-          "effectiveness": "string (High/Moderate/Low)",
-          "description": "string",
-          "benefits": ["string", "string"]
-        }
-      ],
-      "warnings": ["string"]
-    }
-    
-    Provide 2-3 natural alternatives with evidence-based information.
-    Include important warnings about not stopping prescribed medications without medical consultation.`;
-
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
-    
-    // Try to parse as JSON, fallback to structured response
-    let analysisResult;
-    try {
-      // Clean the response text to extract JSON
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        analysisResult = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error('No JSON found in response');
-      }
-    } catch (parseError) {
-      // Fallback structure if JSON parsing fails
-      analysisResult = {
-        medicationName: medicationName,
-        medicationType: 'Medication',
-        alternatives: [{
-          name: 'Natural Alternative',
-          effectiveness: 'Moderate',
-          description: responseText,
-          benefits: ['Consult healthcare provider for specific alternatives']
-        }],
-        warnings: ['Always consult with healthcare professionals before making medication changes']
-      };
-    }
-    
-    res.json(analysisResult);
-  } catch (error) {
-    console.error('Analysis error:', error);
-    res.status(500).json({ error: 'Failed to analyze medication' });
-  }
-});
-
-app.post('/api/analyze/barcode', [
-  body('barcode')
-    .isLength({ min: 1, max: 100 })
-    .trim()
-    .escape()
-    .withMessage('Invalid barcode'),
-  validateInput
-], async (req, res) => {
-  try {
-    const { barcode } = req.body;
-    
-    console.log(`📊 Analyzing medication by barcode: ${barcode}`);
-    
-    // In a real app, you would look up the barcode in a database
-    // For now, we'll use AI to suggest what the medication might be
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-    
-    const prompt = `Common medications associated with barcode patterns like "${barcode}".
-    Note: This is an estimation. Provide general natural health alternatives for common medications.
-    
-    Format as JSON with structure:
-    {
-      "medicationName": "Unknown Medication",
-      "medicationType": "General Health",
-      "wellness_info": [
-        {
-          "name": "string",
-          "effectiveness": "string",
-          "description": "string",
-          "benefits": ["string"]
-        }
-      ],
-      "warnings": ["string"]
-    }`;
-
-    const result = await model.generateContent(prompt);
-    const responseText = result.response.text();
-    
-    let analysisResult;
-    try {
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        analysisResult = JSON.parse(jsonMatch[0]);
-      } else {
-        throw new Error('No JSON found');
-      }
-    } catch (parseError) {
-      analysisResult = {
-        medicationName: 'Unknown Medication',
-        medicationType: 'General Health',
-        alternatives: [{
-          name: 'General Wellness Approach',
-          effectiveness: 'Varies',
-          description: 'Please scan the medication label or enter the name directly for specific alternatives.',
-          benefits: ['Accurate identification needed for proper recommendations']
-        }],
-        warnings: ['Barcode lookup requires medication database integration']
-      };
-    }
-    
-    res.json(analysisResult);
-  } catch (error) {
-    console.error('Barcode analysis error:', error);
-    res.status(500).json({ error: 'Failed to analyze barcode' });
-  }
-});
-
-app.post('/api/analyze', upload.single('image'), async (req, res) => {
-  try {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No image provided' });
-    }
-
-    // Get device ID and IP for tracking
-    const deviceId = getDeviceId(req);
-    const ipAddress = req.ip || req.connection.remoteAddress;
-    console.log(`📊 Analyzing medication from image - IP: ${ipAddress}`);
-    
-    // Check scan limits (TODO: get user info from auth header if available)
-    const userId = null; // TODO: Extract from JWT token if authenticated
-    const isPremium = false; // TODO: Check user's premium status
-    
-    const scanCheck = checkScanLimit(deviceId, userId, isPremium);
-    if (!scanCheck.allowed) {
-      return res.status(429).json({
-        error: 'Scan limit reached',
-        message: scanCheck.message,
-        remaining: scanCheck.remaining,
-        resetTime: scanCheck.resetTime
-      });
-    }
-    
-    // Check if Google Vision API is configured
-    if (process.env.GOOGLE_VISION_API_KEY) {
-      try {
-        // Convert image to base64
-        const imageBase64 = req.file.buffer.toString('base64');
-        
-        // Call Google Vision API
-        const visionResponse = await axios.post(
-          `https://vision.googleapis.com/v1/images:annotate?key=${process.env.GOOGLE_VISION_API_KEY}`,
-          {
-            requests: [{
-              image: { content: imageBase64 },
-              features: [{ type: 'TEXT_DETECTION', maxResults: 10 }]
-            }]
-          }
-        );
-        
-        const detectedText = visionResponse.data.responses[0]?.fullTextAnnotation?.text || '';
-        console.log('Detected text:', detectedText.substring(0, 200));
-        
-        if (!detectedText) {
-          return res.status(400).json({ 
-            error: 'Could not read text from image. Please ensure the medication label is clear and try again, or use manual entry.' 
-          });
-        }
-        
-        // Use enhanced extraction logic
-        const productInfo = extractProductInfo(detectedText);
-        console.log('OCR detected text:', detectedText);
-        console.log('Extracted product info:', JSON.stringify(productInfo, null, 2));
-        
-        const medicationName = productInfo.productName;
-        
-        // Use Gemini AI to analyze the detected medication
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-        
-        const prompt = `Analyze the medication "${medicationName}" and provide educational wellness information.
-        
-        Format the response as a JSON object with the following structure:
-        {
-          "medicationName": "string",
-          "medicationType": "string",
-          "wellness_info": [
-            {
-              "name": "string",
-              "effectiveness": "string (High/Moderate/Low)",
-              "description": "string",
-              "benefits": ["string"]
-            }
-          ],
-          "warnings": ["string"]
-        }`;
-        
-        const result = await model.generateContent(prompt);
-        const text = result.response.text();
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        
-        if (jsonMatch) {
-          const analysisResult = JSON.parse(jsonMatch[0]);
-          
-          // Get curated wellness alternatives
-          const curatedAlternatives = getWellnessAlternatives(productInfo.activeIngredient || productInfo.productName);
-          
-          // Merge AI suggestions with curated database
-          if (curatedAlternatives && curatedAlternatives.length > 0) {
-            analysisResult.wellness_info = curatedAlternatives;
-          }
-          
-          // Record successful scan
-          const scanResult = recordScan(deviceId, userId);
-          
-          // Save to scan history (always save for AI training, even without userId)
-          const startTime = Date.now();
-          try {
-            await saveScanToHistory(userId || 'anonymous', {
-              deviceId,
-              productInfo,
-              ocrRawText: detectedText,
-              ocrConfidence: detectedText.length > 20 ? 'high' : 'low',
-              alternatives: curatedAlternatives || analysisResult.wellness_info,
-              warnings: analysisResult.warnings,
-              medicationType: analysisResult.medicationType,
-              ipAddress,
-              scanMethod: 'camera',
-              processingTime: Date.now() - startTime
-            });
-          } catch (historyError) {
-            console.error('Failed to save scan history:', historyError);
-          }
-          
-          res.json({
-            ...analysisResult,
-            detectedFromImage: true,
-            ocrConfidence: detectedText.length > 20 ? 'high' : 'low',
-            productInfo: productInfo,
-            scansRemaining: scanResult.remaining
-          });
-        } else {
-          throw new Error('Invalid AI response format');
-        }
-        
-      } catch (visionError) {
-        console.error('Vision API error:', visionError.message);
-        // Fall back to mock response
-        const scanResult = recordScan(deviceId, userId);
-        const mockResponse = getMockImageAnalysis();
-        return res.json({
-          ...mockResponse,
-          scansRemaining: scanResult.remaining
-        });
-      }
-    } else {
-      // No Vision API configured - return helpful mock data
-      console.log('⚠️  Google Vision API not configured - using mock response');
-      const scanResult = recordScan(deviceId, userId);
-      const mockResponse = getMockImageAnalysis();
-      return res.json({
-        ...mockResponse,
-        scansRemaining: scanResult.remaining,
-        isMockData: true,
-        message: 'Google Vision API not configured. Please add GOOGLE_VISION_API_KEY to enable real OCR.',
-        instructions: 'To enable real camera OCR: 1) Get Google Cloud Vision API key, 2) Add to server environment variables'
-      });
-    }
-    
-  } catch (error) {
-    console.error('Image analysis error:', error);
-    res.status(500).json({ 
-      error: 'Failed to analyze image. Please try manual entry instead.' 
-    });
-  }
-});
-
-// Helper function for mock responses
-function getMockImageAnalysis() {
-  const mockMedications = [
-    { name: 'Ibuprofen', type: 'Pain Relief/Anti-inflammatory' },
-    { name: 'Aspirin', type: 'Pain Relief/Blood Thinner' },
-    { name: 'Amoxicillin', type: 'Antibiotic' },
-    { name: 'Metformin', type: 'Diabetes Medication' }
-  ];
-  
-  const selected = mockMedications[Math.floor(Math.random() * mockMedications.length)];
-  
-  return {
-    medicationName: selected.name,
-    medicationType: selected.type,
-    detectedFromImage: true,
-    isMockData: true,
-    alternatives: [
-      {
-        name: 'Natural Alternative',
-        effectiveness: 'Moderate',
-        description: 'This is mock data. To enable real OCR, add Google Vision API key to your server.',
-        benefits: ['Educational purposes only', 'Real analysis requires API setup']
-      }
-    ],
-    warnings: [
-      'This is mock data for testing purposes',
-      'To enable real camera OCR, configure Google Vision API',
-      'Always consult healthcare professionals'
-    ]
-  };
-}
-
-// Stripe payment endpoints - moved to authenticated endpoint below
-
-// Get Stripe public key
-app.get('/stripe-config', (req, res) => {
-  res.json({
-    publicKey: process.env.STRIPE_PUBLISHABLE_KEY || 'pk_test_51234567890abcdefghijklmnopqrstuvwxyz',
-  });
-});
-
-// Verify payment session
-app.get('/verify-session/:sessionId', async (req, res) => {
-  try {
-    const { sessionId } = req.params;
-    const session = await stripe.checkout.sessions.retrieve(sessionId);
-    
-    res.json({
-      paymentStatus: session.payment_status,
-      customerEmail: session.customer_email,
-      userId: session.metadata.userId,
-    });
-  } catch (error) {
-    console.error('Session verification error:', error);
-    res.status(500).json({ error: 'Failed to verify session' });
-  }
-});
-
-// Test endpoint to simulate successful payment (for testing without real payment)
-app.post('/test-premium-upgrade', async (req, res) => {
-  try {
-    const { userId } = req.body;
-    
-    if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
-    }
-    
-    console.log(`✅ Test premium upgrade request for user: ${userId}`);
-    
-    // For now, we'll return success and let the client handle the Firestore update
-    // In production, this would be handled by Stripe webhooks with proper Firebase Admin
-    res.json({
-      success: true,
-      message: 'Premium upgrade successful (test mode)',
-      userId: userId,
-      premiumStatus: true,
-      // Include timestamp for client to use
-      timestamp: Date.now()
-    });
-  } catch (error) {
-    console.error('Test upgrade error:', error);
-    res.status(500).json({ error: 'Test upgrade failed', details: error.message });
-  }
-});
-
-// 🔗 STRIPE CHECKOUT SESSION CREATION
-app.post('/api/create-checkout-session', authenticateUser, async (req, res) => {
-  try {
-    const { priceId, userId, userEmail, couponCode, trialDays } = req.body;
-    
-    if (!priceId || !userId || !userEmail) {
-      return res.status(400).json({ error: 'Missing required fields' });
-    }
-    
-    // Create checkout session with dynamic pricing
-    const sessionConfig = {
-      payment_method_types: ['card'],
-      line_items: [{
-        price: priceId,
-        quantity: 1,
-      }],
-      mode: 'subscription',
-      success_url: `${req.headers.origin || 'https://naturinex-app.web.app'}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${req.headers.origin || 'https://naturinex-app.web.app'}/subscription`,
-      customer_email: userEmail,
-      metadata: {
-        userId: userId
-      },
-      subscription_data: {
-        metadata: {
-          userId: userId
-        }
-      },
-      allow_promotion_codes: true // Enable promo code input in Stripe checkout
-    };
-    
-    // Add trial period - default to 7 days, or 14 days for students
-    const defaultTrialDays = 7;
-    const studentTrialDays = 14;
-    
-    // Check if user is a verified student for extended trial
-    let finalTrialDays = trialDays || defaultTrialDays;
-    
-    try {
-      const userDoc = await admin.firestore().collection('users').doc(userId).get();
-      if (userDoc.exists) {
-        const userData = userDoc.data();
-        if (userData.studentVerification?.verified) {
-          finalTrialDays = studentTrialDays; // Students get 14-day trial
-        }
-      }
-    } catch (error) {
-      console.log('Could not check student status for trial period');
-    }
-    
-    // Always add trial period
-    sessionConfig.subscription_data.trial_period_days = finalTrialDays;
-    
-    // Apply coupon if provided
-    if (couponCode) {
-      sessionConfig.discounts = [{
-        coupon: couponCode
-      }];
-    }
-    
-    const session = await stripe.checkout.sessions.create(sessionConfig);
-    
-    res.json({ sessionUrl: session.url });
-  } catch (error) {
-    console.error('Checkout session error:', error);
-    res.status(500).json({ error: 'Failed to create checkout session' });
-  }
-});
-
-// 📋 GET USER SUBSCRIPTION DATA
-app.get('/api/user/:userId/subscription', authenticateUser, async (req, res) => {
-  try {
-    const { userId } = req.params;
-    
-    // Verify the user is requesting their own data
-    if (req.user.uid !== userId) {
-      return res.status(403).json({ error: 'Unauthorized access' });
-    }
-    
-    const userDoc = await admin.firestore().collection('users').doc(userId).get();
-    
-    if (!userDoc.exists) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    const userData = userDoc.data();
-    
-    res.json({
-      isPremium: userData.isPremium || false,
-      subscriptionId: userData.subscriptionId || null,
-      subscriptionStatus: userData.subscriptionStatus || 'none',
-      subscriptionStartDate: userData.subscriptionStartDate,
-      customerEmail: userData.customerEmail
-    });
-  } catch (error) {
-    console.error('Get subscription error:', error);
-    res.status(500).json({ error: 'Failed to get subscription data' });
-  }
-});
-
-// 🚫 CANCEL SUBSCRIPTION
-app.post('/api/cancel-subscription', authenticateUser, async (req, res) => {
-  try {
-    const { subscriptionId, userId } = req.body;
-    
-    if (!subscriptionId) {
-      return res.status(400).json({ error: 'Subscription ID is required' });
-    }
-    
-    // Cancel the subscription in Stripe
-    const subscription = await stripe.subscriptions.update(subscriptionId, {
-      cancel_at_period_end: true
-    });
-    
-    // Update user's subscription status in Firestore
-    await admin.firestore().collection('users').doc(userId).update({
-      subscriptionStatus: 'canceling',
-      cancelAtPeriodEnd: true,
-      cancelDate: admin.firestore.FieldValue.serverTimestamp()
-    });
-    
-    res.json({ 
-      success: true, 
-      message: 'Subscription will be canceled at the end of the current billing period',
-      cancelAt: subscription.cancel_at
-    });
-  } catch (error) {
-    console.error('Cancel subscription error:', error);
-    res.status(500).json({ error: error.message || 'Failed to cancel subscription' });
-  }
-});
-
-// 💰 PRICING ENDPOINTS FOR A/B TESTING
-app.get('/api/pricing/:userId', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    
-    // Handle guest users
-    const isGuest = userId.startsWith('guest_');
-    let userData = {};
-    
-    if (!isGuest) {
-      // Get user context for intelligent coupon selection
-      const userDoc = await admin.firestore().collection('users').doc(userId).get();
-      userData = userDoc.exists ? userDoc.data() : {};
-    }
-    
-    // Build user context
-    const userContext = {
-      isStudent: false,
-      isNewUser: true,
-      daysSinceSignup: 0,
-      daysSinceLastActive: 0,
-      totalScans: userData.totalScans || 0,
-      referredBy: userData.referredBy || null
-    };
-    
-    // Calculate days since signup
-    if (userData.metadata?.createdAt) {
-      const createdAt = userData.metadata.createdAt.toDate();
-      userContext.daysSinceSignup = Math.floor((Date.now() - createdAt) / (1000 * 60 * 60 * 24));
-      userContext.isNewUser = userContext.daysSinceSignup <= 7;
-    }
-    
-    // Calculate days since last active
-    if (userData.metadata?.lastActiveDate) {
-      const lastActive = userData.metadata.lastActiveDate.toDate();
-      userContext.daysSinceLastActive = Math.floor((Date.now() - lastActive) / (1000 * 60 * 60 * 24));
-    }
-    
-    // Check student status (only for non-guest users)
-    if (!isGuest) {
-      const studentStatus = await checkStudentStatus(userId);
-      userContext.isStudent = studentStatus.isStudent;
-    }
-    
-    // Get all pricing tiers with A/B test for Basic
-    const tiers = getAllPricingTiers(userId);
-    
-    // Get all applicable coupons
-    const { bestCoupon, allCoupons } = await getApplicableCoupons(userId, userContext);
-    
-    // Get student benefits if applicable
-    const studentBenefits = userContext.isStudent ? await getStudentBenefits(userId) : null;
-    
-    // Track pricing view event
-    await trackPricingEvent({
-      userId,
-      event: 'viewed_pricing',
-      pricingGroup: tiers.basic.name,
-      hasOffer: !!bestCoupon,
-      offerCode: bestCoupon?.code,
-      isStudent: userContext.isStudent
-    }, admin.firestore());
-    
-    res.json({ 
-      tiers, // All three tiers
-      offer: bestCoupon, // Best applicable offer
-      allOffers: allCoupons, // All available offers
-      validCoupons, // List of valid manual coupon codes
-      studentBenefits, // Student-specific benefits
-      userContext: {
-        isNewUser: userContext.isNewUser,
-        isStudent: userContext.isStudent,
-        hasReferral: !!userContext.referredBy
-      }
-    });
-  } catch (error) {
-    console.error('Pricing API error:', error);
-    res.status(500).json({ error: 'Failed to get pricing' });
-  }
-});
-
-app.post('/api/pricing/track-conversion', async (req, res) => {
-  try {
-    const { userId, pricingGroup, planType, amount, promoCode } = req.body;
-    
-    await trackPricingEvent({
-      userId,
-      event: 'converted',
-      pricingGroup,
-      planType,
-      amount,
-      promoCode,
-      timestamp: new Date()
-    }, admin.firestore());
-    
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Conversion tracking error:', error);
-    res.status(500).json({ error: 'Failed to track conversion' });
-  }
-});
-
-// 🎓 STUDENT VERIFICATION ENDPOINT
-app.post('/api/verify-student', authenticateUser, async (req, res) => {
-  try {
-    const userId = req.user.uid;
-    const { email, verificationMethod, additionalData } = req.body;
-    
-    // Verify student status
-    const result = await verifyStudent(userId, email || req.user.email, {
-      useThirdParty: verificationMethod === 'sheerid',
-      ...additionalData
-    });
-    
-    if (result.verified) {
-      res.json({
-        success: true,
-        verified: true,
-        discountCode: result.discountCode || 'STUDENT40',
-        benefits: await getStudentBenefits(userId)
-      });
-    } else {
-      res.json({
-        success: false,
-        verified: false,
-        message: 'Could not verify student status. Please try another method.'
-      });
-    }
-  } catch (error) {
-    console.error('Student verification error:', error);
-    res.status(500).json({ error: 'Failed to verify student status' });
-  }
-});
-
-// 🔗 REFERRAL TRACKING ENDPOINT
-app.post('/api/track-referral', async (req, res) => {
-  try {
-    const { referredUserId, referralCode } = req.body;
-    
-    // Decode referral code to get referrer user ID
-    const referrerUserId = referralCode; // In production, this should be decoded
-    
-    if (!referredUserId || !referrerUserId) {
-      return res.status(400).json({ error: 'Invalid referral data' });
-    }
-    
-    // Track the referral
-    const success = await trackReferral(referredUserId, referrerUserId);
-    
-    res.json({ success });
-  } catch (error) {
-    console.error('Referral tracking error:', error);
-    res.status(500).json({ error: 'Failed to track referral' });
-  }
-});
-
-// 🔗 STRIPE CUSTOMER PORTAL SESSION
-app.post('/api/subscription/portal', authenticateUser, async (req, res) => {
-  try {
-    const userId = req.user.uid;
-    
-    // Get user's Stripe customer ID from Firestore
-    const db = getFirestore();
-    if (!db) {
-      return res.status(503).json({ error: 'Database service unavailable' });
-    }
-    
-    const userDoc = await db.collection('users').doc(userId).get();
-    if (!userDoc.exists) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-    
-    const userData = userDoc.data();
-    const stripeCustomerId = userData.stripeCustomerId;
-    
-    if (!stripeCustomerId) {
-      return res.status(400).json({ error: 'No active subscription found' });
-    }
-    
-    // Create customer portal session
-    const session = await stripe.billingPortal.sessions.create({
-      customer: stripeCustomerId,
-      return_url: `${req.headers.origin || 'https://naturinex-app.web.app'}/profile`
-    });
-    
-    res.json({ portalUrl: session.url });
-  } catch (error) {
-    console.error('Customer portal error:', error);
-    res.status(500).json({ error: 'Failed to create portal session' });
-  }
-});
-
-// 🔗 STRIPE WEBHOOK HANDLER FOR AUTOMATIC MONTHLY BILLING
-// Support both webhook paths for backward compatibility
-app.post('/webhook', verifyStripeWebhook, async (req, res) => {
-  await handleStripeWebhook(req, res);
-});
-
-app.post('/webhooks/stripe', verifyStripeWebhook, async (req, res) => {
-  await handleStripeWebhook(req, res);
-});
-
-// Common webhook handler function
-async function handleStripeWebhook(req, res) {
-  const sig = req.headers['stripe-signature'];
-  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
-
-  let event;
-
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);
-  } catch (err) {
-    console.error('⚠️ Webhook signature verification failed:', err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
-
-  // Handle the event
-  try {
-    switch (event.type) {
-      case 'checkout.session.completed':
-        await handleCheckoutSessionCompleted(event.data.object);
-        break;
-      
-      case 'invoice.payment_succeeded':
-        await handleInvoicePaymentSucceeded(event.data.object);
-        break;
-      
-      case 'invoice.payment_failed':
-        await handleInvoicePaymentFailed(event.data.object);
-        break;
-      
-      case 'customer.subscription.created':
-        await handleSubscriptionCreated(event.data.object);
-        break;
-      
-      case 'customer.subscription.updated':
-        await handleSubscriptionUpdated(event.data.object);
-        break;
-      
-      case 'customer.subscription.trial_will_end':
-        await handleTrialWillEnd(event.data.object);
-        break;
-      
-      case 'customer.subscription.deleted':
-        await handleSubscriptionDeleted(event.data.object);
-        break;
-      
-      default:
-        console.log(`🔔 Unhandled event type ${event.type}`);
-    }
-
-    res.json({ received: true });
-  } catch (error) {
-    console.error('❌ Webhook handler error:', error);
-    res.status(500).json({ error: 'Webhook handler failed' });
-  }
-}
-
-// 🎯 WEBHOOK HANDLER FUNCTIONS
-
-async function handleCheckoutSessionCompleted(session) {
-  console.log('✅ Checkout session completed:', session.id);
-  
-  const userId = session.metadata.userId;
-  const customerEmail = session.customer_email;
-  const subscriptionId = session.subscription;
-  
-  if (!userId) {
-    console.error('❌ No userId in session metadata');
-    return;
-  }
-  
-  try {
-    // Update user's subscription status in Firestore
-    await admin.firestore().collection('users').doc(userId).update({
-      isPremium: true,
-      subscriptionStatus: 'active',
-      subscriptionId: subscriptionId,
-      customerEmail: customerEmail,
-      subscriptionStartDate: admin.firestore.FieldValue.serverTimestamp(),
-      lastBillingDate: admin.firestore.FieldValue.serverTimestamp(),
-      stripeCustomerId: session.customer
-    });
-    
-    console.log(`🎉 User ${userId} upgraded to premium successfully`);
-  } catch (error) {
-    console.error('❌ Error updating user subscription:', error);
-  }
-}
-
-async function handleInvoicePaymentSucceeded(invoice) {
-  console.log('💰 Invoice payment succeeded:', invoice.id);
-  
-  const subscriptionId = invoice.subscription;
-  const customerId = invoice.customer;
-  
-  try {
-    // Find user by subscription ID
-    const usersRef = admin.firestore().collection('users');
-    const snapshot = await usersRef.where('subscriptionId', '==', subscriptionId).get();
-    
-    if (snapshot.empty) {
-      console.error('❌ No user found for subscription:', subscriptionId);
-      return;
-    }
-    
-    // Update user's billing information
-    const userDoc = snapshot.docs[0];
-    await userDoc.ref.update({
-      isPremium: true,
-      subscriptionStatus: 'active',
-      lastBillingDate: admin.firestore.FieldValue.serverTimestamp(),
-      nextBillingDate: new Date(invoice.period_end * 1000),
-      lastInvoiceId: invoice.id,
-      // Reset monthly scan count on successful payment
-      scanCount: 0,
-      lastScanMonth: new Date().toISOString().slice(0, 7) // YYYY-MM format
-    });
-    
-    console.log(`💳 Monthly billing processed for user ${userDoc.id}`);
-  } catch (error) {
-    console.error('❌ Error processing invoice payment:', error);
-  }
-}
-
-async function handleInvoicePaymentFailed(invoice) {
-  console.log('❌ Invoice payment failed:', invoice.id);
-  
-  const subscriptionId = invoice.subscription;
-  
-  try {
-    // Find user by subscription ID
-    const usersRef = admin.firestore().collection('users');
-    const snapshot = await usersRef.where('subscriptionId', '==', subscriptionId).get();
-    
-    if (snapshot.empty) {
-      console.error('❌ No user found for subscription:', subscriptionId);
-      return;
-    }
-    
-    // Update user's status to indicate payment failure
-    const userDoc = snapshot.docs[0];
-    await userDoc.ref.update({
-      subscriptionStatus: 'past_due',
-      lastFailedPayment: admin.firestore.FieldValue.serverTimestamp(),
-      lastInvoiceId: invoice.id,
-      // Don't immediately downgrade - give them a grace period
-      paymentRetryCount: admin.firestore.FieldValue.increment(1)
-    });
-    
-    console.log(`⚠️ Payment failed for user ${userDoc.id} - marked as past_due`);
-  } catch (error) {
-    console.error('❌ Error handling payment failure:', error);
-  }
-}
-
-async function handleSubscriptionCreated(subscription) {
-  console.log('🆕 Subscription created:', subscription.id);
-  
-  const userId = subscription.metadata?.userId;
-  if (!userId) {
-    console.log('No userId in metadata, checking by customer ID');
-    return;
-  }
-  
-  try {
-    const updateData = {
-      subscriptionStatus: subscription.status,
-      subscriptionId: subscription.id,
-      stripeCustomerId: subscription.customer
-    };
-    
-    // Track trial status
-    if (subscription.status === 'trialing' && subscription.trial_end) {
-      updateData.trialStart = new Date(subscription.trial_start * 1000);
-      updateData.trialEnd = new Date(subscription.trial_end * 1000);
-      updateData.isTrialing = true;
-      
-      console.log(`🎉 Free trial started for user ${userId}, ends ${updateData.trialEnd}`);
-    }
-    
-    await admin.firestore().collection('users').doc(userId).update(updateData);
-    
-    console.log(`📅 Subscription ${subscription.id} created for user ${userId}`);
-  } catch (error) {
-    console.error('❌ Error handling subscription creation:', error);
-  }
-}
-
-async function handleSubscriptionUpdated(subscription) {
-  console.log('🔄 Subscription updated:', subscription.id);
-  
-  try {
-    // Find user by subscription ID
-    const usersRef = admin.firestore().collection('users');
-    const snapshot = await usersRef.where('subscriptionId', '==', subscription.id).get();
-    
-    if (snapshot.empty) {
-      console.error('❌ No user found for subscription:', subscription.id);
-      return;
-    }
-    
-    const userDoc = snapshot.docs[0];
-    const userData = userDoc.data();
-    const previousStatus = userData.subscriptionStatus;
-    
-    // Update user's subscription status
-    const updateData = {
-      subscriptionStatus: subscription.status,
-      currentPeriodStart: new Date(subscription.current_period_start * 1000),
-      currentPeriodEnd: new Date(subscription.current_period_end * 1000),
-      lastUpdated: admin.firestore.FieldValue.serverTimestamp()
-    };
-    
-    // Track trial conversion
-    if (previousStatus === 'trialing' && subscription.status === 'active') {
-      updateData.trialConverted = true;
-      updateData.trialConvertedAt = admin.firestore.FieldValue.serverTimestamp();
-      updateData.isTrialing = false;
-      updateData.isPremium = true;
-      
-      console.log(`🎉 Trial converted to paid subscription for user ${userDoc.id}`);
-      
-      // Process referral reward if this is their first paid subscription
-      const { processReferralReward } = require('./services/couponTracking');
-      await processReferralReward(userDoc.id);
-      
-      // Track conversion analytics
-      await trackPricingEvent({
-        userId: userDoc.id,
-        event: 'trial_converted',
-        subscriptionId: subscription.id,
-        planId: subscription.items.data[0].price.id,
-        timestamp: new Date()
-      }, admin.firestore());
-    }
-    
-    await userDoc.ref.update(updateData);
-    
-    console.log(`🔄 Subscription updated for user ${userDoc.id}: ${previousStatus} → ${subscription.status}`);
-  } catch (error) {
-    console.error('❌ Error updating subscription:', error);
-  }
-}
-
-async function handleSubscriptionDeleted(subscription) {
-  console.log('🗑️ Subscription deleted:', subscription.id);
-  
-  try {
-    // Find user by subscription ID  
-    const usersRef = admin.firestore().collection('users');
-    const snapshot = await usersRef.where('subscriptionId', '==', subscription.id).get();
-    
-    if (snapshot.empty) {
-      console.error('❌ No user found for subscription:', subscription.id);
-      return;
-    }
-    
-    // Downgrade user to free tier
-    const userDoc = snapshot.docs[0];
-    await userDoc.ref.update({
-      isPremium: false,
-      subscriptionStatus: 'cancelled',
-      subscriptionId: null,
-      cancelledDate: admin.firestore.FieldValue.serverTimestamp(),
-      // Reset to free tier limits
-      scanCount: 0,
-      lastScanMonth: new Date().toISOString().slice(0, 7)
-    });
-    
-    console.log(`⬇️ User ${userDoc.id} downgraded to free tier`);
-  } catch (error) {
-    console.error('❌ Error handling subscription deletion:', error);
-  }
-}
-
-// Handle trial ending webhook
-async function handleTrialWillEnd(subscription) {
-  console.log('⏰ Trial will end soon:', subscription.id);
-  
-  const userId = subscription.metadata?.userId;
-  if (!userId) {
-    // Try to find user by subscription ID
-    const usersRef = admin.firestore().collection('users');
-    const snapshot = await usersRef.where('subscriptionId', '==', subscription.id).get();
-    
-    if (!snapshot.empty) {
-      const userDoc = snapshot.docs[0];
-      await handleTrialEndingForUser(userDoc.id, subscription);
-    }
-    return;
-  }
-  
-  await handleTrialEndingForUser(userId, subscription);
-}
-
-async function handleTrialEndingForUser(userId, subscription) {
-  try {
-    // Create a notification
-    await admin.firestore().collection('notifications').add({
-      userId,
-      type: 'trial_ending',
-      title: '⏰ Your free trial ends in 3 days!',
-      message: 'Don\'t lose access to premium features. Your payment method will be charged after the trial ends.',
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      read: false,
-      subscriptionId: subscription.id
-    });
-    
-    // Update user record
-    await admin.firestore().collection('users').doc(userId).update({
-      trialEndingSoon: true,
-      trialEndDate: new Date(subscription.trial_end * 1000)
-    });
-    
-    console.log(`📧 Trial ending notification created for user ${userId}`);
-  } catch (error) {
-    console.error('❌ Error handling trial end warning:', error);
-  }
-}
-
-// Subscription management endpoints
-app.post('/api/subscription/details', [
-  body('subscriptionId')
-    .isLength({ min: 1, max: 100 })
-    .matches(/^sub_[a-zA-Z0-9]+$/)
-    .withMessage('Invalid subscription ID format'),
-  validateInput
-], async (req, res) => {
-  try {
-    const { subscriptionId } = req.body;
-    
-    if (!subscriptionId) {
-      return res.status(400).json({ error: 'Subscription ID is required' });
-    }
-    
-    const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-    
-    res.json({
-      id: subscription.id,
-      status: subscription.status,
-      current_period_start: subscription.current_period_start,
-      current_period_end: subscription.current_period_end,
-      cancel_at_period_end: subscription.cancel_at_period_end,
-      customer: subscription.customer,
-      items: subscription.items,
-      latest_invoice: subscription.latest_invoice
-    });
-  } catch (error) {
-    console.error('❌ Error fetching subscription details:', error);
-    res.status(500).json({ error: 'Failed to fetch subscription details' });
-  }
-});
-
-app.post('/api/subscription/toggle-auto-renew', [
-  body('subscriptionId')
-    .isLength({ min: 1, max: 100 })
-    .matches(/^sub_[a-zA-Z0-9]+$/)
-    .withMessage('Invalid subscription ID format'),
-  body('autoRenew')
-    .isBoolean()
-    .withMessage('autoRenew must be boolean'),
-  validateInput
-], async (req, res) => {
-  try {
-    const { subscriptionId, autoRenew } = req.body;
-    
-    if (!subscriptionId || autoRenew === undefined) {
-      return res.status(400).json({ error: 'Subscription ID and autoRenew status are required' });
-    }
-    
-    const subscription = await stripe.subscriptions.update(subscriptionId, {
-      cancel_at_period_end: !autoRenew
-    });
-    
-    // Update user record in Firestore
-    const usersRef = admin.firestore().collection('users');
-    const snapshot = await usersRef.where('subscriptionId', '==', subscriptionId).get();
-    
-    if (!snapshot.empty) {
-      const userDoc = snapshot.docs[0];
-      await userDoc.ref.update({
-        autoRenewalEnabled: autoRenew,
-        subscriptionStatus: autoRenew ? 'active' : 'canceling'
-      });
-    }
-    
-    console.log(`🔄 Auto-renewal ${autoRenew ? 'enabled' : 'disabled'} for subscription ${subscriptionId}`);
-    
-    res.json({ 
-      success: true, 
-      autoRenew,
-      cancel_at_period_end: subscription.cancel_at_period_end
-    });
-  } catch (error) {
-    console.error('❌ Error toggling auto-renewal:', error);
-    res.status(500).json({ error: 'Failed to update auto-renewal setting' });
-  }
-});
-
-app.post('/api/subscription/renew-now', async (req, res) => {
-  try {
-    const { customerId } = req.body;
-    
-    if (!customerId) {
-      return res.status(400).json({ error: 'Customer ID is required' });
-    }
-    
-    // Create and pay an invoice immediately
-    const invoice = await stripe.invoices.create({
-      customer: customerId,
-      auto_advance: true
-    });
-    
-    const paidInvoice = await stripe.invoices.pay(invoice.id);
-    
-    console.log(`💳 Immediate renewal processed for customer ${customerId}`);
-    
-    res.json({ 
-      success: true, 
-      invoice: {
-        id: paidInvoice.id,
-        amount: paidInvoice.amount_paid,
-        status: paidInvoice.status
-      }
-    });
-  } catch (error) {
-    console.error('❌ Error processing immediate renewal:', error);
-    res.status(500).json({ error: 'Failed to process renewal payment' });
-  }
-});
-
-app.post('/api/subscription/cancel', async (req, res) => {
-  try {
-    // Get user from auth token for security
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-    
-    const token = authHeader.split(' ')[1];
-    const decodedToken = await admin.auth().verifyIdToken(token);
-    const userId = decodedToken.uid;
-    
-    // Get user's subscription from Firestore
-    const userDoc = await admin.firestore().collection('users').doc(userId).get();
-    const userData = userDoc.data();
-    
-    if (!userData?.subscription?.stripeSubscriptionId) {
-      return res.status(404).json({ error: 'No active subscription found' });
-    }
-    
-    const subscriptionId = userData.subscription.stripeSubscriptionId;
-    
-    // Cancel at period end (don't immediately cancel)
-    const subscription = await stripe.subscriptions.update(subscriptionId, {
-      cancel_at_period_end: true,
-      metadata: {
-        cancelledBy: userId,
-        cancelledAt: new Date().toISOString()
-      }
-    });
-    
-    // Update user record in Firestore
-    await userDoc.ref.update({
-      'subscription.status': 'canceling',
-      'subscription.autoRenewalEnabled': false,
-      'subscription.canceledAt': admin.firestore.FieldValue.serverTimestamp()
-    });
-    
-    console.log(`❌ Subscription ${subscriptionId} set to cancel at period end`);
-    
-    res.json({ 
-      success: true,
-      cancel_at_period_end: true,
-      current_period_end: subscription.current_period_end
-    });
-  } catch (error) {
-    console.error('❌ Error canceling subscription:', error);
-    res.status(500).json({ error: 'Failed to cancel subscription' });
-  }
-});
-
-// Remove duplicate endpoints - already defined above
-
-// Test ingestion endpoint removed - use admin dashboard for data ingestion
-
-// Admin endpoints (require authentication)
-app.get('/api/admin/analytics', async (req, res) => {
-  try {
-    // Verify admin token
-    const token = req.headers.authorization?.split(' ')[1];
-    if (!token) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    // Verify the token with Firebase Admin
-    const decodedToken = await admin.auth().verifyIdToken(token);
-    const userId = decodedToken.uid;
-
-    // Check if user is admin (you'll need to implement this check)
-    // For now, we'll return mock data
-    const today = new Date().toISOString().split('T')[0];
-    
-    res.json({
-      totalUsers: 1250,
-      premiumUsers: 89,
-      todayScans: 342,
-      monthlyRevenue: 890.11, // $9.99 * 89 users
-      popularProducts: [
-        { name: 'MiraLAX', scanCount: 45 },
-        { name: 'Aspirin', scanCount: 38 },
-        { name: 'Omeprazole', scanCount: 32 },
-        { name: 'Pepto-Bismol', scanCount: 28 },
-        { name: 'Claritin', scanCount: 24 }
-      ]
-    });
-  } catch (error) {
-    console.error('Admin analytics error:', error);
-    res.status(500).json({ error: 'Failed to fetch analytics' });
-  }
-});
-
-// Data ingestion endpoints - These should be deployed as separate Cloud Functions
-// app.post('/api/functions/scheduled-ingestion', scheduledIngestion);
-// app.post('/api/functions/manual-ingestion', authenticateUser, manualIngestion);
-// app.post('/api/functions/ingest-substance', handleIngestionTask);
-// app.post('/api/functions/batch-ingest', handleBatchIngestion);
-
-// Optimized search endpoints
-app.get('/api/search/substances', apiLimiter, async (req, res) => {
-  try {
-    const { query, type, safetyLevel, effectiveness, limit } = req.query;
-    
-    const results = await optimizedSearch.advancedSearch({
-      query,
-      type,
-      safetyLevel,
-      effectiveness,
-      limit: parseInt(limit) || 20
-    });
-    
-    res.json({ results, count: results.length });
-  } catch (error) {
-    console.error('Search error:', error);
-    res.status(500).json({ error: 'Search failed' });
-  }
-});
-
-app.get('/api/search/suggestions', async (req, res) => {
-  try {
-    const { q } = req.query;
-    if (!q || q.length < 2) {
-      return res.json({ suggestions: [] });
-    }
-    
-    const suggestions = await optimizedSearch.getSuggestions(q);
-    res.json({ suggestions });
-  } catch (error) {
-    console.error('Suggestions error:', error);
-    res.json({ suggestions: [] });
-  }
-});
-
-app.get('/api/database/stats', async (req, res) => {
-  try {
-    const stats = await optimizedSearch.getDatabaseStats();
-    res.json(stats);
-  } catch (error) {
-    console.error('Stats error:', error);
-    res.status(500).json({ error: 'Failed to get stats' });
-  }
-});
-
-// Apply error handler middleware
-app.use(errorHandler);
-
-// Initialize data ingestion orchestrator
-const dataIngestion = new DataIngestionOrchestrator();
-if (process.env.ENABLE_DATA_INGESTION === 'true') {
-  dataIngestion.initializeScheduledIngestion();
-  console.log('📅 Data ingestion scheduled for nightly updates');
-}
-
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📊 Health check available at http://localhost:${PORT}/health`);
-  console.log(`💳 Stripe integration ready for testing`);
-  console.log(`🔒 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`📅 Data ingestion: ${process.env.ENABLE_DATA_INGESTION === 'true' ? 'Enabled' : 'Disabled'}`);
-  console.log(`🌍 Data sources: PubChem, WHO, MSKCC with AI validation`);
-});
+const express = require('express');const cors = require('cors');const rateLimit = require('express-rate-limit');const helmet = require('helmet');const { body, validationResult } = require('express-validator');require('dotenv').config();const { GoogleGenerativeAI } = require('@google/generative-ai');const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);// Add Firebase Admin SDK for webhook handlingconst { initializeFirebase, isFirebaseAvailable, getFirestore, getAuth, admin } = require('./config/firebase-init');const multer = require('multer');const axios = require('axios');const { extractProductInfo } = require('./utils/productExtraction');const { getDeviceId, checkScanLimit, recordScan } = require('./utils/deviceTracking');const { getWellnessAlternatives } = require('./data/wellnessAlternatives');const { saveScanToHistory, checkPremiumStatus } = require('./services/scanTracking');const { getUserPricingGroup, getAllPricingTiers, getPromotionalOffer, trackPricingEvent, validCoupons } = require('./services/pricingAB');const { checkStudentStatus, verifyStudent, getStudentBenefits } = require('./services/studentVerification');const { getApplicableCoupons, trackCouponUsage, trackReferral } = require('./services/couponTracking');const { IntegratedNaturalAPI } = require('./services/externalAPIs');const adminRoutes = require('./routes/adminRoutes');const optimizedSearch = require('./services/optimizedSearch');const DataIngestionOrchestrator = require('./services/dataIngestion/dataIngestionOrchestrator');// Cloud functions - these will be deployed separately// const { scheduledIngestion, manualIngestion } = require('./functions/dataIngestion');// const { handleIngestionTask, handleBatchIngestion } = require('./functions/cloudTasks');const dataIngestionRoutes = require('./routes/dataIngestionRoute');// Configure multer for image uploadsconst upload = multer({   storage: multer.memoryStorage(),  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit  fileFilter: (req, file, cb) => {    // Accept images only    if (!file.mimetype.startsWith('image/')) {      return cb(new Error('Only image files are allowed'), false);    }    cb(null, true);  }});// Validate required environment variablesconst requiredEnvVars = [  'GEMINI_API_KEY',  'STRIPE_SECRET_KEY',  'STRIPE_WEBHOOK_SECRET'];const missingEnvVars = requiredEnvVars.filter(varName => !process.env[varName]);if (missingEnvVars.length > 0) {  console.error('❌ Missing required environment variables:', missingEnvVars);  console.error('Please check your .env file and ensure all required variables are set.');  process.exit(1);}// Initialize Firebase Admin SDKinitializeFirebase();const app = express();// Trust proxy headers (required for cloud platforms like Render)// Set trust proxy based on environment// For Render.com, we trust their proxy headersif (process.env.NODE_ENV === 'production') {  // Render uses specific proxy headers  app.set('trust proxy', 1); // Trust first proxy} else {  app.set('trust proxy', false); // No proxy in development}// 🔒 COMPREHENSIVE SECURITY CONFIGURATION// Request size limits to prevent DoS// Note: express.json() is added later after webhook routesapp.use(express.urlencoded({ limit: '1mb', extended: true }));// Enhanced security headersapp.use(helmet({  contentSecurityPolicy: {    directives: {      defaultSrc: ["'self'"],      styleSrc: ["'self'", "'unsafe-inline'"],      imgSrc: ["'self'", "data:", "https:"],      scriptSrc: ["'self'"],      connectSrc: ["'self'", "https://api.stripe.com"],      frameSrc: ["https://js.stripe.com"]    }  },  hsts: {    maxAge: 31536000,    includeSubDomains: true,    preload: true  }}));// Additional security headersapp.use((req, res, next) => {  res.setHeader('X-Content-Type-Options', 'nosniff');  res.setHeader('X-Frame-Options', 'DENY');  res.setHeader('X-XSS-Protection', '1; mode=block');  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');  res.setHeader('X-Robots-Tag', 'noindex, nofollow');  next();});// Rate limiting for different endpointsconst generalLimiter = rateLimit({  windowMs: 15 * 60 * 1000, // 15 minutes  max: 100, // 100 requests per window  message: { error: 'Too many requests, please try again later' },  standardHeaders: true,  legacyHeaders: false,  // Properly handle proxy for Render deployment  keyGenerator: (req) => {    // Use X-Forwarded-For header if in production (Render)    if (process.env.NODE_ENV === 'production') {      return req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip;    }    return req.ip;  },  skip: (req) => {    // Skip rate limiting for health checks    return req.path === '/health';  }});const authLimiter = rateLimit({  windowMs: 15 * 60 * 1000, // 15 minutes  max: 5, // 5 authentication attempts per window  message: { error: 'Too many authentication attempts' },  standardHeaders: true,  legacyHeaders: false,  keyGenerator: (req) => {    if (process.env.NODE_ENV === 'production') {      return req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip;    }    return req.ip;  }});const apiLimiter = rateLimit({  windowMs: 1 * 60 * 1000, // 1 minute  max: 10, // 10 API calls per minute  message: { error: 'API rate limit exceeded' },  standardHeaders: true,  legacyHeaders: false,  keyGenerator: (req) => {    if (process.env.NODE_ENV === 'production') {      return req.headers['x-forwarded-for']?.split(',')[0].trim() || req.ip;    }    return req.ip;  }});// Apply rate limitingapp.use('/api/auth', authLimiter);app.use('/api/analyze', apiLimiter);app.use(generalLimiter);// Input validation middlewareconst validateInput = (req, res, next) => {  const errors = validationResult(req);  if (!errors.isEmpty()) {    return res.status(400).json({       error: 'Invalid input',      details: errors.array().map(err => ({        field: err.param,        message: err.msg      }))    });  }  next();};// Enhanced error handling middlewareconst errorHandler = (err, req, res, next) => {  // Log full error for debugging (never send to client)  console.error('🚨 Server Error:', {    error: err.message,    stack: err.stack,    url: req.url,    method: req.method,    ip: req.ip,    userAgent: req.get('User-Agent'),    timestamp: new Date().toISOString()  });  // Send sanitized error to client  res.status(err.status || 500).json({    error: process.env.NODE_ENV === 'production'       ? 'Internal server error'       : err.message,    requestId: req.id || 'unknown',    timestamp: new Date().toISOString()  });};// Webhook verification middlewareconst verifyStripeWebhook = (req, res, next) => {  const signature = req.headers['stripe-signature'];  try {    // Verify webhook signature    stripe.webhooks.constructEvent(req.body, signature, process.env.STRIPE_WEBHOOK_SECRET);    next();  } catch (err) {    console.error('⚠️ Webhook signature verification failed:', err.message);    return res.status(400).send('Invalid webhook signature');  }};// Security middlewareapp.use(helmet());app.use(cors({  origin: process.env.CORS_ORIGIN ?     process.env.CORS_ORIGIN.split(',') :     (process.env.NODE_ENV === 'production'       ? ['https://naturinex.com', 'https://www.naturinex.com']       : [          'http://localhost:3000',           'http://localhost:3001',           'http://localhost:3003',           'http://localhost:3004',           'http://127.0.0.1:3000',          'http://10.0.0.74:3000',    // Mobile testing          'http://10.0.0.74:3001',    // Mobile testing          'http://10.0.0.74:3003',    // Mobile testing          'http://10.0.0.74:3004'     // Mobile testing        ]),  credentials: true}));// Rate limitingconst createRateLimit = (windowMs, max, message) => rateLimit({  windowMs,  max,  message: { error: message },  standardHeaders: true,  legacyHeaders: false,});// General API rate limitapp.use('/api/', createRateLimit(15 * 60 * 1000, 100, 'Too many API requests'));// Strict rate limit for AI suggestionsapp.use('/suggest', createRateLimit(60 * 1000, 10, 'Too many AI requests - please wait'));// Stripe webhook endpoints need raw body - must be before express.json()app.use('/webhook', express.raw({ type: 'application/json' }));app.use('/webhooks/stripe', express.raw({ type: 'application/json' }));app.use(express.json({ limit: '10mb' }));// Request logging middlewareapp.use((req, res, next) => {  .toISOString()} - ${req.method} ${req.path} - IP: ${req.ip}`);  next();});// Error handling middlewareapp.use((err, req, res, next) => {  console.error('Unhandled error:', err);  res.status(500).json({     error: process.env.NODE_ENV === 'production'       ? 'Internal server error'       : err.message   });});// Check if API key is configuredif (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_api_key_here') {}const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);// Firebase Authentication middlewareconst authenticateUser = async (req, res, next) => {  try {    // Get the authorization header    const authHeader = req.headers.authorization;    if (!authHeader || !authHeader.startsWith('Bearer ')) {      return res.status(401).json({ error: 'Unauthorized: No token provided' });    }    // Extract the token    const token = authHeader.split('Bearer ')[1];    try {      // Check if Firebase is available      const auth = getAuth();      if (!auth) {        // For development, allow guest access        req.user = {          uid: 'guest_' + Date.now(),          email: 'guest@example.com',          emailVerified: false        };        return next();      }      // Verify the token with Firebase Admin      const decodedToken = await auth.verifyIdToken(token);      // Attach user info to request      req.user = {        uid: decodedToken.uid,        email: decodedToken.email,        emailVerified: decodedToken.email_verified      };      next();    } catch (error) {      console.error('Token verification failed:', error.message);      return res.status(401).json({ error: 'Unauthorized: Invalid token' });    }  } catch (error) {    console.error('Authentication error:', error);    return res.status(500).json({ error: 'Authentication failed' });  }};// Input validation middlewareconst validateMedicationInput = (req, res, next) => {  const { medicationName } = req.body;  if (!medicationName || typeof medicationName !== 'string') {    return res.status(400).json({ error: 'Medication name is required and must be a string' });  }  const trimmed = medicationName.trim();  if (trimmed.length === 0) {    return res.status(400).json({ error: 'Medication name cannot be empty' });  }  if (trimmed.length > 100) {    return res.status(400).json({ error: 'Medication name too long (max 100 characters)' });  }  // Basic sanitization - remove potentially harmful characters  const sanitized = trimmed.replace(/[<>\"'&]/g, '');  req.body.medicationName = sanitized;  next();};// Initialize integrated natural APIsconst integratedAPI = new IntegratedNaturalAPI();// Health check endpointapp.get('/health', (req, res) => {  res.json({     status: 'Server is running',     timestamp: new Date().toISOString(),    version: '2.0.0',    features: ['AI Analysis', 'Premium Tiers', 'Rate Limiting', 'Security Headers', 'External APIs'],    environment: process.env.NODE_ENV || 'development'  });});// Admin routes (protected)app.use('/api/admin', adminRoutes);// Data ingestion routesapp.use('/api/data', dataIngestionRoutes);// Enhanced alternatives endpoint - now using pre-ingested data for speedapp.get('/api/alternatives/:medication', apiLimiter, async (req, res) => {  try {    const { medication } = req.params;    const { useCache = true } = req.query; // Allow forcing real-time API calls    // Use optimized search by default (pre-ingested data)    if (useCache) {      const cachedResults = await optimizedSearch.searchByMedication(medication);      if (cachedResults.alternatives.length > 0) {        return res.json({          medication,          alternatives: cachedResults.alternatives,          searchTime: cachedResults.searchTime,          dataSource: 'optimized-cache',          lastUpdated: cachedResults.lastUpdated        });      }    }    // Fallback to real-time API calls if needed    const [localAlternatives, externalData] = await Promise.all([      getWellnessAlternatives(medication),      integratedAPI.getComprehensiveAlternatives(medication)    ]);    // Combine and enhance the results    const combinedAlternatives = {      medication,      localDatabase: localAlternatives,      pubchem: externalData?.chemicalData,      traditionalMedicine: externalData?.traditionalMedicine,      herbsSupplements: externalData?.herbsSupplements,      naturalSources: externalData?.naturalSources,      recommendations: generateSmartRecommendations(        localAlternatives,        externalData      ),      dataSource: 'real-time-api'    };    res.json(combinedAlternatives);  } catch (error) {    console.error('Alternatives API error:', error);    res.status(500).json({ error: 'Failed to fetch alternatives' });  }});// Search alternatives by conditionapp.get('/api/alternatives/condition/:condition', apiLimiter, async (req, res) => {  try {    const { condition } = req.params;    const results = await integratedAPI.searchByCondition(condition);    res.json(results);  } catch (error) {    console.error('Condition search error:', error);    res.status(500).json({ error: 'Failed to search by condition' });  }});// Helper function to generate smart recommendationsfunction generateSmartRecommendations(local, external) {  const recommendations = [];  // Combine all sources  if (local?.alternatives) {    recommendations.push(...local.alternatives.map(alt => ({      ...alt,      source: 'Naturinex Database',      confidence: 'High'    })));  }  if (external?.traditionalMedicine?.length > 0) {    recommendations.push(...external.traditionalMedicine.map(tm => ({      name: tm.name,      effectiveness: 'Traditional',      description: tm.traditionalUse,      dosage: tm.dosage,      source: 'WHO Traditional Medicine',      confidence: 'Established'    })));  }  if (external?.herbsSupplements?.length > 0) {    recommendations.push(...external.herbsSupplements.map(herb => ({      name: herb.name,      effectiveness: herb.clinicalEvidence,      description: herb.mechanism,      dosage: herb.dosage,      source: 'MSKCC Database',      confidence: herb.clinicalEvidence    })));  }  // Sort by confidence/effectiveness  return recommendations.sort((a, b) => {    const rank = { 'High': 4, 'Established': 3, 'Good': 3, 'Moderate': 2, 'Traditional': 1 };    return (rank[b.confidence] || 0) - (rank[a.confidence] || 0);  });}app.post('/suggest', [  body('medicationName')    .isLength({ min: 1, max: 100 })    .trim()    .escape()    .matches(/^[a-zA-Z0-9\s\-\.\/]+$/)    .withMessage('Medication name contains invalid characters'),  body('userTier')    .optional()    .isIn(['free', 'basic', 'premium', 'professional', 'beta'])    .withMessage('Invalid user tier'),  body('advancedAnalysis')    .optional()    .isBoolean()    .withMessage('Advanced analysis must be boolean'),  validateInput], async (req, res) => {  const { medicationName, userTier = 'free', advancedAnalysis = false } = req.body;  // Validate input  if (!medicationName || typeof medicationName !== 'string' || !medicationName.trim()) {    return res.status(400).json({ error: 'Medication name is required and must be a non-empty string' });  }  // Check API key  if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_api_key_here') {    return res.status(500).json({ error: 'AI service not configured properly' });  }  // Debug logging to verify tier and advanced analysis   && advancedAnalysis ? 'Gemini Pro' : 'Gemini Flash'}`);  try {    let suggestions;    if ((userTier === 'premium' || userTier === 'professional') && advancedAnalysis) {      // Premium/Professional users get comprehensive analysis with Gemini Pro      suggestions = await getPremiumAIResponse(medicationName.trim());    } else {      // Free/Basic users get standard response with Gemini Flash      suggestions = await getBasicAIResponse(medicationName.trim());    }    res.json({ suggestions });  } catch (error) {    console.error('AI API Error:', error);    if (error.message.includes('API_KEY')) {      res.status(500).json({ error: 'Invalid API key configuration' });    } else if (error.message.includes('quota')) {      res.status(429).json({ error: 'API quota exceeded. Please try again later.' });    } else {      res.status(500).json({ error: 'AI service temporarily unavailable' });    }  }});// Premium AI response with comprehensive analysisasync function getPremiumAIResponse(medicationName) {  const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro" }); // Use Pro model for premium  const prompt = `As a comprehensive medical AI assistant with access to clinical research databases, provide an in-depth analysis for the medication "${medicationName}":🔍 COMPREHENSIVE MEDICATION OVERVIEW:- Primary therapeutic uses and FDA-approved indications- Detailed mechanism of action (molecular level)- Pharmacokinetics: absorption, distribution, metabolism, excretion- Standard dosing protocols for different conditions- Onset of action and therapeutic duration- Bioavailability and factors affecting absorption🧬 DRUG INTERACTIONS & CONTRAINDICATIONS:- Major drug-drug interactions (CYP450 pathways)- Drug-food interactions with clinical significance- Drug-supplement interactions (vitamins, minerals, herbs)- Contraindications and relative contraindications- Special populations: pregnancy, breastfeeding, elderly, pediatric- Genetic polymorphisms affecting drug response🌿 EVIDENCE-BASED NATURAL ALTERNATIVES:- Clinical trials supporting natural alternatives (provide study references when possible)- Herbal medicines with comparable efficacy- Nutritional interventions with research backing- Supplement protocols with dosing recommendations- Comparative effectiveness vs conventional treatment- Safety profiles and potential side effects of alternatives💊 COMPREHENSIVE SIDE EFFECT PROFILE:- Common adverse effects (>10% incidence)- Serious but rare adverse effects (<1% but clinically significant)- Long-term effects and dependency potential- Monitoring requirements and frequency- Early warning signs of toxicity🍃 HOLISTIC TREATMENT APPROACH:- Lifestyle modifications with evidence-based support- Dietary changes specific to the medication's therapeutic goals- Exercise protocols tailored to the medical condition- Stress reduction techniques with clinical validation- Sleep hygiene recommendations- Mindfulness and behavioral interventions📊 CLINICAL MONITORING PROTOCOLS:- Baseline assessments before starting treatment- Routine monitoring intervals and specific tests- Therapeutic drug monitoring when applicable- Biomarkers for efficacy and safety- Patient-reported outcome measures- Red flag symptoms requiring immediate medical attention🔄 TAPERING & DISCONTINUATION:- Evidence-based tapering schedules- Withdrawal syndrome characteristics and management- Natural bridging therapies during transition- Timeline for safe discontinuation- Rebound effect prevention strategies- When to seek immediate medical supervision⚕️ CLINICAL PEARLS:- Optimization strategies for maximum therapeutic benefit- Patient counseling points for adherence- Cost-effective alternatives within the same drug class- Emerging research and future directions- Integration with complementary therapiesIMPORTANT MEDICAL DISCLAIMER: This analysis is for educational purposes only. All medication decisions require consultation with qualified healthcare professionals. Never discontinue prescribed medications without medical supervision. In emergency situations, contact emergency medical services immediately.Please provide specific, evidence-based recommendations while emphasizing the critical importance of professional medical oversight for any treatment modifications.`;  const result = await model.generateContent(prompt);  return result.response.text();}// Basic AI response for free/basic usersasync function getBasicAIResponse(medicationName) {  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" }); // Use Flash model for basic  const prompt = `Suggest natural alternatives and complementary approaches for the medication "${medicationName}". Please provide:- Safe, evidence-based natural alternatives- Lifestyle changes that may help- Dietary modifications to consider- Important safety considerationsAlways emphasize consulting healthcare professionals before making any changes to prescribed medications.Keep the response concise but informative.`;  const result = await model.generateContent(prompt);  return result.response.text();}// Medication analysis endpointsapp.post('/api/analyze/name', [  body('medicationName')    .isLength({ min: 1, max: 100 })    .trim()    .escape()    .withMessage('Invalid medication name'),  validateInput], async (req, res) => {  try {    const { medicationName } = req.body;    // Check API key    if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'your_gemini_api_key_here') {      return res.status(500).json({ error: 'AI service not configured properly' });    }    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });    const prompt = `Analyze the medication "${medicationName}" and provide educational wellness information.    Format the response as a JSON object with the following structure:    {      "medicationName": "string",      "medicationType": "string (e.g., 'Pain Relief', 'Antibiotic', etc.)",      "wellness_info": [        {          "name": "string",          "effectiveness": "string (High/Moderate/Low)",          "description": "string",          "benefits": ["string", "string"]        }      ],      "warnings": ["string"]    }    Provide 2-3 natural alternatives with evidence-based information.    Include important warnings about not stopping prescribed medications without medical consultation.`;    const result = await model.generateContent(prompt);    const responseText = result.response.text();    // Try to parse as JSON, fallback to structured response    let analysisResult;    try {      // Clean the response text to extract JSON      const jsonMatch = responseText.match(/\{[\s\S]*\}/);      if (jsonMatch) {        analysisResult = JSON.parse(jsonMatch[0]);      } else {        throw new Error('No JSON found in response');      }    } catch (parseError) {      // Fallback structure if JSON parsing fails      analysisResult = {        medicationName: medicationName,        medicationType: 'Medication',        alternatives: [{          name: 'Natural Alternative',          effectiveness: 'Moderate',          description: responseText,          benefits: ['Consult healthcare provider for specific alternatives']        }],        warnings: ['Always consult with healthcare professionals before making medication changes']      };    }    res.json(analysisResult);  } catch (error) {    console.error('Analysis error:', error);    res.status(500).json({ error: 'Failed to analyze medication' });  }});app.post('/api/analyze/barcode', [  body('barcode')    .isLength({ min: 1, max: 100 })    .trim()    .escape()    .withMessage('Invalid barcode'),  validateInput], async (req, res) => {  try {    const { barcode } = req.body;    // In a real app, you would look up the barcode in a database    // For now, we'll use AI to suggest what the medication might be    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });    const prompt = `Common medications associated with barcode patterns like "${barcode}".    Note: This is an estimation. Provide general natural health alternatives for common medications.    Format as JSON with structure:    {      "medicationName": "Unknown Medication",      "medicationType": "General Health",      "wellness_info": [        {          "name": "string",          "effectiveness": "string",          "description": "string",          "benefits": ["string"]        }      ],      "warnings": ["string"]    }`;    const result = await model.generateContent(prompt);    const responseText = result.response.text();    let analysisResult;    try {      const jsonMatch = responseText.match(/\{[\s\S]*\}/);      if (jsonMatch) {        analysisResult = JSON.parse(jsonMatch[0]);      } else {        throw new Error('No JSON found');      }    } catch (parseError) {      analysisResult = {        medicationName: 'Unknown Medication',        medicationType: 'General Health',        alternatives: [{          name: 'General Wellness Approach',          effectiveness: 'Varies',          description: 'Please scan the medication label or enter the name directly for specific alternatives.',          benefits: ['Accurate identification needed for proper recommendations']        }],        warnings: ['Barcode lookup requires medication database integration']      };    }    res.json(analysisResult);  } catch (error) {    console.error('Barcode analysis error:', error);    res.status(500).json({ error: 'Failed to analyze barcode' });  }});app.post('/api/analyze', upload.single('image'), async (req, res) => {  try {    if (!req.file) {      return res.status(400).json({ error: 'No image provided' });    }    // Get device ID and IP for tracking    const deviceId = getDeviceId(req);    const ipAddress = req.ip || req.connection.remoteAddress;    // Check scan limits (TODO: get user info from auth header if available)    const userId = null; // TODO: Extract from JWT token if authenticated    const isPremium = false; // TODO: Check user's premium status    const scanCheck = checkScanLimit(deviceId, userId, isPremium);    if (!scanCheck.allowed) {      return res.status(429).json({        error: 'Scan limit reached',        message: scanCheck.message,        remaining: scanCheck.remaining,        resetTime: scanCheck.resetTime      });    }    // Check if Google Vision API is configured    if (process.env.GOOGLE_VISION_API_KEY) {      try {        // Convert image to base64        const imageBase64 = req.file.buffer.toString('base64');        // Call Google Vision API        const visionResponse = await axios.post(          `https://vision.googleapis.com/v1/images:annotate?key=${process.env.GOOGLE_VISION_API_KEY}`,          {            requests: [{              image: { content: imageBase64 },              features: [{ type: 'TEXT_DETECTION', maxResults: 10 }]            }]          }        );        const detectedText = visionResponse.data.responses[0]?.fullTextAnnotation?.text || '';        );        if (!detectedText) {          return res.status(400).json({             error: 'Could not read text from image. Please ensure the medication label is clear and try again, or use manual entry.'           });        }        // Use enhanced extraction logic        const productInfo = extractProductInfo(detectedText);        );        const medicationName = productInfo.productName;        // Use Gemini AI to analyze the detected medication        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });        const prompt = `Analyze the medication "${medicationName}" and provide educational wellness information.        Format the response as a JSON object with the following structure:        {          "medicationName": "string",          "medicationType": "string",          "wellness_info": [            {              "name": "string",              "effectiveness": "string (High/Moderate/Low)",              "description": "string",              "benefits": ["string"]            }          ],          "warnings": ["string"]        }`;        const result = await model.generateContent(prompt);        const text = result.response.text();        const jsonMatch = text.match(/\{[\s\S]*\}/);        if (jsonMatch) {          const analysisResult = JSON.parse(jsonMatch[0]);          // Get curated wellness alternatives          const curatedAlternatives = getWellnessAlternatives(productInfo.activeIngredient || productInfo.productName);          // Merge AI suggestions with curated database          if (curatedAlternatives && curatedAlternatives.length > 0) {            analysisResult.wellness_info = curatedAlternatives;          }          // Record successful scan          const scanResult = recordScan(deviceId, userId);          // Save to scan history (always save for AI training, even without userId)          const startTime = Date.now();          try {            await saveScanToHistory(userId || 'anonymous', {              deviceId,              productInfo,              ocrRawText: detectedText,              ocrConfidence: detectedText.length > 20 ? 'high' : 'low',              alternatives: curatedAlternatives || analysisResult.wellness_info,              warnings: analysisResult.warnings,              medicationType: analysisResult.medicationType,              ipAddress,              scanMethod: 'camera',              processingTime: Date.now() - startTime            });          } catch (historyError) {            console.error('Failed to save scan history:', historyError);          }          res.json({            ...analysisResult,            detectedFromImage: true,            ocrConfidence: detectedText.length > 20 ? 'high' : 'low',            productInfo: productInfo,            scansRemaining: scanResult.remaining          });        } else {          throw new Error('Invalid AI response format');        }      } catch (visionError) {        console.error('Vision API error:', visionError.message);        // Fall back to mock response        const scanResult = recordScan(deviceId, userId);        const mockResponse = getMockImageAnalysis();        return res.json({          ...mockResponse,          scansRemaining: scanResult.remaining        });      }    } else {      // No Vision API configured - return helpful mock data      const scanResult = recordScan(deviceId, userId);      const mockResponse = getMockImageAnalysis();      return res.json({        ...mockResponse,        scansRemaining: scanResult.remaining,        isMockData: true,        message: 'Google Vision API not configured. Please add GOOGLE_VISION_API_KEY to enable real OCR.',        instructions: 'To enable real camera OCR: 1) Get Google Cloud Vision API key, 2) Add to server environment variables'      });    }  } catch (error) {    console.error('Image analysis error:', error);    res.status(500).json({       error: 'Failed to analyze image. Please try manual entry instead.'     });  }});// Helper function for mock responsesfunction getMockImageAnalysis() {  const mockMedications = [    { name: 'Ibuprofen', type: 'Pain Relief/Anti-inflammatory' },    { name: 'Aspirin', type: 'Pain Relief/Blood Thinner' },    { name: 'Amoxicillin', type: 'Antibiotic' },    { name: 'Metformin', type: 'Diabetes Medication' }  ];  const selected = mockMedications[Math.floor(Math.random() * mockMedications.length)];  return {    medicationName: selected.name,    medicationType: selected.type,    detectedFromImage: true,    isMockData: true,    alternatives: [      {        name: 'Natural Alternative',        effectiveness: 'Moderate',        description: 'This is mock data. To enable real OCR, add Google Vision API key to your server.',        benefits: ['Educational purposes only', 'Real analysis requires API setup']      }    ],    warnings: [      'This is mock data for testing purposes',      'To enable real camera OCR, configure Google Vision API',      'Always consult healthcare professionals'    ]  };}// Stripe payment endpoints - moved to authenticated endpoint below// Get Stripe public keyapp.get('/stripe-config', (req, res) => {  res.json({    publicKey: process.env.STRIPE_PUBLISHABLE_KEY || 'pk_test_51234567890abcdefghijklmnopqrstuvwxyz',  });});// Verify payment sessionapp.get('/verify-session/:sessionId', async (req, res) => {  try {    const { sessionId } = req.params;    const session = await stripe.checkout.sessions.retrieve(sessionId);    res.json({      paymentStatus: session.payment_status,      customerEmail: session.customer_email,      userId: session.metadata.userId,    });  } catch (error) {    console.error('Session verification error:', error);    res.status(500).json({ error: 'Failed to verify session' });  }});// Test endpoint to simulate successful payment (for testing without real payment)app.post('/test-premium-upgrade', async (req, res) => {  try {    const { userId } = req.body;    if (!userId) {      return res.status(400).json({ error: 'User ID is required' });    }    // For now, we'll return success and let the client handle the Firestore update    // In production, this would be handled by Stripe webhooks with proper Firebase Admin    res.json({      success: true,      message: 'Premium upgrade successful (test mode)',      userId: userId,      premiumStatus: true,      // Include timestamp for client to use      timestamp: Date.now()    });  } catch (error) {    console.error('Test upgrade error:', error);    res.status(500).json({ error: 'Test upgrade failed', details: error.message });  }});// 🔗 STRIPE CHECKOUT SESSION CREATIONapp.post('/api/create-checkout-session', authenticateUser, async (req, res) => {  try {    const { priceId, userId, userEmail, couponCode, trialDays } = req.body;    if (!priceId || !userId || !userEmail) {      return res.status(400).json({ error: 'Missing required fields' });    }    // Create checkout session with dynamic pricing    const sessionConfig = {      payment_method_types: ['card'],      line_items: [{        price: priceId,        quantity: 1,      }],      mode: 'subscription',      success_url: `${req.headers.origin || 'https://naturinex-app.web.app'}/success?session_id={CHECKOUT_SESSION_ID}`,      cancel_url: `${req.headers.origin || 'https://naturinex-app.web.app'}/subscription`,      customer_email: userEmail,      metadata: {        userId: userId      },      subscription_data: {        metadata: {          userId: userId        }      },      allow_promotion_codes: true // Enable promo code input in Stripe checkout    };    // Add trial period - default to 7 days, or 14 days for students    const defaultTrialDays = 7;    const studentTrialDays = 14;    // Check if user is a verified student for extended trial    let finalTrialDays = trialDays || defaultTrialDays;    try {      const userDoc = await admin.firestore().collection('users').doc(userId).get();      if (userDoc.exists) {        const userData = userDoc.data();        if (userData.studentVerification?.verified) {          finalTrialDays = studentTrialDays; // Students get 14-day trial        }      }    } catch (error) {    }    // Always add trial period    sessionConfig.subscription_data.trial_period_days = finalTrialDays;    // Apply coupon if provided    if (couponCode) {      sessionConfig.discounts = [{        coupon: couponCode      }];    }    const session = await stripe.checkout.sessions.create(sessionConfig);    res.json({ sessionUrl: session.url });  } catch (error) {    console.error('Checkout session error:', error);    res.status(500).json({ error: 'Failed to create checkout session' });  }});// 📋 GET USER SUBSCRIPTION DATAapp.get('/api/user/:userId/subscription', authenticateUser, async (req, res) => {  try {    const { userId } = req.params;    // Verify the user is requesting their own data    if (req.user.uid !== userId) {      return res.status(403).json({ error: 'Unauthorized access' });    }    const userDoc = await admin.firestore().collection('users').doc(userId).get();    if (!userDoc.exists) {      return res.status(404).json({ error: 'User not found' });    }    const userData = userDoc.data();    res.json({      isPremium: userData.isPremium || false,      subscriptionId: userData.subscriptionId || null,      subscriptionStatus: userData.subscriptionStatus || 'none',      subscriptionStartDate: userData.subscriptionStartDate,      customerEmail: userData.customerEmail    });  } catch (error) {    console.error('Get subscription error:', error);    res.status(500).json({ error: 'Failed to get subscription data' });  }});// 🚫 CANCEL SUBSCRIPTIONapp.post('/api/cancel-subscription', authenticateUser, async (req, res) => {  try {    const { subscriptionId, userId } = req.body;    if (!subscriptionId) {      return res.status(400).json({ error: 'Subscription ID is required' });    }    // Cancel the subscription in Stripe    const subscription = await stripe.subscriptions.update(subscriptionId, {      cancel_at_period_end: true    });    // Update user's subscription status in Firestore    await admin.firestore().collection('users').doc(userId).update({      subscriptionStatus: 'canceling',      cancelAtPeriodEnd: true,      cancelDate: admin.firestore.FieldValue.serverTimestamp()    });    res.json({       success: true,       message: 'Subscription will be canceled at the end of the current billing period',      cancelAt: subscription.cancel_at    });  } catch (error) {    console.error('Cancel subscription error:', error);    res.status(500).json({ error: error.message || 'Failed to cancel subscription' });  }});// 💰 PRICING ENDPOINTS FOR A/B TESTINGapp.get('/api/pricing/:userId', async (req, res) => {  try {    const { userId } = req.params;    // Handle guest users    const isGuest = userId.startsWith('guest_');    let userData = {};    if (!isGuest) {      // Get user context for intelligent coupon selection      const userDoc = await admin.firestore().collection('users').doc(userId).get();      userData = userDoc.exists ? userDoc.data() : {};    }    // Build user context    const userContext = {      isStudent: false,      isNewUser: true,      daysSinceSignup: 0,      daysSinceLastActive: 0,      totalScans: userData.totalScans || 0,      referredBy: userData.referredBy || null    };    // Calculate days since signup    if (userData.metadata?.createdAt) {      const createdAt = userData.metadata.createdAt.toDate();      userContext.daysSinceSignup = Math.floor((Date.now() - createdAt) / (1000 * 60 * 60 * 24));      userContext.isNewUser = userContext.daysSinceSignup <= 7;    }    // Calculate days since last active    if (userData.metadata?.lastActiveDate) {      const lastActive = userData.metadata.lastActiveDate.toDate();      userContext.daysSinceLastActive = Math.floor((Date.now() - lastActive) / (1000 * 60 * 60 * 24));    }    // Check student status (only for non-guest users)    if (!isGuest) {      const studentStatus = await checkStudentStatus(userId);      userContext.isStudent = studentStatus.isStudent;    }    // Get all pricing tiers with A/B test for Basic    const tiers = getAllPricingTiers(userId);    // Get all applicable coupons    const { bestCoupon, allCoupons } = await getApplicableCoupons(userId, userContext);    // Get student benefits if applicable    const studentBenefits = userContext.isStudent ? await getStudentBenefits(userId) : null;    // Track pricing view event    await trackPricingEvent({      userId,      event: 'viewed_pricing',      pricingGroup: tiers.basic.name,      hasOffer: !!bestCoupon,      offerCode: bestCoupon?.code,      isStudent: userContext.isStudent    }, admin.firestore());    res.json({       tiers, // All three tiers      offer: bestCoupon, // Best applicable offer      allOffers: allCoupons, // All available offers      validCoupons, // List of valid manual coupon codes      studentBenefits, // Student-specific benefits      userContext: {        isNewUser: userContext.isNewUser,        isStudent: userContext.isStudent,        hasReferral: !!userContext.referredBy      }    });  } catch (error) {    console.error('Pricing API error:', error);    res.status(500).json({ error: 'Failed to get pricing' });  }});app.post('/api/pricing/track-conversion', async (req, res) => {  try {    const { userId, pricingGroup, planType, amount, promoCode } = req.body;    await trackPricingEvent({      userId,      event: 'converted',      pricingGroup,      planType,      amount,      promoCode,      timestamp: new Date()    }, admin.firestore());    res.json({ success: true });  } catch (error) {    console.error('Conversion tracking error:', error);    res.status(500).json({ error: 'Failed to track conversion' });  }});// 🎓 STUDENT VERIFICATION ENDPOINTapp.post('/api/verify-student', authenticateUser, async (req, res) => {  try {    const userId = req.user.uid;    const { email, verificationMethod, additionalData } = req.body;    // Verify student status    const result = await verifyStudent(userId, email || req.user.email, {      useThirdParty: verificationMethod === 'sheerid',      ...additionalData    });    if (result.verified) {      res.json({        success: true,        verified: true,        discountCode: result.discountCode || 'STUDENT40',        benefits: await getStudentBenefits(userId)      });    } else {      res.json({        success: false,        verified: false,        message: 'Could not verify student status. Please try another method.'      });    }  } catch (error) {    console.error('Student verification error:', error);    res.status(500).json({ error: 'Failed to verify student status' });  }});// 🔗 REFERRAL TRACKING ENDPOINTapp.post('/api/track-referral', async (req, res) => {  try {    const { referredUserId, referralCode } = req.body;    // Decode referral code to get referrer user ID    const referrerUserId = referralCode; // In production, this should be decoded    if (!referredUserId || !referrerUserId) {      return res.status(400).json({ error: 'Invalid referral data' });    }    // Track the referral    const success = await trackReferral(referredUserId, referrerUserId);    res.json({ success });  } catch (error) {    console.error('Referral tracking error:', error);    res.status(500).json({ error: 'Failed to track referral' });  }});// 🔗 STRIPE CUSTOMER PORTAL SESSIONapp.post('/api/subscription/portal', authenticateUser, async (req, res) => {  try {    const userId = req.user.uid;    // Get user's Stripe customer ID from Firestore    const db = getFirestore();    if (!db) {      return res.status(503).json({ error: 'Database service unavailable' });    }    const userDoc = await db.collection('users').doc(userId).get();    if (!userDoc.exists) {      return res.status(404).json({ error: 'User not found' });    }    const userData = userDoc.data();    const stripeCustomerId = userData.stripeCustomerId;    if (!stripeCustomerId) {      return res.status(400).json({ error: 'No active subscription found' });    }    // Create customer portal session    const session = await stripe.billingPortal.sessions.create({      customer: stripeCustomerId,      return_url: `${req.headers.origin || 'https://naturinex-app.web.app'}/profile`    });    res.json({ portalUrl: session.url });  } catch (error) {    console.error('Customer portal error:', error);    res.status(500).json({ error: 'Failed to create portal session' });  }});// 🔗 STRIPE WEBHOOK HANDLER FOR AUTOMATIC MONTHLY BILLING// Support both webhook paths for backward compatibilityapp.post('/webhook', verifyStripeWebhook, async (req, res) => {  await handleStripeWebhook(req, res);});app.post('/webhooks/stripe', verifyStripeWebhook, async (req, res) => {  await handleStripeWebhook(req, res);});// Common webhook handler functionasync function handleStripeWebhook(req, res) {  const sig = req.headers['stripe-signature'];  const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;  let event;  try {    event = stripe.webhooks.constructEvent(req.body, sig, endpointSecret);  } catch (err) {    console.error('⚠️ Webhook signature verification failed:', err.message);    return res.status(400).send(`Webhook Error: ${err.message}`);  }  // Handle the event  try {    switch (event.type) {      case 'checkout.session.completed':        await handleCheckoutSessionCompleted(event.data.object);        break;      case 'invoice.payment_succeeded':        await handleInvoicePaymentSucceeded(event.data.object);        break;      case 'invoice.payment_failed':        await handleInvoicePaymentFailed(event.data.object);        break;      case 'customer.subscription.created':        await handleSubscriptionCreated(event.data.object);        break;      case 'customer.subscription.updated':        await handleSubscriptionUpdated(event.data.object);        break;      case 'customer.subscription.trial_will_end':        await handleTrialWillEnd(event.data.object);        break;      case 'customer.subscription.deleted':        await handleSubscriptionDeleted(event.data.object);        break;      default:    }    res.json({ received: true });  } catch (error) {    console.error('❌ Webhook handler error:', error);    res.status(500).json({ error: 'Webhook handler failed' });  }}// 🎯 WEBHOOK HANDLER FUNCTIONSasync function handleCheckoutSessionCompleted(session) {  const userId = session.metadata.userId;  const customerEmail = session.customer_email;  const subscriptionId = session.subscription;  if (!userId) {    console.error('❌ No userId in session metadata');    return;  }  try {    // Update user's subscription status in Firestore    await admin.firestore().collection('users').doc(userId).update({      isPremium: true,      subscriptionStatus: 'active',      subscriptionId: subscriptionId,      customerEmail: customerEmail,      subscriptionStartDate: admin.firestore.FieldValue.serverTimestamp(),      lastBillingDate: admin.firestore.FieldValue.serverTimestamp(),      stripeCustomerId: session.customer    });  } catch (error) {    console.error('❌ Error updating user subscription:', error);  }}async function handleInvoicePaymentSucceeded(invoice) {  const subscriptionId = invoice.subscription;  const customerId = invoice.customer;  try {    // Find user by subscription ID    const usersRef = admin.firestore().collection('users');    const snapshot = await usersRef.where('subscriptionId', '==', subscriptionId).get();    if (snapshot.empty) {      console.error('❌ No user found for subscription:', subscriptionId);      return;    }    // Update user's billing information    const userDoc = snapshot.docs[0];    await userDoc.ref.update({      isPremium: true,      subscriptionStatus: 'active',      lastBillingDate: admin.firestore.FieldValue.serverTimestamp(),      nextBillingDate: new Date(invoice.period_end * 1000),      lastInvoiceId: invoice.id,      // Reset monthly scan count on successful payment      scanCount: 0,      lastScanMonth: new Date().toISOString().slice(0, 7) // YYYY-MM format    });  } catch (error) {    console.error('❌ Error processing invoice payment:', error);  }}async function handleInvoicePaymentFailed(invoice) {  const subscriptionId = invoice.subscription;  try {    // Find user by subscription ID    const usersRef = admin.firestore().collection('users');    const snapshot = await usersRef.where('subscriptionId', '==', subscriptionId).get();    if (snapshot.empty) {      console.error('❌ No user found for subscription:', subscriptionId);      return;    }    // Update user's status to indicate payment failure    const userDoc = snapshot.docs[0];    await userDoc.ref.update({      subscriptionStatus: 'past_due',      lastFailedPayment: admin.firestore.FieldValue.serverTimestamp(),      lastInvoiceId: invoice.id,      // Don't immediately downgrade - give them a grace period      paymentRetryCount: admin.firestore.FieldValue.increment(1)    });  } catch (error) {    console.error('❌ Error handling payment failure:', error);  }}async function handleSubscriptionCreated(subscription) {  const userId = subscription.metadata?.userId;  if (!userId) {    return;  }  try {    const updateData = {      subscriptionStatus: subscription.status,      subscriptionId: subscription.id,      stripeCustomerId: subscription.customer    };    // Track trial status    if (subscription.status === 'trialing' && subscription.trial_end) {      updateData.trialStart = new Date(subscription.trial_start * 1000);      updateData.trialEnd = new Date(subscription.trial_end * 1000);      updateData.isTrialing = true;    }    await admin.firestore().collection('users').doc(userId).update(updateData);  } catch (error) {    console.error('❌ Error handling subscription creation:', error);  }}async function handleSubscriptionUpdated(subscription) {  try {    // Find user by subscription ID    const usersRef = admin.firestore().collection('users');    const snapshot = await usersRef.where('subscriptionId', '==', subscription.id).get();    if (snapshot.empty) {      console.error('❌ No user found for subscription:', subscription.id);      return;    }    const userDoc = snapshot.docs[0];    const userData = userDoc.data();    const previousStatus = userData.subscriptionStatus;    // Update user's subscription status    const updateData = {      subscriptionStatus: subscription.status,      currentPeriodStart: new Date(subscription.current_period_start * 1000),      currentPeriodEnd: new Date(subscription.current_period_end * 1000),      lastUpdated: admin.firestore.FieldValue.serverTimestamp()    };    // Track trial conversion    if (previousStatus === 'trialing' && subscription.status === 'active') {      updateData.trialConverted = true;      updateData.trialConvertedAt = admin.firestore.FieldValue.serverTimestamp();      updateData.isTrialing = false;      updateData.isPremium = true;      // Process referral reward if this is their first paid subscription      const { processReferralReward } = require('./services/couponTracking');      await processReferralReward(userDoc.id);      // Track conversion analytics      await trackPricingEvent({        userId: userDoc.id,        event: 'trial_converted',        subscriptionId: subscription.id,        planId: subscription.items.data[0].price.id,        timestamp: new Date()      }, admin.firestore());    }    await userDoc.ref.update(updateData);  } catch (error) {    console.error('❌ Error updating subscription:', error);  }}async function handleSubscriptionDeleted(subscription) {  try {    // Find user by subscription ID      const usersRef = admin.firestore().collection('users');    const snapshot = await usersRef.where('subscriptionId', '==', subscription.id).get();    if (snapshot.empty) {      console.error('❌ No user found for subscription:', subscription.id);      return;    }    // Downgrade user to free tier    const userDoc = snapshot.docs[0];    await userDoc.ref.update({      isPremium: false,      subscriptionStatus: 'cancelled',      subscriptionId: null,      cancelledDate: admin.firestore.FieldValue.serverTimestamp(),      // Reset to free tier limits      scanCount: 0,      lastScanMonth: new Date().toISOString().slice(0, 7)    });  } catch (error) {    console.error('❌ Error handling subscription deletion:', error);  }}// Handle trial ending webhookasync function handleTrialWillEnd(subscription) {  const userId = subscription.metadata?.userId;  if (!userId) {    // Try to find user by subscription ID    const usersRef = admin.firestore().collection('users');    const snapshot = await usersRef.where('subscriptionId', '==', subscription.id).get();    if (!snapshot.empty) {      const userDoc = snapshot.docs[0];      await handleTrialEndingForUser(userDoc.id, subscription);    }    return;  }  await handleTrialEndingForUser(userId, subscription);}async function handleTrialEndingForUser(userId, subscription) {  try {    // Create a notification    await admin.firestore().collection('notifications').add({      userId,      type: 'trial_ending',      title: '⏰ Your free trial ends in 3 days!',      message: 'Don\'t lose access to premium features. Your payment method will be charged after the trial ends.',      createdAt: admin.firestore.FieldValue.serverTimestamp(),      read: false,      subscriptionId: subscription.id    });    // Update user record    await admin.firestore().collection('users').doc(userId).update({      trialEndingSoon: true,      trialEndDate: new Date(subscription.trial_end * 1000)    });  } catch (error) {    console.error('❌ Error handling trial end warning:', error);  }}// Subscription management endpointsapp.post('/api/subscription/details', [  body('subscriptionId')    .isLength({ min: 1, max: 100 })    .matches(/^sub_[a-zA-Z0-9]+$/)    .withMessage('Invalid subscription ID format'),  validateInput], async (req, res) => {  try {    const { subscriptionId } = req.body;    if (!subscriptionId) {      return res.status(400).json({ error: 'Subscription ID is required' });    }    const subscription = await stripe.subscriptions.retrieve(subscriptionId);    res.json({      id: subscription.id,      status: subscription.status,      current_period_start: subscription.current_period_start,      current_period_end: subscription.current_period_end,      cancel_at_period_end: subscription.cancel_at_period_end,      customer: subscription.customer,      items: subscription.items,      latest_invoice: subscription.latest_invoice    });  } catch (error) {    console.error('❌ Error fetching subscription details:', error);    res.status(500).json({ error: 'Failed to fetch subscription details' });  }});app.post('/api/subscription/toggle-auto-renew', [  body('subscriptionId')    .isLength({ min: 1, max: 100 })    .matches(/^sub_[a-zA-Z0-9]+$/)    .withMessage('Invalid subscription ID format'),  body('autoRenew')    .isBoolean()    .withMessage('autoRenew must be boolean'),  validateInput], async (req, res) => {  try {    const { subscriptionId, autoRenew } = req.body;    if (!subscriptionId || autoRenew === undefined) {      return res.status(400).json({ error: 'Subscription ID and autoRenew status are required' });    }    const subscription = await stripe.subscriptions.update(subscriptionId, {      cancel_at_period_end: !autoRenew    });    // Update user record in Firestore    const usersRef = admin.firestore().collection('users');    const snapshot = await usersRef.where('subscriptionId', '==', subscriptionId).get();    if (!snapshot.empty) {      const userDoc = snapshot.docs[0];      await userDoc.ref.update({        autoRenewalEnabled: autoRenew,        subscriptionStatus: autoRenew ? 'active' : 'canceling'      });    }    res.json({       success: true,       autoRenew,      cancel_at_period_end: subscription.cancel_at_period_end    });  } catch (error) {    console.error('❌ Error toggling auto-renewal:', error);    res.status(500).json({ error: 'Failed to update auto-renewal setting' });  }});app.post('/api/subscription/renew-now', async (req, res) => {  try {    const { customerId } = req.body;    if (!customerId) {      return res.status(400).json({ error: 'Customer ID is required' });    }    // Create and pay an invoice immediately    const invoice = await stripe.invoices.create({      customer: customerId,      auto_advance: true    });    const paidInvoice = await stripe.invoices.pay(invoice.id);    res.json({       success: true,       invoice: {        id: paidInvoice.id,        amount: paidInvoice.amount_paid,        status: paidInvoice.status      }    });  } catch (error) {    console.error('❌ Error processing immediate renewal:', error);    res.status(500).json({ error: 'Failed to process renewal payment' });  }});app.post('/api/subscription/cancel', async (req, res) => {  try {    // Get user from auth token for security    const authHeader = req.headers.authorization;    if (!authHeader) {      return res.status(401).json({ error: 'Unauthorized' });    }    const token = authHeader.split(' ')[1];    const decodedToken = await admin.auth().verifyIdToken(token);    const userId = decodedToken.uid;    // Get user's subscription from Firestore    const userDoc = await admin.firestore().collection('users').doc(userId).get();    const userData = userDoc.data();    if (!userData?.subscription?.stripeSubscriptionId) {      return res.status(404).json({ error: 'No active subscription found' });    }    const subscriptionId = userData.subscription.stripeSubscriptionId;    // Cancel at period end (don't immediately cancel)    const subscription = await stripe.subscriptions.update(subscriptionId, {      cancel_at_period_end: true,      metadata: {        cancelledBy: userId,        cancelledAt: new Date().toISOString()      }    });    // Update user record in Firestore    await userDoc.ref.update({      'subscription.status': 'canceling',      'subscription.autoRenewalEnabled': false,      'subscription.canceledAt': admin.firestore.FieldValue.serverTimestamp()    });    res.json({       success: true,      cancel_at_period_end: true,      current_period_end: subscription.current_period_end    });  } catch (error) {    console.error('❌ Error canceling subscription:', error);    res.status(500).json({ error: 'Failed to cancel subscription' });  }});// Remove duplicate endpoints - already defined above// Test ingestion endpoint removed - use admin dashboard for data ingestion// Admin endpoints (require authentication)app.get('/api/admin/analytics', async (req, res) => {  try {    // Verify admin token    const token = req.headers.authorization?.split(' ')[1];    if (!token) {      return res.status(401).json({ error: 'Unauthorized' });    }    // Verify the token with Firebase Admin    const decodedToken = await admin.auth().verifyIdToken(token);    const userId = decodedToken.uid;    // Check if user is admin (you'll need to implement this check)    // For now, we'll return mock data    const today = new Date().toISOString().split('T')[0];    res.json({      totalUsers: 1250,      premiumUsers: 89,      todayScans: 342,      monthlyRevenue: 890.11, // $9.99 * 89 users      popularProducts: [        { name: 'MiraLAX', scanCount: 45 },        { name: 'Aspirin', scanCount: 38 },        { name: 'Omeprazole', scanCount: 32 },        { name: 'Pepto-Bismol', scanCount: 28 },        { name: 'Claritin', scanCount: 24 }      ]    });  } catch (error) {    console.error('Admin analytics error:', error);    res.status(500).json({ error: 'Failed to fetch analytics' });  }});// Data ingestion endpoints - These should be deployed as separate Cloud Functions// app.post('/api/functions/scheduled-ingestion', scheduledIngestion);// app.post('/api/functions/manual-ingestion', authenticateUser, manualIngestion);// app.post('/api/functions/ingest-substance', handleIngestionTask);// app.post('/api/functions/batch-ingest', handleBatchIngestion);// Optimized search endpointsapp.get('/api/search/substances', apiLimiter, async (req, res) => {  try {    const { query, type, safetyLevel, effectiveness, limit } = req.query;    const results = await optimizedSearch.advancedSearch({      query,      type,      safetyLevel,      effectiveness,      limit: parseInt(limit) || 20    });    res.json({ results, count: results.length });  } catch (error) {    console.error('Search error:', error);    res.status(500).json({ error: 'Search failed' });  }});app.get('/api/search/suggestions', async (req, res) => {  try {    const { q } = req.query;    if (!q || q.length < 2) {      return res.json({ suggestions: [] });    }    const suggestions = await optimizedSearch.getSuggestions(q);    res.json({ suggestions });  } catch (error) {    console.error('Suggestions error:', error);    res.json({ suggestions: [] });  }});app.get('/api/database/stats', async (req, res) => {  try {    const stats = await optimizedSearch.getDatabaseStats();    res.json(stats);  } catch (error) {    console.error('Stats error:', error);    res.status(500).json({ error: 'Failed to get stats' });  }});// Apply error handler middlewareapp.use(errorHandler);// Initialize data ingestion orchestratorconst dataIngestion = new DataIngestionOrchestrator();if (process.env.ENABLE_DATA_INGESTION === 'true') {  dataIngestion.initializeScheduledIngestion();}const PORT = process.env.PORT || 5000;app.listen(PORT, () => {});

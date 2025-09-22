@@ -1,449 +1,1 @@
-/**
- * Community Feed Component
- * Main feed displaying posts, interactions, and community content
- */
-
-import React, { useState, useEffect, useCallback } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  RefreshControl,
-  TouchableOpacity,
-  Image,
-  Alert,
-  TextInput,
-  Modal
-} from 'react-native';
-import { MaterialIcons, Ionicons } from '@expo/vector-icons';
-import CommunityService from '../../services/CommunityService';
-import PostCard from './PostCard';
-import CreatePostModal from './CreatePostModal';
-import LoadingAnimation from '../LoadingAnimation';
-
-const CommunityFeed = ({ user, navigation }) => {
-  const [posts, setPosts] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [page, setPage] = useState(1);
-  const [hasMorePosts, setHasMorePosts] = useState(true);
-  const [showCreatePost, setShowCreatePost] = useState(false);
-  const [filters, setFilters] = useState({
-    postType: null,
-    conditionCategory: null,
-    tags: []
-  });
-  const [searchQuery, setSearchQuery] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
-
-  const loadPosts = useCallback(async (pageNum = 1, currentFilters = filters) => {
-    try {
-      if (pageNum === 1) {
-        setLoading(true);
-      }
-
-      const feedPosts = await CommunityService.getCommunityFeed(
-        user?.uid,
-        pageNum,
-        20,
-        currentFilters
-      );
-
-      if (pageNum === 1) {
-        setPosts(feedPosts);
-      } else {
-        setPosts(prev => [...prev, ...feedPosts]);
-      }
-
-      setHasMorePosts(feedPosts.length === 20);
-      setPage(pageNum);
-    } catch (error) {
-      console.error('Error loading posts:', error);
-      Alert.alert('Error', 'Failed to load community posts');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [user?.uid, filters]);
-
-  useEffect(() => {
-    loadPosts(1);
-  }, [loadPosts]);
-
-  const handleRefresh = () => {
-    setRefreshing(true);
-    loadPosts(1);
-  };
-
-  const handleLoadMore = () => {
-    if (!loading && hasMorePosts) {
-      loadPosts(page + 1);
-    }
-  };
-
-  const handleCreatePost = async (postData) => {
-    try {
-      const newPost = await CommunityService.createPost(postData, user.uid);
-      setPosts(prev => [newPost, ...prev]);
-      setShowCreatePost(false);
-
-      // Track engagement
-      await CommunityService.trackEngagement(user.uid, 'create_post', {
-        postType: postData.postType,
-        hasMedia: postData.mediaUrls?.length > 0
-      });
-    } catch (error) {
-      console.error('Error creating post:', error);
-      Alert.alert('Error', 'Failed to create post');
-    }
-  };
-
-  const handleReaction = async (postId, reactionType) => {
-    try {
-      await CommunityService.addReaction(postId, user.uid, reactionType);
-
-      // Update local state
-      setPosts(prev => prev.map(post => {
-        if (post.id === postId) {
-          const hasExistingReaction = post.user_reactions?.length > 0;
-          return {
-            ...post,
-            reaction_count: hasExistingReaction ? post.reaction_count : post.reaction_count + 1,
-            user_reactions: [{ reaction_type: reactionType }]
-          };
-        }
-        return post;
-      }));
-
-      // Track engagement
-      await CommunityService.trackEngagement(user.uid, 'add_reaction', {
-        postId,
-        reactionType
-      });
-    } catch (error) {
-      console.error('Error adding reaction:', error);
-    }
-  };
-
-  const handleComment = (postId) => {
-    navigation.navigate('PostDetail', { postId });
-  };
-
-  const handleShare = async (post) => {
-    try {
-      // Implement sharing functionality
-      await CommunityService.trackEngagement(user.uid, 'share_post', {
-        postId: post.id
-      });
-    } catch (error) {
-      console.error('Error sharing post:', error);
-    }
-  };
-
-  const applyFilters = (newFilters) => {
-    setFilters(newFilters);
-    setShowFilters(false);
-    loadPosts(1, newFilters);
-  };
-
-  const renderHeader = () => (
-    <View style={styles.header}>
-      <View style={styles.searchContainer}>
-        <Ionicons name="search" size={20} color="#666" />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search community posts..."
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          returnKeyType="search"
-          onSubmitEditing={() => {
-            // Implement search functionality
-            const searchFilters = { ...filters, search: searchQuery };
-            loadPosts(1, searchFilters);
-          }}
-        />
-      </View>
-
-      <View style={styles.actionRow}>
-        <TouchableOpacity
-          style={styles.createPostButton}
-          onPress={() => setShowCreatePost(true)}
-        >
-          <MaterialIcons name="add" size={20} color="#fff" />
-          <Text style={styles.createPostText}>Share Something</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.filterButton}
-          onPress={() => setShowFilters(true)}
-        >
-          <MaterialIcons name="filter-list" size={20} color="#2E7D32" />
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.quickFilters}>
-        <TouchableOpacity
-          style={[
-            styles.quickFilterChip,
-            !filters.postType && styles.quickFilterChipActive
-          ]}
-          onPress={() => applyFilters({ ...filters, postType: null })}
-        >
-          <Text style={[
-            styles.quickFilterText,
-            !filters.postType && styles.quickFilterTextActive
-          ]}>All</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.quickFilterChip,
-            filters.postType === 'success_story' && styles.quickFilterChipActive
-          ]}
-          onPress={() => applyFilters({ ...filters, postType: 'success_story' })}
-        >
-          <Text style={[
-            styles.quickFilterText,
-            filters.postType === 'success_story' && styles.quickFilterTextActive
-          ]}>Success Stories</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.quickFilterChip,
-            filters.postType === 'question' && styles.quickFilterChipActive
-          ]}
-          onPress={() => applyFilters({ ...filters, postType: 'question' })}
-        >
-          <Text style={[
-            styles.quickFilterText,
-            filters.postType === 'question' && styles.quickFilterTextActive
-          ]}>Questions</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[
-            styles.quickFilterChip,
-            filters.postType === 'recipe' && styles.quickFilterChipActive
-          ]}
-          onPress={() => applyFilters({ ...filters, postType: 'recipe' })}
-        >
-          <Text style={[
-            styles.quickFilterText,
-            filters.postType === 'recipe' && styles.quickFilterTextActive
-          ]}>Recipes</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  const renderPost = ({ item }) => (
-    <PostCard
-      post={item}
-      currentUser={user}
-      onReaction={handleReaction}
-      onComment={handleComment}
-      onShare={handleShare}
-      onUserPress={(userId) => navigation.navigate('UserProfile', { userId })}
-      onGroupPress={(groupId) => navigation.navigate('SupportGroup', { groupId })}
-    />
-  );
-
-  const renderEmpty = () => (
-    <View style={styles.emptyContainer}>
-      <MaterialIcons name="forum" size={64} color="#ccc" />
-      <Text style={styles.emptyTitle}>No Posts Yet</Text>
-      <Text style={styles.emptyText}>
-        Be the first to share something with the community!
-      </Text>
-      <TouchableOpacity
-        style={styles.emptyButton}
-        onPress={() => setShowCreatePost(true)}
-      >
-        <Text style={styles.emptyButtonText}>Create First Post</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  const renderFooter = () => {
-    if (!loading || page === 1) return null;
-    return (
-      <View style={styles.loadingFooter}>
-        <LoadingAnimation size="small" />
-      </View>
-    );
-  };
-
-  if (loading && page === 1) {
-    return (
-      <View style={styles.loadingContainer}>
-        <LoadingAnimation />
-        <Text style={styles.loadingText}>Loading community feed...</Text>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.container}>
-      <FlatList
-        data={posts}
-        renderItem={renderPost}
-        keyExtractor={(item) => item.id}
-        ListHeaderComponent={renderHeader}
-        ListEmptyComponent={renderEmpty}
-        ListFooterComponent={renderFooter}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            colors={['#2E7D32']}
-            tintColor="#2E7D32"
-          />
-        }
-        onEndReached={handleLoadMore}
-        onEndReachedThreshold={0.1}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={posts.length === 0 ? styles.emptyContent : null}
-      />
-
-      <CreatePostModal
-        visible={showCreatePost}
-        onClose={() => setShowCreatePost(false)}
-        onSubmit={handleCreatePost}
-        user={user}
-      />
-    </View>
-  );
-};
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  header: {
-    backgroundColor: '#fff',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f9f9f9',
-    borderRadius: 25,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginBottom: 16,
-  },
-  searchInput: {
-    flex: 1,
-    marginLeft: 8,
-    fontSize: 16,
-    color: '#333',
-  },
-  actionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  createPostButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#2E7D32',
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginRight: 12,
-  },
-  createPostText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
-  },
-  filterButton: {
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#2E7D32',
-  },
-  quickFilters: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  quickFilterChip: {
-    backgroundColor: '#f0f0f0',
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginRight: 8,
-    marginBottom: 8,
-  },
-  quickFilterChipActive: {
-    backgroundColor: '#2E7D32',
-  },
-  quickFilterText: {
-    color: '#666',
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  quickFilterTextActive: {
-    color: '#fff',
-  },
-  emptyContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 32,
-    paddingVertical: 64,
-  },
-  emptyContent: {
-    flexGrow: 1,
-  },
-  emptyTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  emptyText: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: 24,
-    marginBottom: 24,
-  },
-  emptyButton: {
-    backgroundColor: '#2E7D32',
-    borderRadius: 8,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-  },
-  emptyButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  loadingContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#f5f5f5',
-  },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#666',
-  },
-  loadingFooter: {
-    paddingVertical: 20,
-    alignItems: 'center',
-  },
-});
-
-export default CommunityFeed;
+/** * Community Feed Component * Main feed displaying posts, interactions, and community content */import React, { useState, useEffect, useCallback } from 'react';import {  View,  Text,  StyleSheet,  FlatList,  RefreshControl,  TouchableOpacity,  Image,  Alert,  TextInput,  Modal} from 'react-native';import { MaterialIcons, Ionicons } from '@expo/vector-icons';import CommunityService from '../../services/CommunityService';import PostCard from './PostCard';import CreatePostModal from './CreatePostModal';import LoadingAnimation from '../LoadingAnimation';const CommunityFeed = ({ user, navigation }) => {  const [posts, setPosts] = useState([]);  const [loading, setLoading] = useState(true);  const [refreshing, setRefreshing] = useState(false);  const [page, setPage] = useState(1);  const [hasMorePosts, setHasMorePosts] = useState(true);  const [showCreatePost, setShowCreatePost] = useState(false);  const [filters, setFilters] = useState({    postType: null,    conditionCategory: null,    tags: []  });  const [searchQuery, setSearchQuery] = useState('');  const [showFilters, setShowFilters] = useState(false);  const loadPosts = useCallback(async (pageNum = 1, currentFilters = filters) => {    try {      if (pageNum === 1) {        setLoading(true);      }      const feedPosts = await CommunityService.getCommunityFeed(        user?.uid,        pageNum,        20,        currentFilters      );      if (pageNum === 1) {        setPosts(feedPosts);      } else {        setPosts(prev => [...prev, ...feedPosts]);      }      setHasMorePosts(feedPosts.length === 20);      setPage(pageNum);    } catch (error) {      console.error('Error loading posts:', error);      Alert.alert('Error', 'Failed to load community posts');    } finally {      setLoading(false);      setRefreshing(false);    }  }, [user?.uid, filters]);  useEffect(() => {    loadPosts(1);  }, [loadPosts]);  const handleRefresh = () => {    setRefreshing(true);    loadPosts(1);  };  const handleLoadMore = () => {    if (!loading && hasMorePosts) {      loadPosts(page + 1);    }  };  const handleCreatePost = async (postData) => {    try {      const newPost = await CommunityService.createPost(postData, user.uid);      setPosts(prev => [newPost, ...prev]);      setShowCreatePost(false);      // Track engagement      await CommunityService.trackEngagement(user.uid, 'create_post', {        postType: postData.postType,        hasMedia: postData.mediaUrls?.length > 0      });    } catch (error) {      console.error('Error creating post:', error);      Alert.alert('Error', 'Failed to create post');    }  };  const handleReaction = async (postId, reactionType) => {    try {      await CommunityService.addReaction(postId, user.uid, reactionType);      // Update local state      setPosts(prev => prev.map(post => {        if (post.id === postId) {          const hasExistingReaction = post.user_reactions?.length > 0;          return {            ...post,            reaction_count: hasExistingReaction ? post.reaction_count : post.reaction_count + 1,            user_reactions: [{ reaction_type: reactionType }]          };        }        return post;      }));      // Track engagement      await CommunityService.trackEngagement(user.uid, 'add_reaction', {        postId,        reactionType      });    } catch (error) {      console.error('Error adding reaction:', error);    }  };  const handleComment = (postId) => {    navigation.navigate('PostDetail', { postId });  };  const handleShare = async (post) => {    try {      // Implement sharing functionality      await CommunityService.trackEngagement(user.uid, 'share_post', {        postId: post.id      });    } catch (error) {      console.error('Error sharing post:', error);    }  };  const applyFilters = (newFilters) => {    setFilters(newFilters);    setShowFilters(false);    loadPosts(1, newFilters);  };  const renderHeader = () => (    <View style={styles.header}>      <View style={styles.searchContainer}>        <Ionicons name="search" size={20} color="#666" />        <TextInput          style={styles.searchInput}          placeholder="Search community posts..."          value={searchQuery}          onChangeText={setSearchQuery}          returnKeyType="search"          onSubmitEditing={() => {            // Implement search functionality            const searchFilters = { ...filters, search: searchQuery };            loadPosts(1, searchFilters);          }}        />      </View>      <View style={styles.actionRow}>        <TouchableOpacity          style={styles.createPostButton}          onPress={() => setShowCreatePost(true)}        >          <MaterialIcons name="add" size={20} color="#fff" />          <Text style={styles.createPostText}>Share Something</Text>        </TouchableOpacity>        <TouchableOpacity          style={styles.filterButton}          onPress={() => setShowFilters(true)}        >          <MaterialIcons name="filter-list" size={20} color="#2E7D32" />        </TouchableOpacity>      </View>      <View style={styles.quickFilters}>        <TouchableOpacity          style={[            styles.quickFilterChip,            !filters.postType && styles.quickFilterChipActive          ]}          onPress={() => applyFilters({ ...filters, postType: null })}        >          <Text style={[            styles.quickFilterText,            !filters.postType && styles.quickFilterTextActive          ]}>All</Text>        </TouchableOpacity>        <TouchableOpacity          style={[            styles.quickFilterChip,            filters.postType === 'success_story' && styles.quickFilterChipActive          ]}          onPress={() => applyFilters({ ...filters, postType: 'success_story' })}        >          <Text style={[            styles.quickFilterText,            filters.postType === 'success_story' && styles.quickFilterTextActive          ]}>Success Stories</Text>        </TouchableOpacity>        <TouchableOpacity          style={[            styles.quickFilterChip,            filters.postType === 'question' && styles.quickFilterChipActive          ]}          onPress={() => applyFilters({ ...filters, postType: 'question' })}        >          <Text style={[            styles.quickFilterText,            filters.postType === 'question' && styles.quickFilterTextActive          ]}>Questions</Text>        </TouchableOpacity>        <TouchableOpacity          style={[            styles.quickFilterChip,            filters.postType === 'recipe' && styles.quickFilterChipActive          ]}          onPress={() => applyFilters({ ...filters, postType: 'recipe' })}        >          <Text style={[            styles.quickFilterText,            filters.postType === 'recipe' && styles.quickFilterTextActive          ]}>Recipes</Text>        </TouchableOpacity>      </View>    </View>  );  const renderPost = ({ item }) => (    <PostCard      post={item}      currentUser={user}      onReaction={handleReaction}      onComment={handleComment}      onShare={handleShare}      onUserPress={(userId) => navigation.navigate('UserProfile', { userId })}      onGroupPress={(groupId) => navigation.navigate('SupportGroup', { groupId })}    />  );  const renderEmpty = () => (    <View style={styles.emptyContainer}>      <MaterialIcons name="forum" size={64} color="#ccc" />      <Text style={styles.emptyTitle}>No Posts Yet</Text>      <Text style={styles.emptyText}>        Be the first to share something with the community!      </Text>      <TouchableOpacity        style={styles.emptyButton}        onPress={() => setShowCreatePost(true)}      >        <Text style={styles.emptyButtonText}>Create First Post</Text>      </TouchableOpacity>    </View>  );  const renderFooter = () => {    if (!loading || page === 1) return null;    return (      <View style={styles.loadingFooter}>        <LoadingAnimation size="small" />      </View>    );  };  if (loading && page === 1) {    return (      <View style={styles.loadingContainer}>        <LoadingAnimation />        <Text style={styles.loadingText}>Loading community feed...</Text>      </View>    );  }  return (    <View style={styles.container}>      <FlatList        data={posts}        renderItem={renderPost}        keyExtractor={(item) => item.id}        ListHeaderComponent={renderHeader}        ListEmptyComponent={renderEmpty}        ListFooterComponent={renderFooter}        refreshControl={          <RefreshControl            refreshing={refreshing}            onRefresh={handleRefresh}            colors={['#2E7D32']}            tintColor="#2E7D32"          />        }        onEndReached={handleLoadMore}        onEndReachedThreshold={0.1}        showsVerticalScrollIndicator={false}        contentContainerStyle={posts.length === 0 ? styles.emptyContent : null}      />      <CreatePostModal        visible={showCreatePost}        onClose={() => setShowCreatePost(false)}        onSubmit={handleCreatePost}        user={user}      />    </View>  );};const styles = StyleSheet.create({  container: {    flex: 1,    backgroundColor: '#f5f5f5',  },  header: {    backgroundColor: '#fff',    padding: 16,    borderBottomWidth: 1,    borderBottomColor: '#eee',  },  searchContainer: {    flexDirection: 'row',    alignItems: 'center',    backgroundColor: '#f9f9f9',    borderRadius: 25,    paddingHorizontal: 16,    paddingVertical: 12,    marginBottom: 16,  },  searchInput: {    flex: 1,    marginLeft: 8,    fontSize: 16,    color: '#333',  },  actionRow: {    flexDirection: 'row',    alignItems: 'center',    marginBottom: 16,  },  createPostButton: {    flex: 1,    flexDirection: 'row',    alignItems: 'center',    justifyContent: 'center',    backgroundColor: '#2E7D32',    borderRadius: 8,    paddingVertical: 12,    paddingHorizontal: 16,    marginRight: 12,  },  createPostText: {    color: '#fff',    fontSize: 16,    fontWeight: '600',    marginLeft: 8,  },  filterButton: {    padding: 12,    borderRadius: 8,    borderWidth: 1,    borderColor: '#2E7D32',  },  quickFilters: {    flexDirection: 'row',    flexWrap: 'wrap',  },  quickFilterChip: {    backgroundColor: '#f0f0f0',    borderRadius: 20,    paddingHorizontal: 16,    paddingVertical: 8,    marginRight: 8,    marginBottom: 8,  },  quickFilterChipActive: {    backgroundColor: '#2E7D32',  },  quickFilterText: {    color: '#666',    fontSize: 14,    fontWeight: '500',  },  quickFilterTextActive: {    color: '#fff',  },  emptyContainer: {    flex: 1,    alignItems: 'center',    justifyContent: 'center',    paddingHorizontal: 32,    paddingVertical: 64,  },  emptyContent: {    flexGrow: 1,  },  emptyTitle: {    fontSize: 24,    fontWeight: 'bold',    color: '#333',    marginTop: 16,    marginBottom: 8,  },  emptyText: {    fontSize: 16,    color: '#666',    textAlign: 'center',    lineHeight: 24,    marginBottom: 24,  },  emptyButton: {    backgroundColor: '#2E7D32',    borderRadius: 8,    paddingHorizontal: 24,    paddingVertical: 12,  },  emptyButtonText: {    color: '#fff',    fontSize: 16,    fontWeight: '600',  },  loadingContainer: {    flex: 1,    alignItems: 'center',    justifyContent: 'center',    backgroundColor: '#f5f5f5',  },  loadingText: {    marginTop: 16,    fontSize: 16,    color: '#666',  },  loadingFooter: {    paddingVertical: 20,    alignItems: 'center',  },});export default CommunityFeed;

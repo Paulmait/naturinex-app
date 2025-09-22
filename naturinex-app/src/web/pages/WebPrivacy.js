@@ -1,6 +1,5 @@
 import React from 'react';
 import { Container, Typography, Paper, Box } from '@mui/material';
-
 function WebPrivacy() {
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
@@ -14,7 +13,6 @@ function WebPrivacy() {
         <Typography variant="body2" color="text.secondary" gutterBottom>
           Effective Date: September 3, 2025
         </Typography>
-        
         <Box sx={{ mt: 3 }}>
           <Typography paragraph>
             Cien Rios LLC, doing business as Naturinex Wellness Guide (&ldquo;Naturinex,&rdquo; &ldquo;we,&rdquo; &ldquo;our,&rdquo; or &ldquo;us&rdquo;), 
@@ -23,7 +21,6 @@ function WebPrivacy() {
             in compliance with applicable data protection regulations including GDPR, CCPA, and HIPAA where applicable.
           </Typography>
         </Box>
-        
         <Box sx={{ mt: 4 }}>
           <Typography variant="h6" gutterBottom>
             1. Information We Collect
@@ -44,7 +41,6 @@ function WebPrivacy() {
           <Typography variant="caption" display="block" sx={{ mt: 1 }}>
             Data retention: Active account data retained for service duration plus 90 days. Anonymized analytics retained for 2 years.
           </Typography>
-          
           <Typography variant="h6" gutterBottom>
             2. How We Use Your Information
           </Typography>
@@ -64,7 +60,6 @@ function WebPrivacy() {
             encrypted, de-identified data. AI outputs are probabilistic and not medical advice. You maintain full control over 
             AI-generated insights and can delete them at any time.
           </Typography>
-          
           <Typography variant="h6" gutterBottom>
             3. Data Security & Infrastructure
           </Typography>
@@ -85,7 +80,6 @@ function WebPrivacy() {
             <strong>Incident Response:</strong> Security incidents are logged, investigated within 24 hours, and reportable 
             breaches disclosed within 72 hours per regulatory requirements.
           </Typography>
-          
           <Typography variant="h6" gutterBottom>
             4. Data Sharing & Third Parties
           </Typography>
@@ -104,7 +98,6 @@ function WebPrivacy() {
             All third parties are contractually bound to maintain confidentiality and implement adequate security measures. 
             We conduct annual vendor security assessments.
           </Typography>
-          
           <Typography variant="h6" gutterBottom>
             5. Your Privacy Rights
           </Typography>
@@ -127,7 +120,6 @@ function WebPrivacy() {
             and non-discrimination for exercising rights.<br/>
             <strong>EU/UK Residents:</strong> Lodge complaints with supervisory authorities. Our DPO contact: privacy@naturinex.com
           </Typography>
-          
           <Typography variant="h6" gutterBottom>
             6. Children's Privacy
           </Typography>
@@ -135,7 +127,6 @@ function WebPrivacy() {
             Our services are not directed to children under 13. We do not knowingly collect data from children 
             under 13. If you believe a child has provided us data, contact us immediately for deletion.
           </Typography>
-          
           <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
             7. International Data Transfers
           </Typography>
@@ -143,7 +134,6 @@ function WebPrivacy() {
             Your data may be transferred to and processed in countries other than your residence. We ensure adequate 
             protection through Standard Contractual Clauses, adequacy decisions, or other approved mechanisms.
           </Typography>
-          
           <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
             8. Cookies & Tracking
           </Typography>
@@ -151,7 +141,6 @@ function WebPrivacy() {
             We use essential cookies for authentication and security. Analytics cookies are opt-in. You can manage 
             preferences via cookie banner or browser settings. We honor Do Not Track signals.
           </Typography>
-          
           <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
             9. Updates to Privacy Policy
           </Typography>
@@ -159,7 +148,6 @@ function WebPrivacy() {
             We may update this policy to reflect legal, technical, or business changes. Material changes will be 
             notified via email and in-app notice 30 days before effectiveness. Continued use after changes indicates acceptance.
           </Typography>
-          
           <Typography variant="h6" gutterBottom sx={{ mt: 3 }}>
             10. Contact Information
           </Typography>
@@ -168,12 +156,10 @@ function WebPrivacy() {
             17113 Miramar Parkway<br/>
             Miramar, FL 33027<br/>
             United States<br/><br/>
-            
             <strong>Support:</strong> support@naturinex.com<br/>
             <strong>Privacy/DPO:</strong> privacy@naturinex.com<br/>
             <strong>Phone:</strong> (754) 254-7141<br/>
             <strong>Response Time:</strong> 1-2 business days<br/><br/>
-            
             <strong>EU Representative:</strong> [To be appointed if required]<br/>
             <strong>UK Representative:</strong> [To be appointed if required]
           </Typography>
@@ -182,5 +168,4 @@ function WebPrivacy() {
     </Container>
   );
 }
-
 export default WebPrivacy;

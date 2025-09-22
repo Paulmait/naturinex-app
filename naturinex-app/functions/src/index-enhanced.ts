@@ -1,196 +1,1 @@
-import * as functions from 'firebase-functions';
-import * as admin from 'firebase-admin';
-import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
-import Stripe from 'stripe';
-import { handleStripeWebhook } from './stripeWebhook';
-import { getPriceId } from './priceConfig';
-
-// Load environment variables
-dotenv.config();
-
-// Initialize Firebase Admin
-admin.initializeApp();
-
-// Initialize Stripe
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2025-08-27.basil',
-});
-
-// Create Express app
-const app = express();
-
-// Enable CORS
-app.use(cors({ origin: true }));
-
-// Middleware to handle JSON/raw body parsing
-app.use((req, res, next) => {
-  if (req.path === '/webhooks/stripe') {
-    // Use raw body for webhook
-    express.raw({ type: 'application/json' })(req, res, next);
-  } else {
-    // Use JSON parser for other routes
-    express.json()(req, res, next);
-  }
-});
-
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(),
-    stripe: !!process.env.STRIPE_SECRET_KEY,
-    webhook: !!process.env.STRIPE_WEBHOOK_SECRET
-  });
-});
-
-// Create checkout session with Stripe Price IDs
-app.post('/create-checkout-session', async (req, res) => {
-  try {
-    const { userId, userEmail, plan, billingCycle } = req.body;
-
-    // Get the appropriate price ID
-    const priceId = getPriceId(plan, billingCycle);
-    
-    if (!priceId) {
-      return res.status(400).json({ 
-        error: 'Invalid plan or billing cycle',
-        plan,
-        billingCycle 
-      });
-    }
-
-    // Create Stripe checkout session with price ID
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      line_items: [
-        {
-          price: priceId,
-          quantity: 1,
-        },
-      ],
-      mode: 'subscription',
-      success_url: `${req.headers.origin}/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${req.headers.origin}/cancel`,
-      customer_email: userEmail,
-      metadata: {
-        userId,
-        plan,
-        billingCycle,
-      },
-      subscription_data: {
-        metadata: {
-          userId,
-          plan,
-          billingCycle,
-        },
-      },
-    });
-
-    res.json({ url: session.url, sessionId: session.id });
-  } catch (error) {
-    console.error('Error creating checkout session:', error);
-    res.status(500).json({ error: 'Failed to create checkout session' });
-  }
-});
-
-// Get Stripe configuration (public key and price IDs)
-app.get('/stripe-config', (req, res) => {
-  res.json({
-    publicKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
-    prices: {
-      basic_monthly: process.env.STRIPE_PRICE_BASIC_MONTHLY,
-      premium_monthly: process.env.STRIPE_PRICE_PREMIUM_MONTHLY,
-      professional_monthly: process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY,
-      basic_yearly: process.env.STRIPE_PRICE_BASIC_YEARLY,
-      premium_yearly: process.env.STRIPE_PRICE_PREMIUM_YEARLY,
-      professional_yearly: process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY,
-    }
-  });
-});
-
-// Customer portal endpoint
-app.post('/create-portal-session', async (req, res) => {
-  try {
-    const { customerId } = req.body;
-
-    const session = await stripe.billingPortal.sessions.create({
-      customer: customerId,
-      return_url: `${req.headers.origin}/account`,
-    });
-
-    res.json({ url: session.url });
-  } catch (error) {
-    console.error('Error creating portal session:', error);
-    res.status(500).json({ error: 'Failed to create portal session' });
-  }
-});
-
-// Cancel subscription endpoint
-app.post('/cancel-subscription', async (req, res) => {
-  try {
-    const { subscriptionId } = req.body;
-
-    const subscription = await stripe.subscriptions.update(subscriptionId, {
-      cancel_at_period_end: true,
-    });
-
-    res.json({ subscription });
-  } catch (error) {
-    console.error('Error canceling subscription:', error);
-    res.status(500).json({ error: 'Failed to cancel subscription' });
-  }
-});
-
-// Route POST requests to /webhooks/stripe to the handleStripeWebhook function
-app.post('/webhooks/stripe', handleStripeWebhook);
-
-// Export api via functions.https.onRequest(app)
-export const api = functions.https.onRequest(app);
-
-// Scheduled function to check subscription statuses
-export const checkSubscriptions = functions.pubsub
-  .schedule('every 24 hours')
-  .onRun(async (context) => {
-    console.log('Running daily subscription check...');
-    
-    try {
-      // Get all users with active subscriptions
-      const usersSnapshot = await admin.firestore()
-        .collection('users')
-        .where('isPremium', '==', true)
-        .get();
-
-      const updates = usersSnapshot.docs.map(async (doc) => {
-        const userData = doc.data();
-        if (userData.stripeSubscriptionId) {
-          try {
-            // Check subscription status in Stripe
-            const subscription = await stripe.subscriptions.retrieve(
-              userData.stripeSubscriptionId
-            );
-
-            // Update user status if subscription is not active
-            if (subscription.status !== 'active' && subscription.status !== 'trialing') {
-              await doc.ref.update({
-                isPremium: false,
-                subscriptionStatus: subscription.status,
-                subscriptionEndDate: new Date(subscription.current_period_end * 1000),
-              });
-              console.log(`Updated subscription status for user ${doc.id}`);
-            }
-          } catch (error) {
-            console.error(`Error checking subscription for user ${doc.id}:`, error);
-          }
-        }
-      });
-
-      await Promise.all(updates);
-      console.log('Subscription check completed');
-    } catch (error) {
-      console.error('Error in subscription check:', error);
-    }
-    
-    return null;
-  });
+import * as functions from 'firebase-functions';import * as admin from 'firebase-admin';import express from 'express';import cors from 'cors';import dotenv from 'dotenv';import Stripe from 'stripe';import { handleStripeWebhook } from './stripeWebhook';import { getPriceId } from './priceConfig';// Load environment variablesdotenv.config();// Initialize Firebase Adminadmin.initializeApp();// Initialize Stripeconst stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {  apiVersion: '2025-08-27.basil',});// Create Express appconst app = express();// Enable CORSapp.use(cors({ origin: true }));// Middleware to handle JSON/raw body parsingapp.use((req, res, next) => {  if (req.path === '/webhooks/stripe') {    // Use raw body for webhook    express.raw({ type: 'application/json' })(req, res, next);  } else {    // Use JSON parser for other routes    express.json()(req, res, next);  }});// Health check endpointapp.get('/health', (req, res) => {  res.json({     status: 'ok',     timestamp: new Date().toISOString(),    stripe: !!process.env.STRIPE_SECRET_KEY,    webhook: !!process.env.STRIPE_WEBHOOK_SECRET  });});// Create checkout session with Stripe Price IDsapp.post('/create-checkout-session', async (req, res) => {  try {    const { userId, userEmail, plan, billingCycle } = req.body;    // Get the appropriate price ID    const priceId = getPriceId(plan, billingCycle);    if (!priceId) {      return res.status(400).json({         error: 'Invalid plan or billing cycle',        plan,        billingCycle       });    }    // Create Stripe checkout session with price ID    const session = await stripe.checkout.sessions.create({      payment_method_types: ['card'],      line_items: [        {          price: priceId,          quantity: 1,        },      ],      mode: 'subscription',      success_url: `${req.headers.origin}/success?session_id={CHECKOUT_SESSION_ID}`,      cancel_url: `${req.headers.origin}/cancel`,      customer_email: userEmail,      metadata: {        userId,        plan,        billingCycle,      },      subscription_data: {        metadata: {          userId,          plan,          billingCycle,        },      },    });    res.json({ url: session.url, sessionId: session.id });  } catch (error) {    console.error('Error creating checkout session:', error);    res.status(500).json({ error: 'Failed to create checkout session' });  }});// Get Stripe configuration (public key and price IDs)app.get('/stripe-config', (req, res) => {  res.json({    publicKey: process.env.STRIPE_PUBLISHABLE_KEY || '',    prices: {      basic_monthly: process.env.STRIPE_PRICE_BASIC_MONTHLY,      premium_monthly: process.env.STRIPE_PRICE_PREMIUM_MONTHLY,      professional_monthly: process.env.STRIPE_PRICE_PROFESSIONAL_MONTHLY,      basic_yearly: process.env.STRIPE_PRICE_BASIC_YEARLY,      premium_yearly: process.env.STRIPE_PRICE_PREMIUM_YEARLY,      professional_yearly: process.env.STRIPE_PRICE_PROFESSIONAL_YEARLY,    }  });});// Customer portal endpointapp.post('/create-portal-session', async (req, res) => {  try {    const { customerId } = req.body;    const session = await stripe.billingPortal.sessions.create({      customer: customerId,      return_url: `${req.headers.origin}/account`,    });    res.json({ url: session.url });  } catch (error) {    console.error('Error creating portal session:', error);    res.status(500).json({ error: 'Failed to create portal session' });  }});// Cancel subscription endpointapp.post('/cancel-subscription', async (req, res) => {  try {    const { subscriptionId } = req.body;    const subscription = await stripe.subscriptions.update(subscriptionId, {      cancel_at_period_end: true,    });    res.json({ subscription });  } catch (error) {    console.error('Error canceling subscription:', error);    res.status(500).json({ error: 'Failed to cancel subscription' });  }});// Route POST requests to /webhooks/stripe to the handleStripeWebhook functionapp.post('/webhooks/stripe', handleStripeWebhook);// Export api via functions.https.onRequest(app)export const api = functions.https.onRequest(app);// Scheduled function to check subscription statusesexport const checkSubscriptions = functions.pubsub  .schedule('every 24 hours')  .onRun(async (context) => {    try {      // Get all users with active subscriptions      const usersSnapshot = await admin.firestore()        .collection('users')        .where('isPremium', '==', true)        .get();      const updates = usersSnapshot.docs.map(async (doc) => {        const userData = doc.data();        if (userData.stripeSubscriptionId) {          try {            // Check subscription status in Stripe            const subscription = await stripe.subscriptions.retrieve(              userData.stripeSubscriptionId            );            // Update user status if subscription is not active            if (subscription.status !== 'active' && subscription.status !== 'trialing') {              await doc.ref.update({                isPremium: false,                subscriptionStatus: subscription.status,                subscriptionEndDate: new Date(subscription.current_period_end * 1000),              });            }          } catch (error) {            console.error(`Error checking subscription for user ${doc.id}:`, error);          }        }      });      await Promise.all(updates);    } catch (error) {      console.error('Error in subscription check:', error);    }    return null;  });
