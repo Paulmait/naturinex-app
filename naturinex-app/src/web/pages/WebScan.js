@@ -310,6 +310,7 @@ function WebScan() {
             });
           }
         } catch (dbError) {
+          console.error('Failed to save scan result to database:', dbError);
         }
       }
     } catch (err) {

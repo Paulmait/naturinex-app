@@ -97,7 +97,6 @@
           "faceIDPermission": "Allow Naturinex to use Face ID for secure access to your health data"
         }
       ],
-      "expo-firebase-analytics",
       "@sentry/react-native"
     ],
     "extra": {

@@ -92,9 +92,11 @@ function WebLogin() {
         prompt: 'select_account'
       });
       if (process.env.NODE_ENV === 'development') {
+        console.log('Initiating Google sign-in');
       }
       const result = await signInWithPopup(auth, provider);
       if (process.env.NODE_ENV === 'development') {
+        console.log('Google sign-in successful:', result.user.email);
       }
       // Check if user profile exists
       const userDoc = await getDoc(doc(db, 'users', result.user.uid));
