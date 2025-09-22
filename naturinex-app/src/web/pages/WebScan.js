@@ -224,7 +224,7 @@ function WebScan() {
             'Accept': 'application/json',
           },
           mode: 'cors',
-          body: JSON.stringify({ medication: textInput.trim() }),
+          body: JSON.stringify({ medicationName: textInput.trim() }),
         });
         // Check rate limit headers
         const rateLimitRemaining = response.headers.get('X-RateLimit-Remaining');

@@ -188,7 +188,6 @@ function CheckoutForm({ priceId, onSuccess }) {
   );
 }
 function WebPayment() {
-  const navigate = useNavigate();
   const [selectedPlan, setSelectedPlan] = useState('monthly');
   const plans = {
     monthly: {
@@ -288,36 +287,18 @@ function WebPayment() {
             Payment Details
           </Typography>
           {!webConfig.STRIPE_PUBLISHABLE_KEY || webConfig.STRIPE_PUBLISHABLE_KEY === 'your_stripe_publishable_key_here' ? (
-            <Box sx={{ p: 3, textAlign: 'center', bgcolor: 'warning.light', borderRadius: 1 }}>
-              <Typography variant="h6" color="warning.dark" gutterBottom>
-                Demo Mode - Payment Not Available
+            <Alert severity="error" sx={{ mb: 2 }}>
+              <Typography variant="h6" gutterBottom>
+                Payment Processing Unavailable
               </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Payment processing is not configured yet. For testing, users are automatically upgraded to premium.
+              <Typography variant="body2" sx={{ mb: 2 }}>
+                Our payment system is currently being set up. Stripe integration is not yet configured.
+                Please check back later or contact support at support@naturinex.com.
               </Typography>
-              <Button
-                variant="contained"
-                onClick={async () => {
-                  try {
-                    const user = auth.currentUser;
-                    if (user) {
-                      await updateDoc(doc(db, 'users', user.uid), {
-                        subscriptionType: 'premium',
-                        subscriptionStartDate: new Date().toISOString(),
-                        isDemoSubscription: true
-                      });
-                      alert('Demo subscription activated! You now have premium access.');
-                      navigate('/dashboard');
-                    }
-                  } catch (err) {
-                    console.error('Demo activation error:', err);
-                    alert('Error activating demo subscription');
-                  }
-                }}
-              >
-                Activate Demo Premium (Free)
-              </Button>
-            </Box>
+              <Typography variant="caption" color="text.secondary">
+                For administrators: Configure STRIPE_PUBLISHABLE_KEY in your environment variables.
+              </Typography>
+            </Alert>
           ) : (
             <Elements stripe={stripePromise}>
               <CheckoutForm priceId={plans[selectedPlan].priceId} />
