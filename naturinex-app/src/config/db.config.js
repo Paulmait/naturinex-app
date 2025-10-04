@@ -1,4 +1,3 @@
-
 // Database Optimization Configuration
 export const dbOptimization = {
   // Connection pooling
@@ -8,7 +7,6 @@ export const dbOptimization = {
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 2000
   },
-
   // Query optimization
   queries: {
     batchSize: 1000,
@@ -16,7 +14,6 @@ export const dbOptimization = {
     timeout: 5000,
     enablePreparedStatements: true
   },
-
   // Indexing strategy
   indexes: [
     'users.email',

@@ -1,10 +1,10 @@
 {
-  "timestamp": "2025-09-22T16:07:55.767Z",
+  "timestamp": "2025-10-04T16:15:59.945Z",
   "results": {
     "passed": [
       {
         "name": "Health Check",
-        "responseTime": "362.36ms",
+        "responseTime": "223.19ms",
         "status": 200
       },
       {
@@ -33,9 +33,9 @@
       },
       {
         "name": "Load Test - Avg Response Time",
-        "avgTime": "483.53ms",
-        "maxTime": "544.07ms",
-        "minTime": "413.59ms"
+        "avgTime": "314.38ms",
+        "maxTime": "368.56ms",
+        "minTime": "252.36ms"
       }
     ],
     "failed": [
@@ -98,7 +98,7 @@
     "performance": [
       {
         "endpoint": "/health",
-        "responseTime": 362.36419999599457,
+        "responseTime": 223.18589997291565,
         "passed": true
       },
       {
@@ -106,9 +106,9 @@
           "totalRequests": 100,
           "successfulRequests": 100,
           "failedRequests": 0,
-          "avgResponseTime": 483.53027000188825,
-          "maxResponseTime": 544.0663999319077,
-          "minResponseTime": 413.5859999656677
+          "avgResponseTime": 314.3787169921398,
+          "maxResponseTime": 368.55770003795624,
+          "minResponseTime": 252.35660004615784
         }
       }
     ],

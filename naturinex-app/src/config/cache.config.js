@@ -1,4 +1,3 @@
-
 // Caching Configuration for Scale
 export const cacheConfig = {
   // Redis configuration
@@ -10,7 +9,6 @@ export const cacheConfig = {
     enableReadyCheck: true,
     lazyConnect: true
   },
-
   // Cache TTL settings (in seconds)
   ttl: {
     userProfile: 3600, // 1 hour
@@ -19,7 +17,6 @@ export const cacheConfig = {
     pricing: 3600, // 1 hour
     session: 1800 // 30 minutes
   },
-
   // Cache warming
   warmup: {
     enabled: true,

@@ -2,7 +2,6 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
-
 // Firebase configuration for naturinex-app project
 // Must be provided via environment variables or .env.local file
 const firebaseConfig = {
@@ -13,23 +12,20 @@ const firebaseConfig = {
   messagingSenderId: process.env.REACT_APP_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.REACT_APP_FIREBASE_APP_ID
 };
-
 // Debug logging only in development
 if (process.env.NODE_ENV === 'development') {
-  console.log('Firebase config loaded');
+  // Firebase config loaded
 }
-
 // Validate configuration
 if (!firebaseConfig.apiKey || firebaseConfig.apiKey === 'undefined') {
   throw new Error('Firebase configuration is missing. Please set environment variables.');
 }
-
 // Initialize Firebase
 let app;
 try {
   app = initializeApp(firebaseConfig);
   if (process.env.NODE_ENV === 'development') {
-    console.log('Firebase initialized successfully');
+    // Firebase initialized successfully
   }
 } catch (error) {
   if (process.env.NODE_ENV === 'development') {
@@ -37,12 +33,9 @@ try {
   }
   throw new Error('Failed to initialize Firebase. Please check your configuration.');
 }
-
 // Initialize Auth (web uses default persistence)
 const auth = getAuth(app);
-
 // Initialize Firestore
 const db = getFirestore(app);
-
 export { app, auth, db };
 export default app;

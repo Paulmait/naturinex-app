@@ -1,4 +1,3 @@
-
 // Performance Monitoring Configuration
 export const monitoring = {
   // Sentry configuration
@@ -15,14 +14,12 @@ export const monitoring = {
       return event;
     }
   },
-
   // Performance thresholds
   thresholds: {
     apiResponseTime: 2000, // 2 seconds
     dbQueryTime: 500, // 500ms
     pageLoadTime: 3000, // 3 seconds
   },
-
   // Alert configuration
   alerts: {
     errorRate: 0.01, // 1% error rate

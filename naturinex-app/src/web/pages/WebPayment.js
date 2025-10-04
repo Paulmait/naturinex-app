@@ -19,7 +19,6 @@ import { doc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebase.web';
 import { useNavigate } from 'react-router-dom';
 import webConfig from '../../config/webConfig';
-
 // Only load Stripe if properly configured
 const stripePromise = webConfig.STRIPE_PUBLISHABLE_KEY &&
   webConfig.STRIPE_PUBLISHABLE_KEY !== 'your_stripe_publishable_key_here'
@@ -66,7 +65,6 @@ function CheckoutForm({ priceId, onSuccess }) {
         console.error('Network error:', err);
         throw new Error('Payment service is temporarily unavailable. Please try again later or contact support.');
       });
-
       const data = await response.json().catch(() => {
         throw new Error('Invalid response from payment service');
       });

@@ -156,13 +156,11 @@ function WebScan() {
         setError('Camera access requires HTTPS. Please use file upload instead or access the site via HTTPS.');
         return;
       }
-
       // Check if mediaDevices is available
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         setError('Camera API not supported in this browser. Please use file upload.');
         return;
       }
-
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: 'environment' // Use back camera on mobile
@@ -216,7 +214,6 @@ function WebScan() {
       if (textInput.trim()) {
         // Use the correct medication name endpoint
         const endpoint = `${API_URL}/api/analyze/name`;
-        console.log('Calling API endpoint:', endpoint, 'with medication:', textInput.trim());
         const response = await fetch(endpoint, {
           method: 'POST',
           headers: {

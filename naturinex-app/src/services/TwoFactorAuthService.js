@@ -77,7 +77,6 @@ class TwoFactorAuthService {
     const recaptchaVerifier = new RecaptchaVerifier(firebaseAuth, 'recaptcha-container', {
       size: 'invisible',
       callback: () => {
-        console.log('reCAPTCHA verification started');
       },
     });
     try {
@@ -553,7 +552,7 @@ class TwoFactorAuthService {
             `Your NaturineX verification code is: ${code}. Valid for 10 minutes.`,
           );
         } else {
-          console.log('SMS not available in development. Code:', code);
+          // SMS not available - code logged for development
         }
       }
     } catch (error) {
