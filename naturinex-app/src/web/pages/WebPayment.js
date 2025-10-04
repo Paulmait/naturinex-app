@@ -11,20 +11,25 @@ import {
   TextField,
   Grid,
   Divider,
+  Chip,
+  IconButton,
 } from '@mui/material';
+import { ArrowBack } from '@mui/icons-material';
 import { loadStripe } from '@stripe/stripe-js';
 import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
-import { } from 'firebase/auth';
 import { doc, updateDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebase.web';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import webConfig from '../../config/webConfig';
+import { PRICING_TIERS } from '../../config/pricing';
+
 // Only load Stripe if properly configured
 const stripePromise = webConfig.STRIPE_PUBLISHABLE_KEY &&
   webConfig.STRIPE_PUBLISHABLE_KEY !== 'your_stripe_publishable_key_here'
   ? loadStripe(webConfig.STRIPE_PUBLISHABLE_KEY)
   : null;
-function CheckoutForm({ priceId, onSuccess }) {
+
+function CheckoutForm({ tier, priceId, billingCycle, tierData, onSuccess }) {
   const stripe = useStripe();
   const elements = useElements();
   const [error, setError] = useState(null);
@@ -35,19 +40,24 @@ function CheckoutForm({ priceId, onSuccess }) {
   const user = auth.currentUser;
   const navigate = useNavigate();
   const API_URL = webConfig.API_URL;
+
   useEffect(() => {
     if (user) {
       setEmail(user.email || '');
       setName(user.displayName || '');
     }
   }, [user]);
+
   const handleSubmit = async (event) => {
     event.preventDefault();
+
     if (!stripe || !elements) {
       return;
     }
+
     setProcessing(true);
     setError(null);
+
     try {
       // Create payment intent
       const response = await fetch(`${API_URL}/api/create-payment-intent`, {
@@ -60,17 +70,22 @@ function CheckoutForm({ priceId, onSuccess }) {
           priceId,
           email,
           name,
+          tier: tier.toLowerCase(),
+          billingCycle,
         }),
       }).catch(err => {
         console.error('Network error:', err);
-        throw new Error('Payment service is temporarily unavailable. Please try again later or contact support.');
+        throw new Error('Payment service is temporarily unavailable. Please try again later or contact support at guampaul@gmail.com');
       });
+
       const data = await response.json().catch(() => {
         throw new Error('Invalid response from payment service');
       });
+
       if (!response.ok) {
-        throw new Error(data.error || 'Payment failed');
+        throw new Error(data.error || 'Payment failed. Please try again.');
       }
+
       // Confirm payment
       const result = await stripe.confirmCardPayment(data.clientSecret, {
         payment_method: {
@@ -81,18 +96,22 @@ function CheckoutForm({ priceId, onSuccess }) {
           },
         },
       });
+
       if (result.error) {
         setError(result.error.message);
       } else {
         if (result.paymentIntent.status === 'succeeded') {
           setSucceeded(true);
+
           // Update user subscription in Firestore
           await updateDoc(doc(db, 'users', user.uid), {
-            subscriptionType: 'premium',
+            subscriptionType: tier.toLowerCase(),
             subscriptionStartDate: new Date().toISOString(),
             stripeCustomerId: data.customerId,
             stripeSubscriptionId: data.subscriptionId,
+            billingCycle: billingCycle,
           });
+
           if (onSuccess) {
             onSuccess();
           } else {
@@ -109,6 +128,7 @@ function CheckoutForm({ priceId, onSuccess }) {
       setProcessing(false);
     }
   };
+
   const cardElementOptions = {
     style: {
       base: {
@@ -123,6 +143,10 @@ function CheckoutForm({ priceId, onSuccess }) {
       },
     },
   };
+
+  const price = billingCycle === 'monthly' ? tierData.price.monthly : tierData.price.yearly;
+  const period = billingCycle === 'monthly' ? 'month' : 'year';
+
   return (
     <form onSubmit={handleSubmit}>
       <Grid container spacing={2}>
@@ -154,16 +178,19 @@ function CheckoutForm({ priceId, onSuccess }) {
           </Box>
         </Grid>
       </Grid>
+
       {error && (
         <Alert severity="error" sx={{ mt: 2 }}>
           {error}
         </Alert>
       )}
+
       {succeeded && (
         <Alert severity="success" sx={{ mt: 2 }}>
           Payment successful! Redirecting to dashboard...
         </Alert>
       )}
+
       <Button
         type="submit"
         fullWidth
@@ -175,115 +202,144 @@ function CheckoutForm({ priceId, onSuccess }) {
         {processing ? (
           <CircularProgress size={24} color="inherit" />
         ) : (
-          'Subscribe for $9.99/month'
+          `Subscribe for $${price}/${period}`
         )}
       </Button>
+
       <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block', textAlign: 'center' }}>
-        Your subscription will automatically renew each month.
-        Cancel anytime from your profile.
+        Your subscription will automatically renew each {period}.
+        Cancel anytime from your subscription settings.
       </Typography>
+
+      {/* Test card info */}
+      <Alert severity="info" sx={{ mt: 2 }}>
+        <Typography variant="caption">
+          <strong>Test Mode:</strong> Use card 4242 4242 4242 4242, any future expiry, any CVC
+        </Typography>
+      </Alert>
     </form>
   );
 }
+
 function WebPayment() {
-  const [selectedPlan, setSelectedPlan] = useState('monthly');
-  const plans = {
-    monthly: {
-      name: 'Monthly Premium',
-      price: '$9.99',
-      period: '/month',
-      priceId: 'price_monthly_premium',
-      features: [
-        'Unlimited scans',
-        'Advanced wellness insights',
-        'Natural alternatives database',
-        'Interaction checker',
-        'Priority support',
-        'No ads',
-      ],
-    },
-    yearly: {
-      name: 'Yearly Premium',
-      price: '$99.99',
-      period: '/year',
-      priceId: 'price_yearly_premium',
-      savings: 'Save $20',
-      features: [
-        'Everything in Monthly',
-        'Save 17%',
-        'Early access to new features',
-        'Premium wellness reports',
-      ],
-    },
-  };
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [tier, setTier] = useState('');
+  const [priceId, setPriceId] = useState('');
+  const [billingCycle, setBillingCycle] = useState('monthly');
+  const [tierData, setTierData] = useState(null);
+
+  useEffect(() => {
+    // Get parameters from URL
+    const searchParams = new URLSearchParams(location.search);
+    const tierParam = searchParams.get('tier');
+    const priceIdParam = searchParams.get('priceId');
+    const billingCycleParam = searchParams.get('billingCycle');
+
+    if (!tierParam || !priceIdParam) {
+      // Redirect back to subscription page if missing params
+      navigate('/subscription');
+      return;
+    }
+
+    setTier(tierParam);
+    setPriceId(priceIdParam);
+    setBillingCycle(billingCycleParam || 'monthly');
+
+    // Get tier data from pricing config
+    const data = PRICING_TIERS[tierParam.toUpperCase()];
+    if (data) {
+      setTierData(data);
+    }
+  }, [location, navigate]);
+
+  if (!tierData) {
+    return (
+      <Container maxWidth="md" sx={{ py: 4 }}>
+        <CircularProgress />
+      </Container>
+    );
+  }
+
+  const price = billingCycle === 'monthly' ? tierData.price.monthly : tierData.price.yearly;
+  const period = billingCycle === 'monthly' ? 'month' : 'year';
+
   return (
     <Container maxWidth="md" sx={{ py: 4 }}>
+      {/* Back Button */}
+      <Box sx={{ mb: 2 }}>
+        <Button
+          startIcon={<ArrowBack />}
+          onClick={() => navigate('/subscription')}
+          variant="text"
+          sx={{ color: 'text.secondary' }}
+        >
+          Back to Plans
+        </Button>
+      </Box>
+
       <Typography variant="h4" fontWeight="bold" align="center" gutterBottom>
-        Choose Your Plan
+        Complete Your Subscription
       </Typography>
+
       <Typography variant="body1" align="center" color="text.secondary" sx={{ mb: 4 }}>
-        Unlock premium features and take control of your wellness journey
+        You're subscribing to {tierData.name}
       </Typography>
-      <Grid container spacing={3} sx={{ mb: 4 }}>
-        {Object.entries(plans).map(([key, plan]) => (
-          <Grid item xs={12} md={6} key={key}>
-            <Card
-              sx={{
-                cursor: 'pointer',
-                border: selectedPlan === key ? '2px solid' : '1px solid',
-                borderColor: selectedPlan === key ? 'primary.main' : 'grey.300',
-                position: 'relative',
-              }}
-              onClick={() => setSelectedPlan(key)}
-            >
-              {plan.savings && (
-                <Box
-                  sx={{
-                    position: 'absolute',
-                    top: -12,
-                    right: 20,
-                    bgcolor: 'error.main',
-                    color: 'white',
-                    px: 2,
-                    py: 0.5,
-                    borderRadius: 1,
-                    fontSize: '0.875rem',
-                    fontWeight: 'bold',
-                  }}
-                >
-                  {plan.savings}
-                </Box>
-              )}
-              <CardContent>
-                <Typography variant="h5" fontWeight="bold" gutterBottom>
-                  {plan.name}
-                </Typography>
-                <Box sx={{ display: 'flex', alignItems: 'baseline', mb: 2 }}>
-                  <Typography variant="h3" fontWeight="bold" color="primary">
-                    {plan.price}
-                  </Typography>
-                  <Typography variant="h6" color="text.secondary">
-                    {plan.period}
-                  </Typography>
-                </Box>
-                <Divider sx={{ my: 2 }} />
-                <Box>
-                  {plan.features.map((feature, index) => (
-                    <Typography key={index} variant="body2" sx={{ mb: 1 }}>
-                      ✓ {feature}
-                    </Typography>
-                  ))}
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
+
+      {/* Plan Summary */}
+      <Card sx={{ mb: 3, border: '2px solid', borderColor: 'primary.main' }}>
+        <CardContent>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Typography variant="h5" fontWeight="bold">
+              {tierData.name}
+            </Typography>
+            <Chip label={billingCycle === 'monthly' ? 'Monthly' : 'Yearly'} color="primary" />
+          </Box>
+
+          <Box sx={{ display: 'flex', alignItems: 'baseline', mb: 2 }}>
+            <Typography variant="h3" fontWeight="bold" color="primary">
+              ${price}
+            </Typography>
+            <Typography variant="h6" color="text.secondary">
+              /{period}
+            </Typography>
+          </Box>
+
+          {billingCycle === 'yearly' && (
+            <Chip label={`Save ${tier === 'PLUS' ? '$13.89' : '$26.89'}/year`} color="success" size="small" sx={{ mb: 2 }} />
+          )}
+
+          <Divider sx={{ my: 2 }} />
+
+          <Typography variant="subtitle2" gutterBottom>
+            What's included:
+          </Typography>
+          <Box>
+            {tierData.benefits.map((benefit, index) => (
+              <Typography key={index} variant="body2" sx={{ mb: 0.5 }}>
+                ✓ {benefit}
+              </Typography>
+            ))}
+          </Box>
+
+          <Button
+            variant="text"
+            size="small"
+            onClick={() => navigate('/subscription')}
+            sx={{ mt: 2 }}
+          >
+            ← Change Plan
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Payment Form */}
       <Card>
         <CardContent>
           <Typography variant="h6" gutterBottom>
             Payment Details
           </Typography>
+
           {!webConfig.STRIPE_PUBLISHABLE_KEY || webConfig.STRIPE_PUBLISHABLE_KEY === 'your_stripe_publishable_key_here' ? (
             <Alert severity="error" sx={{ mb: 2 }}>
               <Typography variant="h6" gutterBottom>
@@ -291,7 +347,7 @@ function WebPayment() {
               </Typography>
               <Typography variant="body2" sx={{ mb: 2 }}>
                 Our payment system is currently being set up. Stripe integration is not yet configured.
-                Please check back later or contact support at support@naturinex.com.
+                Please check back later or contact support at guampaul@gmail.com.
               </Typography>
               <Typography variant="caption" color="text.secondary">
                 For administrators: Configure STRIPE_PUBLISHABLE_KEY in your environment variables.
@@ -299,21 +355,29 @@ function WebPayment() {
             </Alert>
           ) : (
             <Elements stripe={stripePromise}>
-              <CheckoutForm priceId={plans[selectedPlan].priceId} />
+              <CheckoutForm
+                tier={tier}
+                priceId={priceId}
+                billingCycle={billingCycle}
+                tierData={tierData}
+              />
             </Elements>
           )}
         </CardContent>
       </Card>
+
+      {/* Security Notice */}
       <Box sx={{ mt: 4, p: 2, bgcolor: 'grey.100', borderRadius: 1 }}>
         <Typography variant="subtitle2" fontWeight="bold" gutterBottom>
-          Secure Payment
+          🔒 Secure Payment
         </Typography>
         <Typography variant="body2" color="text.secondary">
           Your payment information is encrypted and secure. We use Stripe for payment processing
-          and never store your card details.
+          and never store your card details. PCI-DSS Level 1 compliant.
         </Typography>
       </Box>
     </Container>
   );
 }
+
 export default WebPayment;

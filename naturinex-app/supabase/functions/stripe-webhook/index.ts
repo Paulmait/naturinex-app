@@ -78,11 +78,12 @@ serve(async (req) => {
           let tier = 'free'
 
           // Map your Stripe price IDs to tiers
-          if (priceId === Deno.env.get('STRIPE_PRICE_PLUS_MONTHLY') ||
-              priceId === Deno.env.get('STRIPE_PRICE_PLUS_YEARLY')) {
+          // PLUS: price_1RpEeKIwUuNq64Np0VUrD3jm (both monthly & yearly)
+          // PRO: price_1RpEcUIwUuNq64Np4KLl689G (monthly), price_1RpEeqIwUuNq64NpPculkKkA (yearly)
+          if (priceId === 'price_1RpEeKIwUuNq64Np0VUrD3jm') {
             tier = 'plus'
-          } else if (priceId === Deno.env.get('STRIPE_PRICE_PRO_MONTHLY') ||
-                     priceId === Deno.env.get('STRIPE_PRICE_PRO_YEARLY')) {
+          } else if (priceId === 'price_1RpEcUIwUuNq64Np4KLl689G' ||
+                     priceId === 'price_1RpEeqIwUuNq64NpPculkKkA') {
             tier = 'pro'
           }
 
@@ -112,11 +113,10 @@ serve(async (req) => {
         const priceId = subscription.items.data[0].price.id
         let tier = 'free'
 
-        if (priceId === Deno.env.get('STRIPE_PRICE_PLUS_MONTHLY') ||
-            priceId === Deno.env.get('STRIPE_PRICE_PLUS_YEARLY')) {
+        if (priceId === 'price_1RpEeKIwUuNq64Np0VUrD3jm') {
           tier = 'plus'
-        } else if (priceId === Deno.env.get('STRIPE_PRICE_PRO_MONTHLY') ||
-                   priceId === Deno.env.get('STRIPE_PRICE_PRO_YEARLY')) {
+        } else if (priceId === 'price_1RpEcUIwUuNq64Np4KLl689G' ||
+                   priceId === 'price_1RpEeqIwUuNq64NpPculkKkA') {
           tier = 'pro'
         }
 

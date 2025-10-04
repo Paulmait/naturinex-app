@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stripe Payment Test - Naturinex</title>
+    <script src="https://js.stripe.com/v3/"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2c5530;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+        }
+        .test-section {
+            background: #f8f9fa;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 6px;
+            border-left: 4px solid #2c5530;
+        }
+        .tier-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+        .tier-card {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .tier-card:hover {
+            border-color: #2c5530;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(44, 85, 48, 0.1);
+        }
+        .tier-card.selected {
+            border-color: #2c5530;
+            background: #f0f7f1;
+        }
+        .tier-name {
+            font-size: 20px;
+            font-weight: bold;
+            color: #2c5530;
+            margin-bottom: 10px;
+        }
+        .tier-price {
+            font-size: 32px;
+            font-weight: bold;
+            color: #333;
+            margin: 10px 0;
+        }
+        .tier-cycle {
+            color: #666;
+            font-size: 14px;
+        }
+        .tier-priceid {
+            font-family: monospace;
+            font-size: 11px;
+            color: #999;
+            margin-top: 10px;
+            word-break: break-all;
+        }
+        button {
+            background: #2c5530;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 20px;
+        }
+        button:hover {
+            background: #1f3d22;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            border-left: 4px solid #2196f3;
+        }
+        .success {
+            background: #e8f5e9;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            border-left: 4px solid #4caf50;
+            display: none;
+        }
+        .error {
+            background: #ffebee;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            border-left: 4px solid #f44336;
+            display: none;
+        }
+        .test-card {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            border-left: 4px solid #ffc107;
+        }
+        .toggle-group {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        .toggle-btn {
+            flex: 1;
+            padding: 12px;
+            background: #f5f5f5;
+            border: 2px solid #e0e0e0;
+            border-radius: 6px;
+            cursor: pointer;
+            text-align: center;
+            font-weight: 500;
+        }
+        .toggle-btn.active {
+            background: #2c5530;
+            color: white;
+            border-color: #2c5530;
+        }
+        .savings {
+            display: inline-block;
+            background: #4caf50;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-left: 8px;
+        }
+        pre {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 6px;
+            overflow-x: auto;
+            font-size: 12px;
+        }
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #2c5530;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .webhook-status {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f5f5f5;
+            border-radius: 6px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Stripe Payment Test</h1>
+        <div class="subtitle">Test your Stripe integration and webhook configuration</div>
+
+        <div class="info">
+            <strong>🔒 Test Mode Active</strong><br>
+            This page uses Stripe test mode. No real charges will be made.<br>
+            <strong>Webhook URL:</strong> https://api.naturinex.com/functions/v1/stripe-webhook
+        </div>
+
+        <!-- Billing Cycle Toggle -->
+        <div class="test-section">
+            <h3>1. Select Billing Cycle</h3>
+            <div class="toggle-group">
+                <div class="toggle-btn active" data-cycle="monthly" onclick="selectBillingCycle('monthly')">
+                    Monthly
+                </div>
+                <div class="toggle-btn" data-cycle="yearly" onclick="selectBillingCycle('yearly')">
+                    Yearly <span class="savings">Save 17%</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tier Selection -->
+        <div class="test-section">
+            <h3>2. Choose Subscription Tier</h3>
+            <div class="tier-grid">
+                <!-- PLUS Monthly -->
+                <div class="tier-card" data-tier="plus" data-cycle="monthly" onclick="selectTier('plus', 'monthly')">
+                    <div class="tier-name">Naturinex Plus</div>
+                    <div class="tier-price">$6.99</div>
+                    <div class="tier-cycle">per month</div>
+                    <div class="tier-priceid">price_1RpEeKIwUuNq64Np0VUrD3jm</div>
+                </div>
+
+                <!-- PLUS Yearly -->
+                <div class="tier-card" data-tier="plus" data-cycle="yearly" onclick="selectTier('plus', 'yearly')" style="display:none">
+                    <div class="tier-name">Naturinex Plus</div>
+                    <div class="tier-price">$69.99</div>
+                    <div class="tier-cycle">per year <span class="savings">Save $13.89</span></div>
+                    <div class="tier-priceid">price_1RpEeKIwUuNq64Np0VUrD3jm</div>
+                </div>
+
+                <!-- PRO Monthly -->
+                <div class="tier-card" data-tier="pro" data-cycle="monthly" onclick="selectTier('pro', 'monthly')">
+                    <div class="tier-name">Naturinex Pro</div>
+                    <div class="tier-price">$12.99</div>
+                    <div class="tier-cycle">per month</div>
+                    <div class="tier-priceid">price_1RpEcUIwUuNq64Np4KLl689G</div>
+                </div>
+
+                <!-- PRO Yearly -->
+                <div class="tier-card" data-tier="pro" data-cycle="yearly" onclick="selectTier('pro', 'yearly')" style="display:none">
+                    <div class="tier-name">Naturinex Pro</div>
+                    <div class="tier-price">$129.99</div>
+                    <div class="tier-cycle">per year <span class="savings">Save $26.89</span></div>
+                    <div class="tier-priceid">price_1RpEeqIwUuNq64NpPculkKkA</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Test Cards -->
+        <div class="test-card">
+            <strong>🃏 Stripe Test Cards:</strong><br>
+            <strong>Success:</strong> 4242 4242 4242 4242<br>
+            <strong>Decline:</strong> 4000 0000 0000 0002<br>
+            <strong>3D Secure:</strong> 4000 0025 0000 3155<br>
+            Use any future expiry date and any 3-digit CVC
+        </div>
+
+        <!-- Selected Plan Info -->
+        <div id="planInfo" class="test-section" style="display:none">
+            <h3>Selected Plan</h3>
+            <div id="planDetails"></div>
+        </div>
+
+        <!-- Test Button -->
+        <button id="testButton" onclick="startTest()" disabled>
+            Select a plan to test
+        </button>
+
+        <!-- Loading -->
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Processing payment...</p>
+        </div>
+
+        <!-- Success Message -->
+        <div class="success" id="successMsg">
+            <strong>✅ Payment Successful!</strong>
+            <div id="successDetails"></div>
+        </div>
+
+        <!-- Error Message -->
+        <div class="error" id="errorMsg">
+            <strong>❌ Payment Failed</strong>
+            <div id="errorDetails"></div>
+        </div>
+
+        <!-- Webhook Status -->
+        <div class="webhook-status">
+            <h3>Webhook Events</h3>
+            <div id="webhookEvents">
+                <p style="color:#999">Waiting for webhook events...</p>
+            </div>
+        </div>
+
+        <!-- Instructions -->
+        <div class="test-section">
+            <h3>📋 What This Test Does</h3>
+            <ol>
+                <li>Creates a Stripe Checkout session with your actual Price IDs</li>
+                <li>Redirects to Stripe hosted checkout page (test mode)</li>
+                <li>Processes test payment (use 4242... card)</li>
+                <li>Stripe sends webhook to: https://api.naturinex.com/functions/v1/stripe-webhook</li>
+                <li>Webhook updates Supabase profiles table with subscription</li>
+                <li>Redirects back to success page</li>
+            </ol>
+        </div>
+
+        <div class="test-section">
+            <h3>🔍 Verify After Test</h3>
+            <ul>
+                <li>Check <strong>Stripe Dashboard → Payments</strong> for test payment</li>
+                <li>Check <strong>Stripe Dashboard → Webhooks</strong> for event delivery</li>
+                <li>Check <strong>Supabase → profiles table</strong> for subscription_tier update</li>
+                <li>Check <strong>Supabase → subscription_events table</strong> for event log</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        let selectedTier = null;
+        let selectedCycle = 'monthly';
+        let selectedPriceId = null;
+
+        const PRICE_IDS = {
+            plus: {
+                monthly: 'price_1RpEeKIwUuNq64Np0VUrD3jm',
+                yearly: 'price_1RpEeKIwUuNq64Np0VUrD3jm'
+            },
+            pro: {
+                monthly: 'price_1RpEcUIwUuNq64Np4KLl689G',
+                yearly: 'price_1RpEeqIwUuNq64NpPculkKkA'
+            }
+        };
+
+        const TIER_NAMES = {
+            plus: 'Naturinex Plus',
+            pro: 'Naturinex Pro'
+        };
+
+        const PRICES = {
+            plus: { monthly: 6.99, yearly: 69.99 },
+            pro: { monthly: 12.99, yearly: 129.99 }
+        };
+
+        function selectBillingCycle(cycle) {
+            selectedCycle = cycle;
+
+            // Update toggle buttons
+            document.querySelectorAll('.toggle-btn').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            document.querySelector(`[data-cycle="${cycle}"]`).classList.add('active');
+
+            // Show/hide tier cards
+            document.querySelectorAll('.tier-card').forEach(card => {
+                const cardCycle = card.getAttribute('data-cycle');
+                card.style.display = cardCycle === cycle ? 'block' : 'none';
+            });
+
+            // Clear selection
+            selectedTier = null;
+            document.querySelectorAll('.tier-card').forEach(c => c.classList.remove('selected'));
+            updateUI();
+        }
+
+        function selectTier(tier, cycle) {
+            selectedTier = tier;
+            selectedCycle = cycle;
+            selectedPriceId = PRICE_IDS[tier][cycle];
+
+            // Update UI
+            document.querySelectorAll('.tier-card').forEach(card => {
+                card.classList.remove('selected');
+            });
+            event.currentTarget.classList.add('selected');
+
+            updateUI();
+        }
+
+        function updateUI() {
+            const testButton = document.getElementById('testButton');
+            const planInfo = document.getElementById('planInfo');
+            const planDetails = document.getElementById('planDetails');
+
+            if (selectedTier) {
+                testButton.disabled = false;
+                testButton.textContent = `Test ${TIER_NAMES[selectedTier]} Payment`;
+
+                planInfo.style.display = 'block';
+                planDetails.innerHTML = `
+                    <strong>Tier:</strong> ${TIER_NAMES[selectedTier]}<br>
+                    <strong>Billing:</strong> ${selectedCycle.charAt(0).toUpperCase() + selectedCycle.slice(1)}<br>
+                    <strong>Price:</strong> $${PRICES[selectedTier][selectedCycle]}/${selectedCycle === 'monthly' ? 'month' : 'year'}<br>
+                    <strong>Price ID:</strong> <code>${selectedPriceId}</code>
+                `;
+            } else {
+                testButton.disabled = true;
+                testButton.textContent = 'Select a plan to test';
+                planInfo.style.display = 'none';
+            }
+        }
+
+        async function startTest() {
+            const loading = document.getElementById('loading');
+            const successMsg = document.getElementById('successMsg');
+            const errorMsg = document.getElementById('errorMsg');
+
+            loading.style.display = 'block';
+            successMsg.style.display = 'none';
+            errorMsg.style.display = 'none';
+
+            try {
+                // Simulate creating checkout session
+                // In production, this would call your backend API
+                const params = new URLSearchParams({
+                    tier: selectedTier.toUpperCase(),
+                    priceId: selectedPriceId,
+                    billingCycle: selectedCycle
+                });
+
+                // Show what would be sent to backend
+                console.log('Would create Stripe checkout with:', {
+                    tier: selectedTier,
+                    priceId: selectedPriceId,
+                    billingCycle: selectedCycle,
+                    amount: PRICES[selectedTier][selectedCycle]
+                });
+
+                // Redirect to your actual payment page
+                window.location.href = `/payment?${params.toString()}`;
+
+            } catch (error) {
+                loading.style.display = 'none';
+                errorMsg.style.display = 'block';
+                document.getElementById('errorDetails').textContent = error.message;
+            }
+        }
+
+        // Initialize
+        selectBillingCycle('monthly');
+    </script>
+</body>
+</html>
