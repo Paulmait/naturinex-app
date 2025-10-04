@@ -97,7 +97,7 @@ function PremiumCheckout({ user, onSuccess, onCancel }) {
           <li>✅ Advanced analytics</li>
         </ul>
         <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#2c5530' }}>
-          $9.99/month
+          $6.99/month (Plus) or $12.99/month (Pro)
         </div>
       </div>
       {error && (
