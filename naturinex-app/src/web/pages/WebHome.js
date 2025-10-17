@@ -44,6 +44,33 @@ function WebHome() {
   ];
   return (
     <Box>
+      {/* Critical Medical Disclaimer Banner */}
+      <Box
+        sx={{
+          bgcolor: '#FEF3C7',
+          borderBottom: '3px solid #F59E0B',
+          py: 2,
+          px: 2,
+        }}
+      >
+        <Container maxWidth="lg">
+          <Typography
+            variant="h6"
+            color="error"
+            gutterBottom
+            align="center"
+            fontWeight="bold"
+          >
+            ⚠️ IMPORTANT MEDICAL DISCLAIMER
+          </Typography>
+          <Typography variant="body2" align="center" sx={{ fontWeight: 600 }}>
+            This app is for EDUCATIONAL PURPOSES ONLY and is NOT medical advice.
+            DO NOT make medication changes without consulting your healthcare provider.
+            FOR EMERGENCIES: CALL 911 IMMEDIATELY.
+          </Typography>
+        </Container>
+      </Box>
+
       {/* Hero Section */}
       <Box
         sx={{
@@ -54,67 +81,54 @@ function WebHome() {
         }}
       >
         <Container maxWidth="lg">
-          <Grid container spacing={4} alignItems="center">
-            <Grid item xs={12} md={6}>
-              <Typography
-                variant={isMobile ? 'h3' : 'h2'}
-                fontWeight="bold"
-                gutterBottom
-              >
-                Your Personal Wellness Guide
-              </Typography>
-              <Typography variant="h6" sx={{ mb: 4, opacity: 0.95 }}>
-                Look up medication information and get basic details
-                powered by AI technology
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                <Button
-                  variant="contained"
-                  size="large"
-                  onClick={() => navigate('/login')}
-                  sx={{
-                    bgcolor: 'white',
-                    color: 'primary.main',
-                    '&:hover': {
-                      bgcolor: 'grey.100',
-                    },
-                  }}
+          <Grid container spacing={4} alignItems="center" justifyContent="center">
+            <Grid item xs={12} md={10} lg={8}>
+              <Box sx={{ textAlign: 'center' }}>
+                <Typography
+                  variant={isMobile ? 'h3' : 'h2'}
+                  fontWeight="bold"
+                  gutterBottom
                 >
-                  Get Started Free
-                </Button>
-                <Button
-                  variant="outlined"
-                  size="large"
-                  onClick={() => navigate('/login')}
-                  sx={{
-                    borderColor: 'white',
-                    color: 'white',
-                    '&:hover': {
+                  Educational Medication Information Resource
+                </Typography>
+                <Typography variant="h6" sx={{ mb: 2, opacity: 0.95 }}>
+                  Research medication information and natural alternatives for educational purposes.
+                </Typography>
+                <Typography variant="body1" sx={{ mb: 4, opacity: 0.9, fontWeight: 500 }}>
+                  Not medical advice. Always consult your healthcare provider.
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center' }}>
+                  <Button
+                    variant="contained"
+                    size="large"
+                    onClick={() => navigate('/login')}
+                    sx={{
+                      bgcolor: 'white',
+                      color: 'primary.main',
+                      '&:hover': {
+                        bgcolor: 'grey.100',
+                      },
+                    }}
+                  >
+                    Get Started Free
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    size="large"
+                    onClick={() => navigate('/login')}
+                    sx={{
                       borderColor: 'white',
-                      bgcolor: 'rgba(255, 255, 255, 0.1)',
-                    },
-                  }}
-                >
-                  Sign In
-                </Button>
+                      color: 'white',
+                      '&:hover': {
+                        borderColor: 'white',
+                        bgcolor: 'rgba(255, 255, 255, 0.1)',
+                      },
+                    }}
+                  >
+                    Sign In
+                  </Button>
+                </Box>
               </Box>
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <Box
-                component="img"
-                src="/assets/hero-image.png"
-                alt="Naturinex App"
-                sx={{
-                  width: '100%',
-                  maxWidth: 500,
-                  height: 'auto',
-                  borderRadius: 2,
-                  boxShadow: '0 20px 40px rgba(0,0,0,0.1)',
-                }}
-                onError={(e) => {
-                  e.target.style.display = 'none';
-                }}
-              />
             </Grid>
           </Grid>
         </Container>
@@ -165,17 +179,17 @@ function WebHome() {
         </Grid>
       </Container>
       {/* CTA Section */}
-      <Box sx={{ 
-        background: 'linear-gradient(135deg, #10B981 0%, #34D399 100%)', 
+      <Box sx={{
+        background: 'linear-gradient(135deg, #10B981 0%, #34D399 100%)',
         py: 8,
         color: 'white'
       }}>
         <Container maxWidth="lg">
           <Typography variant="h3" align="center" fontWeight="bold" gutterBottom>
-            Ready to Take Control of Your Health?
+            Want to Learn About Natural Alternatives?
           </Typography>
           <Typography variant="h5" align="center" sx={{ mb: 4, opacity: 0.95 }}>
-            Join thousands of users making informed medication decisions
+            Explore educational information about medications and natural alternatives
           </Typography>
           <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2, flexWrap: 'wrap' }}>
             <Button
@@ -214,27 +228,41 @@ function WebHome() {
               View Plans
             </Button>
           </Box>
-          {/* Trust Indicators */}
-          <Grid container spacing={4} sx={{ mt: 4 }}>
-            <Grid item xs={12} md={4}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h4" fontWeight="bold">10,000+</Typography>
-                <Typography>Active Users</Typography>
-              </Box>
+          {/* How It Works */}
+          <Box sx={{ mt: 6, bgcolor: 'rgba(255,255,255,0.1)', borderRadius: 2, p: 4 }}>
+            <Typography variant="h4" align="center" gutterBottom fontWeight="bold">
+              How It Works
+            </Typography>
+            <Grid container spacing={3} sx={{ mt: 2 }}>
+              <Grid item xs={12} md={4}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="h2" fontWeight="bold" sx={{ mb: 1 }}>1</Typography>
+                  <Typography variant="h6" gutterBottom>Enter Medication</Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                    Type in the medication name or upload a photo of your prescription bottle
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="h2" fontWeight="bold" sx={{ mb: 1 }}>2</Typography>
+                  <Typography variant="h6" gutterBottom>AI Analysis</Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                    Our AI researches potential natural alternatives (for educational purposes only)
+                  </Typography>
+                </Box>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Box sx={{ textAlign: 'center' }}>
+                  <Typography variant="h2" fontWeight="bold" sx={{ mb: 1 }}>3</Typography>
+                  <Typography variant="h6" gutterBottom">Consult Your Doctor</Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                    Discuss findings with your healthcare provider before making any changes
+                  </Typography>
+                </Box>
+              </Grid>
             </Grid>
-            <Grid item xs={12} md={4}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h4" fontWeight="bold">50,000+</Typography>
-                <Typography>Medications Analyzed</Typography>
-              </Box>
-            </Grid>
-            <Grid item xs={12} md={4}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h4" fontWeight="bold">4.8/5</Typography>
-                <Typography>User Rating</Typography>
-              </Box>
-            </Grid>
-          </Grid>
+          </Box>
         </Container>
       </Box>
       {/* Medical Disclaimer */}
