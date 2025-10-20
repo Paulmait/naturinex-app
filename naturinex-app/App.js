@@ -27,7 +27,9 @@ import NotificationProvider from './src/components/NotificationProvider';
 import AppLaunchGate from './src/components/AppLaunchGate';
 import ErrorBoundary from './src/components/ErrorBoundary';
 import OfflineIndicator from './src/components/OfflineIndicator';
+import NativeMedicalDisclaimerModal from './src/components/NativeMedicalDisclaimerModal';
 import { startSession, endSession } from './src/services/engagementTracking';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Initialize services
 import MonitoringService from './src/services/MonitoringService';
@@ -38,28 +40,46 @@ const Stack = createNativeStackNavigator();
 
 export default function App() {
   const [isReady, setIsReady] = useState(false);
+  const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
+  const [disclaimerChecked, setDisclaimerChecked] = useState(false);
 
   useEffect(() => {
-    // Start engagement session
-    startSession();
+    // Check disclaimer status and initialize
+    initializeApp();
+  }, []);
 
-    // Initialize monitoring
-    MonitoringService.trackEvent('app_launch', {
-      timestamp: new Date().toISOString(),
-    });
+  const initializeApp = async () => {
+    try {
+      // Start engagement session
+      startSession();
 
-    // End session when app closes
+      // Initialize monitoring
+      MonitoringService.trackEvent('app_launch', {
+        timestamp: new Date().toISOString(),
+      });
+
+      // Check if user has accepted disclaimer
+      const accepted = await AsyncStorage.getItem('disclaimer_accepted');
+      setDisclaimerAccepted(accepted === 'true');
+      setDisclaimerChecked(true);
+
+      // Give Firebase a moment to initialize
+      setTimeout(() => {
+        setIsReady(true);
+      }, 100);
+    } catch (error) {
+      ErrorService.logError(error, 'App.initializeApp');
+      setDisclaimerChecked(true);
+      setIsReady(true);
+    }
+  };
+
+  // Cleanup on app close
+  useEffect(() => {
     return () => {
       endSession();
       MonitoringService.endSession();
     };
-  }, []);
-
-  useEffect(() => {
-    // Give Firebase a moment to initialize
-    setTimeout(() => {
-      setIsReady(true);
-    }, 100);
   }, []);
 
   const handleErrorBoundaryRestart = () => {
@@ -78,12 +98,41 @@ export default function App() {
     }
   };
 
-  if (!isReady) {
+  const handleDisclaimerAccept = async () => {
+    try {
+      await AsyncStorage.setItem('disclaimer_accepted', 'true');
+      await AsyncStorage.setItem('disclaimer_accepted_date', new Date().toISOString());
+      setDisclaimerAccepted(true);
+
+      // Log disclaimer acceptance
+      MonitoringService.trackEvent('disclaimer_accepted', {
+        timestamp: new Date().toISOString(),
+        disclaimer_version: '1.0',
+      });
+    } catch (error) {
+      ErrorService.logError(error, 'App.handleDisclaimerAccept');
+      // Still allow them to proceed
+      setDisclaimerAccepted(true);
+    }
+  };
+
+  // Loading state
+  if (!isReady || !disclaimerChecked) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
         <ActivityIndicator size="large" color="#10B981" />
         <Text style={{ marginTop: 10 }}>Loading Naturinex...</Text>
       </View>
+    );
+  }
+
+  // Show disclaimer modal if not accepted
+  if (!disclaimerAccepted) {
+    return (
+      <NativeMedicalDisclaimerModal
+        visible={true}
+        onAccept={handleDisclaimerAccept}
+      />
     );
   }
 
