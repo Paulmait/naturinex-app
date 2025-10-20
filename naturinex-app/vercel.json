@@ -1,24 +1,84 @@
 {
   "version": 2,
-  "name": "naturinex-app-api",
-  "builds": [
-    {
-      "src": "server/index.js",
-      "use": "@vercel/node"
-    }
-  ],
+  "name": "naturinex-web",
+  "buildCommand": "npm run build:web",
+  "outputDirectory": "build",
+  "framework": null,
   "routes": [
     {
+      "src": "/static/(.*)",
+      "dest": "/static/$1"
+    },
+    {
+      "src": "/assets/(.*)",
+      "dest": "/assets/$1"
+    },
+    {
+      "src": "/favicon.ico",
+      "dest": "/favicon.ico"
+    },
+    {
+      "src": "/logo(.*).png",
+      "dest": "/logo$1.png"
+    },
+    {
+      "src": "/manifest.json",
+      "dest": "/manifest.json"
+    },
+    {
+      "src": "/robots.txt",
+      "dest": "/robots.txt"
+    },
+    {
+      "src": "/privacy-policy.html",
+      "dest": "/privacy-policy.html"
+    },
+    {
+      "src": "/terms-of-service.html",
+      "dest": "/terms-of-service.html"
+    },
+    {
       "src": "/(.*)",
-      "dest": "server/index.js"
+      "dest": "/index.html"
+    }
+  ],
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-XSS-Protection",
+          "value": "1; mode=block"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        },
+        {
+          "key": "Permissions-Policy",
+          "value": "geolocation=(), microphone=(), camera=()"
+        }
+      ]
+    },
+    {
+      "source": "/static/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
     }
   ],
   "env": {
     "NODE_ENV": "production"
-  },
-  "functions": {
-    "server/index.js": {
-      "maxDuration": 30
-    }
   }
-} 
+}

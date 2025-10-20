@@ -1,0 +1,26 @@
+// Add these scripts to your package.json "scripts" section:
+
+{
+  "test": "jest",
+  "test:watch": "jest --watch",
+  "test:coverage": "jest --coverage",
+  "test:security": "jest __tests__/security.test.js",
+  "test:ai": "jest __tests__/aiService.test.js",
+  "test:ocr": "jest __tests__/ocrService.test.js",
+  "test:audit": "jest __tests__/auditLogger.test.js",
+  "test:stripe": "jest __tests__/stripeService.test.js",
+  "test:integration": "jest __tests__/integration.test.js",
+  "test:ci": "jest --ci --coverage --maxWorkers=2"
+}
+
+// Instructions:
+// 1. Copy the above scripts into your package.json under "scripts"
+// 2. Install test dependencies:
+//    npm install --save-dev jest @testing-library/react-native @testing-library/jest-native
+// 3. Run tests:
+//    npm test                    - Run all tests
+//    npm run test:watch          - Watch mode for development
+//    npm run test:coverage       - Generate coverage report
+//    npm run test:security       - Run security tests only
+//    npm run test:integration    - Run integration tests only
+//    npm run test:ci             - Run in CI environment

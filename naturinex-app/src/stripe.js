@@ -17,10 +17,8 @@ const getStripe = async () => {
       }
     } catch (error) {
       console.error('Failed to load Stripe:', error);
-      // Use the live key from config as last resort
-      const fallbackKey = Constants.expoConfig?.extra?.stripePublishableKey || 
-                         'pk_live_51QTj9RRqEPLAinmJX0Jgqr8GJZQKziNhHDMhHCRpNQbwfWJRKrPz7ZY48mJzV1rP1bDYJhRNJy1z5VXJ0e5G8t9K00lAC53L05';
-      stripePromise = loadStripe(fallbackKey);
+      // Fail gracefully - don't use hardcoded keys
+      throw new Error('Stripe configuration missing. Please set EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY');
     }
   }
   return stripePromise;
