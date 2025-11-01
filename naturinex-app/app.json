@@ -84,13 +84,6 @@
       ],
       "expo-secure-store",
       [
-        "expo-notifications",
-        {
-          "icon": "./assets/notification-icon.png",
-          "color": "#10B981"
-        }
-      ],
-      [
         "expo-local-authentication",
         {
           "faceIDPermission": "Allow Naturinex to use Face ID for secure access to your health data"
