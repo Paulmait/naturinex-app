@@ -1,0 +1,40 @@
+# Server-side code (should not be included in mobile builds)
+server/
+
+# Backend-only files
+*.server.js
+*-server.js
+
+# Development files
+*.dev.js
+*.test.js
+*.spec.js
+
+# Documentation
+*.md
+docs/
+
+# Scripts
+scripts/
+
+# Legal documents
+legal/
+
+# Supabase migrations
+supabase/migrations/
+
+# Build artifacts
+.expo/
+node_modules/
+
+# Environment files
+.env*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
