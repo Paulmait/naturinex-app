@@ -1,1 +1,33 @@
-import React from 'react';import { View, ActivityIndicator, StyleSheet } from 'react-native';import { WebView } from 'react-native-webview';export default function TermsOfUseScreen() {  return (    <View style={styles.container}>      <WebView        source={{ uri: 'https://paulmait.github.io/naturinex-legal/terms-of-service-enhanced.html' }}        style={styles.webview}        startInLoadingState={true}        renderLoading={() => (          <View style={styles.loadingContainer}>            <ActivityIndicator size="large" color="#10B981" />          </View>        )}        javaScriptEnabled={true}        domStorageEnabled={true}        originWhitelist={['*']}        mixedContentMode='compatibility'      />    </View>  );}const styles = StyleSheet.create({  container: {    flex: 1,    backgroundColor: '#FFFFFF',  },  webview: {    flex: 1,  },  loadingContainer: {    flex: 1,    justifyContent: 'center',    alignItems: 'center',    backgroundColor: '#FFFFFF',  },});
+import React from 'react';
+import { ScrollView, Text, StyleSheet } from 'react-native';
+
+const TermsOfUseScreen = () => {
+  return (
+    <ScrollView style={styles.container}>
+      <Text style={styles.title}>Terms of Use</Text>
+      <Text style={styles.text}>
+        Terms of use content will be displayed here.
+      </Text>
+    </ScrollView>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: 20,
+    backgroundColor: '#fff',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  text: {
+    fontSize: 16,
+    lineHeight: 24,
+    color: '#333',
+  },
+});
+
+export default TermsOfUseScreen;
