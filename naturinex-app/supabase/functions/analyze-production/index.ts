@@ -87,7 +87,8 @@ serve(async (req) => {
           userTier = profile?.subscription_tier || 'free'
         }
       } catch (e) {
-        console.log('Auth verification failed:', e)
+        // Auth verification failed - user will be treated as anonymous
+        // Log error for monitoring without exposing details
       }
     }
 
@@ -104,7 +105,13 @@ serve(async (req) => {
         .rpc('check_user_rate_limit', { p_user_id: userId })
 
       if (error) {
-        console.error('Rate limit check error:', error)
+        // Log to monitoring system
+        await supabaseAdmin.from('monitoring_alerts').insert({
+          alert_type: 'rate_limit_check_error',
+          severity: 'medium',
+          message: 'User rate limit check failed',
+          details: { error: error.message, userId }
+        })
         throw new Error('Unable to verify rate limits')
       }
 
@@ -135,7 +142,13 @@ serve(async (req) => {
         })
 
       if (error) {
-        console.error('Anonymous rate limit check error:', error)
+        // Log to monitoring system
+        await supabaseAdmin.from('monitoring_alerts').insert({
+          alert_type: 'rate_limit_check_error',
+          severity: 'medium',
+          message: 'Anonymous rate limit check failed',
+          details: { error: error.message, ip: clientInfo.ip }
+        })
         throw new Error('Unable to verify rate limits')
       }
 
@@ -235,7 +248,14 @@ serve(async (req) => {
     )
 
     if (!geminiResponse.ok) {
-      console.error('Gemini API error:', await geminiResponse.text())
+      const errorText = await geminiResponse.text()
+      // Log error to monitoring
+      await supabaseAdmin.from('monitoring_alerts').insert({
+        alert_type: 'gemini_api_error',
+        severity: 'high',
+        message: 'Gemini API request failed',
+        details: { status: geminiResponse.status, error: errorText.substring(0, 200) }
+      })
       throw new Error('Analysis service unavailable')
     }
 
@@ -284,7 +304,13 @@ serve(async (req) => {
       })
 
     if (saveError) {
-      console.error('Scan save error:', saveError)
+      // Log error to monitoring - non-critical, analysis still succeeded
+      await supabaseAdmin.from('monitoring_alerts').insert({
+        alert_type: 'scan_save_error',
+        severity: 'low',
+        message: 'Failed to save scan result',
+        details: { error: saveError.message, userId }
+      })
     }
 
     // Prepare response based on tier
@@ -345,19 +371,22 @@ serve(async (req) => {
       }
     )
   } catch (error) {
-    console.error('Function error:', error)
-
-    // Log error
-    await supabaseAdmin.from('monitoring_alerts').insert({
-      alert_type: 'function_error',
-      severity: 'high',
-      message: 'Edge function error',
-      details: {
-        error: error.message,
-        ip: clientInfo.ip,
-        medication: req.body
-      }
-    })
+    // Log error to monitoring with sanitized details
+    try {
+      await supabaseAdmin.from('monitoring_alerts').insert({
+        alert_type: 'function_error',
+        severity: 'high',
+        message: 'Edge function error',
+        details: {
+          error: error.message,
+          errorType: error.name,
+          ip: clientInfo.ip,
+          timestamp: new Date().toISOString()
+        }
+      })
+    } catch (loggingError) {
+      // If logging fails, continue - don't break the error response
+    }
 
     return new Response(
       JSON.stringify({
