@@ -1,19 +1,21 @@
 const { getDefaultConfig } = require('expo/metro-config');
+const path = require('path');
+const exclusionList = require('metro-config/src/defaults/exclusionList');
 
 const config = getDefaultConfig(__dirname);
 
 // Exclude server-side code from Metro bundler
-config.resolver.blockList = [
-  // Exclude server directory and all its contents
-  /server\/.*/,
-  /\/server\/.*/,
+config.resolver.blockList = exclusionList([
+  // Exclude entire server directory
+  new RegExp(`${path.resolve(__dirname, 'server').replace(/[/\\]/g, '/')}\/.*`),
   // Exclude server files
-  /.*\.server\.js$/,
-  /.*-server\.js$/,
+  /.*\.server\.[jt]sx?$/,
+  /.*-server\.[jt]sx?$/,
   // Exclude development/test files
-  /.*\.dev\.js$/,
-  /.*\.test\.js$/,
-  /.*\.spec\.js$/,
-];
+  /.*\.dev\.[jt]sx?$/,
+  /.*\.test\.[jt]sx?$/,
+  /.*\.spec\.[jt]sx?$/,
+  /.*\/__tests__\/.*/,
+]);
 
 module.exports = config;
