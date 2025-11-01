@@ -47,3 +47,6 @@ firebase-adminsdk*.json
 **/credentials.json
 **/config.production.json
 **/secrets.json
+
+# Server-side code (not needed for mobile builds)
+server/
