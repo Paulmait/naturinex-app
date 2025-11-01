@@ -4,6 +4,7 @@
 import { APP_CONFIG } from '../constants/appConfig';
 import ErrorService from './ErrorService';
 import MonitoringService from './MonitoringService';
+import Logger from './Logger';
 
 // Medical disclaimers and safety warnings
 const LEGAL_DISCLAIMER = `⚠️ IMPORTANT MEDICAL DISCLAIMER ⚠️
@@ -59,11 +60,14 @@ class AIServiceProduction {
    */
   async initialize() {
     try {
-      // Get API key from secure source (never hardcode)
-      this.geminiApiKey = process.env.GEMINI_API_KEY || process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+      // Import unified environment configuration
+      const { GEMINI_API_KEY } = await import('../config/env');
+
+      // Get API key from unified config
+      this.geminiApiKey = GEMINI_API_KEY;
 
       if (!this.geminiApiKey) {
-        throw new Error('Gemini API key not configured');
+        throw new Error('Gemini API key not configured. Set EXPO_PUBLIC_GEMINI_API_KEY');
       }
 
       // Validate API key format
@@ -342,48 +346,296 @@ Provide 2-4 alternatives maximum. Quality and safety over quantity.`;
   }
 
   /**
-   * Validate against medication database
+   * Validate against medication database using OpenFDA and RxNorm APIs
    */
   async validateMedicationDatabase(medicationName) {
     // Check cache first
-    if (this.fdaDatabase.has(medicationName.toLowerCase())) {
-      return this.fdaDatabase.get(medicationName.toLowerCase());
+    const cacheKey = medicationName.toLowerCase().trim();
+    if (this.fdaDatabase.has(cacheKey)) {
+      return this.fdaDatabase.get(cacheKey);
     }
 
     try {
-      // Call FDA API or internal database
-      // For now, using a simplified approach
-      // TODO: Integrate with actual FDA Drug Database API
+      // Try multiple sources for comprehensive validation
+      let result = null;
 
-      const mockValidation = {
-        found: true,
-        genericName: medicationName,
-        brandNames: [],
-        category: 'General',
-        fdaApproved: true,
-        seriousCondition: false,
-      };
+      // 1. Try OpenFDA API first (comprehensive, includes brand/generic names)
+      result = await this.queryOpenFDA(medicationName);
 
-      // Cache result
-      this.fdaDatabase.set(medicationName.toLowerCase(), mockValidation);
+      // 2. If not found, try RxNorm API
+      if (!result || !result.found) {
+        result = await this.queryRxNorm(medicationName);
+      }
 
-      return mockValidation;
+      // 3. If still not found, return not found
+      if (!result || !result.found) {
+        return { found: false, searchedTerm: medicationName };
+      }
+
+      // Cache successful result for 1 hour
+      this.fdaDatabase.set(cacheKey, result);
+      setTimeout(() => {
+        this.fdaDatabase.delete(cacheKey);
+      }, 60 * 60 * 1000);
+
+      return result;
     } catch (error) {
       await ErrorService.logError(error, 'AIService.validateMedicationDatabase');
+      // Return soft failure - allow analysis to continue with warnings
+      return {
+        found: true, // Allow analysis to proceed
+        genericName: medicationName,
+        brandNames: [],
+        category: 'Unknown',
+        fdaApproved: false,
+        seriousCondition: false,
+        validationWarning: 'Unable to verify medication in database',
+      };
+    }
+  }
+
+  /**
+   * Query OpenFDA Drug API
+   */
+  async queryOpenFDA(medicationName) {
+    try {
+      const encodedName = encodeURIComponent(medicationName);
+      const url = `https://api.fda.gov/drug/label.json?search=openfda.brand_name:"${encodedName}"+openfda.generic_name:"${encodedName}"&limit=1`;
+
+      const response = await fetch(url, {
+        method: 'GET',
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          return { found: false };
+        }
+        throw new Error(`OpenFDA API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (!data.results || data.results.length === 0) {
+        return { found: false };
+      }
+
+      const drug = data.results[0];
+      const openfda = drug.openfda || {};
+
+      // Determine category and seriousness
+      const category = this.determineDrugCategory(drug);
+      const isCritical = this.isCriticalMedication(category);
+
+      return {
+        found: true,
+        genericName: openfda.generic_name?.[0] || medicationName,
+        brandNames: openfda.brand_name || [],
+        category: category,
+        fdaApproved: true,
+        seriousCondition: isCritical,
+        manufacturer: openfda.manufacturer_name?.[0] || 'Unknown',
+        route: openfda.route?.[0] || 'Unknown',
+        productType: openfda.product_type?.[0] || 'Unknown',
+        warnings: drug.warnings?.[0] || null,
+        source: 'OpenFDA',
+      };
+    } catch (error) {
+      if (error.message.includes('404')) {
+        return { found: false };
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Query RxNorm API (NIH/NLM)
+   */
+  async queryRxNorm(medicationName) {
+    try {
+      const encodedName = encodeURIComponent(medicationName);
+      const url = `https://rxnav.nlm.nih.gov/REST/rxcui.json?name=${encodedName}`;
+
+      const response = await fetch(url, {
+        method: 'GET',
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!response.ok) {
+        throw new Error(`RxNorm API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (!data.idGroup || !data.idGroup.rxnormId || data.idGroup.rxnormId.length === 0) {
+        return { found: false };
+      }
+
+      const rxcui = data.idGroup.rxnormId[0];
+
+      // Get detailed information
+      const detailUrl = `https://rxnav.nlm.nih.gov/REST/rxcui/${rxcui}/properties.json`;
+      const detailResponse = await fetch(detailUrl, {
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!detailResponse.ok) {
+        return { found: false };
+      }
+
+      const detailData = await detailResponse.json();
+      const properties = detailData.properties;
+
+      if (!properties) {
+        return { found: false };
+      }
+
+      // Determine category from RxNorm class
+      const category = properties.rxnormDoseForm || 'General';
+
+      return {
+        found: true,
+        genericName: properties.name || medicationName,
+        brandNames: [],
+        category: category,
+        fdaApproved: true,
+        seriousCondition: false,
+        rxcui: rxcui,
+        synonym: properties.synonym || null,
+        source: 'RxNorm',
+      };
+    } catch (error) {
       return { found: false };
     }
   }
 
   /**
-   * Check for drug interactions
+   * Determine drug category from OpenFDA data
    */
-  async checkDrugInteractions(medicationName) {
-    // TODO: Integrate with DrugBank API or similar
-    return {
-      hasInteractions: false,
-      interactions: [],
-      severity: 'unknown',
-    };
+  determineDrugCategory(drugData) {
+    const openfda = drugData.openfda || {};
+    const pharmacologicClass = openfda.pharm_class_epc || openfda.pharm_class_moa || [];
+
+    // Map pharmacologic classes to categories
+    if (pharmacologicClass.some(c => c.toLowerCase().includes('cardiovascular'))) {
+      return 'cardiovascular';
+    }
+    if (pharmacologicClass.some(c => c.toLowerCase().includes('anticoagulant'))) {
+      return 'anticoagulant';
+    }
+    if (pharmacologicClass.some(c => c.toLowerCase().includes('diabetes') || c.toLowerCase().includes('insulin'))) {
+      return 'diabetes';
+    }
+    if (pharmacologicClass.some(c => c.toLowerCase().includes('antidepressant') || c.toLowerCase().includes('ssri'))) {
+      return 'antidepressant';
+    }
+    if (pharmacologicClass.some(c => c.toLowerCase().includes('antipsychotic'))) {
+      return 'antipsychotic';
+    }
+    if (pharmacologicClass.some(c => c.toLowerCase().includes('antibiotic'))) {
+      return 'antibiotic';
+    }
+
+    // Check product type
+    const productType = openfda.product_type?.[0] || '';
+    if (productType.toLowerCase().includes('vaccine')) {
+      return 'vaccine';
+    }
+
+    return 'General';
+  }
+
+  /**
+   * Check for drug interactions using RxNorm Interaction API
+   */
+  async checkDrugInteractions(medicationName, rxcui = null) {
+    try {
+      // If rxcui not provided, look it up first
+      let drugRxcui = rxcui;
+      if (!drugRxcui) {
+        const rxnormResult = await this.queryRxNorm(medicationName);
+        if (!rxnormResult || !rxnormResult.found) {
+          return {
+            hasInteractions: false,
+            interactions: [],
+            severity: 'unknown',
+            note: 'Unable to check interactions - drug not found in database',
+          };
+        }
+        drugRxcui = rxnormResult.rxcui;
+      }
+
+      // Query RxNorm Interaction API
+      const url = `https://rxnav.nlm.nih.gov/REST/interaction/interaction.json?rxcui=${drugRxcui}`;
+
+      const response = await fetch(url, {
+        method: 'GET',
+        signal: AbortSignal.timeout(5000),
+      });
+
+      if (!response.ok) {
+        throw new Error(`RxNorm Interaction API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      // Parse interaction data
+      if (!data.interactionTypeGroup || data.interactionTypeGroup.length === 0) {
+        return {
+          hasInteractions: false,
+          interactions: [],
+          severity: 'none',
+          note: 'No known drug interactions found',
+        };
+      }
+
+      const interactions = [];
+      let maxSeverity = 'minor';
+
+      // Process all interaction groups
+      for (const typeGroup of data.interactionTypeGroup) {
+        if (!typeGroup.interactionType) continue;
+
+        for (const interactionType of typeGroup.interactionType) {
+          if (!interactionType.interactionPair) continue;
+
+          for (const pair of interactionType.interactionPair) {
+            const interaction = {
+              interactsWith: pair.interactionConcept?.[1]?.minConceptItem?.name || 'Unknown drug',
+              severity: pair.severity || 'unknown',
+              description: pair.description || 'No description available',
+            };
+
+            interactions.push(interaction);
+
+            // Track highest severity
+            if (pair.severity === 'high' || pair.severity === 'critical') {
+              maxSeverity = 'high';
+            } else if (pair.severity === 'moderate' && maxSeverity !== 'high') {
+              maxSeverity = 'moderate';
+            }
+          }
+        }
+      }
+
+      return {
+        hasInteractions: interactions.length > 0,
+        interactions: interactions.slice(0, 10), // Limit to top 10 for performance
+        severity: maxSeverity,
+        totalInteractions: interactions.length,
+        note: interactions.length > 10 ? `Showing 10 of ${interactions.length} interactions` : null,
+      };
+    } catch (error) {
+      await ErrorService.logError(error, 'AIService.checkDrugInteractions');
+
+      // Return safe fallback
+      return {
+        hasInteractions: false,
+        interactions: [],
+        severity: 'unknown',
+        note: 'Unable to check interactions at this time - consult your pharmacist',
+      };
+    }
   }
 
   /**
@@ -517,7 +769,7 @@ Provide 2-4 alternatives maximum. Quality and safety over quantity.`;
       });
     } catch (error) {
       // Silent fail - don't break analysis if logging fails
-      console.error('Audit logging failed:', error);
+      Logger.error('Audit logging failed', error, { context: 'aiServiceProduction.logAnalysis' });
     }
   }
 

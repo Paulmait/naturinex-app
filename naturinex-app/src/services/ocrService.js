@@ -20,11 +20,14 @@ class OCRService {
     if (this.initialized) return true;
 
     try {
-      // Get API key from environment
-      this.visionApiKey = process.env.GOOGLE_VISION_API_KEY || process.env.EXPO_PUBLIC_GOOGLE_VISION_API_KEY;
+      // Import unified environment configuration
+      const { GOOGLE_VISION_API_KEY } = await import('../config/env');
+
+      // Get API key from unified config
+      this.visionApiKey = GOOGLE_VISION_API_KEY;
 
       if (!this.visionApiKey) {
-        throw new Error('Google Vision API key not configured');
+        throw new Error('Google Vision API key not configured. Set EXPO_PUBLIC_GOOGLE_VISION_API_KEY');
       }
 
       this.initialized = true;
@@ -134,19 +137,172 @@ class OCRService {
    */
   async preprocessImage(imageFile) {
     try {
-      // For now, return original image
-      // TODO: Implement image preprocessing:
-      // - Resize if too large
-      // - Convert to grayscale
-      // - Increase contrast
-      // - Denoise
-      // - Deskew
+      // Convert to base64 for processing
+      const base64 = await this.imageToBase64(imageFile);
 
-      return imageFile;
+      // Create image element for canvas processing
+      const processedBase64 = await this.processImageCanvas(base64);
+
+      // Convert back to file
+      const blob = await fetch(`data:image/png;base64,${processedBase64}`).then(r => r.blob());
+      const processedFile = new File([blob], imageFile.name || 'processed.png', { type: 'image/png' });
+
+      return processedFile;
     } catch (error) {
       // If preprocessing fails, return original
+      await ErrorService.logError(error, 'OCRService.preprocessImage');
       return imageFile;
     }
+  }
+
+  /**
+   * Process image using canvas for enhancement
+   */
+  async processImageCanvas(base64Image) {
+    return new Promise((resolve, reject) => {
+      try {
+        const img = new Image();
+
+        img.onload = () => {
+          // Create canvas
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+
+          // 1. Resize if too large (max 2000px width/height for performance)
+          let width = img.width;
+          let height = img.height;
+          const maxDimension = 2000;
+
+          if (width > maxDimension || height > maxDimension) {
+            const ratio = Math.min(maxDimension / width, maxDimension / height);
+            width = Math.floor(width * ratio);
+            height = Math.floor(height * ratio);
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+
+          // Draw image
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Get image data for pixel manipulation
+          const imageData = ctx.getImageData(0, 0, width, height);
+          const data = imageData.data;
+
+          // 2. Convert to grayscale and increase contrast
+          for (let i = 0; i < data.length; i += 4) {
+            // Grayscale conversion using luminosity method
+            const gray = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+
+            // Apply contrast enhancement
+            const contrast = 1.3; // 30% contrast increase
+            const factor = (259 * (contrast * 255 + 255)) / (255 * (259 - contrast * 255));
+            const enhancedGray = Math.min(255, Math.max(0, factor * (gray - 128) + 128));
+
+            // Set RGB to same value (grayscale)
+            data[i] = enhancedGray;
+            data[i + 1] = enhancedGray;
+            data[i + 2] = enhancedGray;
+            // Alpha channel remains unchanged (data[i + 3])
+          }
+
+          // 3. Apply simple denoising (median filter approximation)
+          const denoisedData = this.applyDenoising(data, width, height);
+
+          // 4. Apply sharpening for text clarity
+          const sharpenedData = this.applySharpen(denoisedData, width, height);
+
+          // Put processed data back
+          const processedImageData = ctx.createImageData(width, height);
+          processedImageData.data.set(sharpenedData);
+          ctx.putImageData(processedImageData, 0, 0);
+
+          // Convert to base64
+          const processedBase64 = canvas.toDataURL('image/png').split(',')[1];
+          resolve(processedBase64);
+        };
+
+        img.onerror = (error) => {
+          reject(new Error('Failed to load image for preprocessing'));
+        };
+
+        img.src = `data:image/jpeg;base64,${base64Image}`;
+      } catch (error) {
+        reject(error);
+      }
+    });
+  }
+
+  /**
+   * Apply simple denoising filter
+   */
+  applyDenoising(data, width, height) {
+    const output = new Uint8ClampedArray(data);
+
+    // Simple box blur for denoising
+    const radius = 1;
+
+    for (let y = radius; y < height - radius; y++) {
+      for (let x = radius; x < width - radius; x++) {
+        let sumR = 0, sumG = 0, sumB = 0, count = 0;
+
+        for (let dy = -radius; dy <= radius; dy++) {
+          for (let dx = -radius; dx <= radius; dx++) {
+            const idx = ((y + dy) * width + (x + dx)) * 4;
+            sumR += data[idx];
+            sumG += data[idx + 1];
+            sumB += data[idx + 2];
+            count++;
+          }
+        }
+
+        const idx = (y * width + x) * 4;
+        output[idx] = Math.floor(sumR / count);
+        output[idx + 1] = Math.floor(sumG / count);
+        output[idx + 2] = Math.floor(sumB / count);
+      }
+    }
+
+    return output;
+  }
+
+  /**
+   * Apply sharpening filter for text clarity
+   */
+  applySharpen(data, width, height) {
+    const output = new Uint8ClampedArray(data);
+
+    // Sharpening kernel
+    const kernel = [
+      0, -1, 0,
+      -1, 5, -1,
+      0, -1, 0
+    ];
+
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        let r = 0, g = 0, b = 0;
+
+        // Apply kernel
+        for (let ky = -1; ky <= 1; ky++) {
+          for (let kx = -1; kx <= 1; kx++) {
+            const idx = ((y + ky) * width + (x + kx)) * 4;
+            const kernelVal = kernel[(ky + 1) * 3 + (kx + 1)];
+
+            r += data[idx] * kernelVal;
+            g += data[idx + 1] * kernelVal;
+            b += data[idx + 2] * kernelVal;
+          }
+        }
+
+        const idx = (y * width + x) * 4;
+        output[idx] = Math.min(255, Math.max(0, r));
+        output[idx + 1] = Math.min(255, Math.max(0, g));
+        output[idx + 2] = Math.min(255, Math.max(0, b));
+      }
+    }
+
+    return output;
   }
 
   /**

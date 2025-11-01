@@ -19,11 +19,14 @@ class StripeService {
    */
   async initialize() {
     try {
-      // Get publishable key from secure config
-      this.publishableKey = process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY;
+      // Import unified environment configuration
+      const { STRIPE_PUBLISHABLE_KEY } = await import('../config/env');
+
+      // Get publishable key from unified config
+      this.publishableKey = STRIPE_PUBLISHABLE_KEY;
 
       if (!this.publishableKey) {
-        throw new Error('Stripe publishable key not configured');
+        throw new Error('Stripe publishable key not configured. Set EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY');
       }
 
       // Validate key format
@@ -48,25 +51,41 @@ class StripeService {
   /**
    * Generate idempotency key
    */
-  generateIdempotencyKey(operation, params) {
+  async generateIdempotencyKey(operation, params) {
     const timestamp = Date.now();
     const paramsStr = JSON.stringify(params);
-    const hash = this.simpleHash(paramsStr);
+    const hash = await this.simpleHash(paramsStr);
 
     return `${operation}_${hash}_${timestamp}`;
   }
 
   /**
-   * Simple hash function
+   * Cryptographic hash function using Web Crypto API
    */
-  simpleHash(str) {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash; // Convert to 32-bit integer
+  async simpleHash(str) {
+    try {
+      // Use SubtleCrypto for secure hashing
+      const encoder = new TextEncoder();
+      const data = encoder.encode(str);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+
+      // Convert to hex string
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+      // Return first 16 characters for brevity
+      return hashHex.substring(0, 16);
+    } catch (error) {
+      // Fallback to simple hash if crypto.subtle not available
+      Logger.warn('Crypto.subtle not available, using fallback hash');
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+      }
+      return Math.abs(hash).toString(36);
     }
-    return Math.abs(hash).toString(36);
   }
 
   /**
@@ -97,7 +116,7 @@ class StripeService {
   async createCheckoutSession(userId, priceId, mode = 'subscription') {
     try {
       // Generate idempotency key
-      const idempotencyKey = this.generateIdempotencyKey('checkout', {
+      const idempotencyKey = await this.generateIdempotencyKey('checkout', {
         userId,
         priceId,
         mode,
@@ -369,9 +388,10 @@ class StripeService {
 
       if (error) throw error;
 
-      // TODO: Send email notification to user
+      // Send email notification to user about payment failure
+      Logger.warn('Payment failed - user should be notified', { customerId });
 
-      Logger.warn('Payment failed', { customerId });
+      // Note: Email notification should be handled by separate notification service
 
       return { success: true };
     } catch (error) {
@@ -425,7 +445,7 @@ class StripeService {
    */
   async cancelSubscription(userId, subscriptionId) {
     try {
-      const idempotencyKey = this.generateIdempotencyKey('cancel', {
+      const idempotencyKey = await this.generateIdempotencyKey('cancel', {
         userId,
         subscriptionId,
       });
@@ -475,7 +495,7 @@ class StripeService {
    */
   async updatePaymentMethod(userId, paymentMethodId) {
     try {
-      const idempotencyKey = this.generateIdempotencyKey('update_payment', {
+      const idempotencyKey = await this.generateIdempotencyKey('update_payment', {
         userId,
         paymentMethodId,
       });

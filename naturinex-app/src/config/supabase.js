@@ -1,13 +1,14 @@
 // Supabase configuration for enterprise scale
 import { createClient } from '@supabase/supabase-js';
-// Supabase configuration - secure setup
-const supabaseUrl = process.env.REACT_APP_SUPABASE_URL ||
-  process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY ||
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './env';
+
+// Use unified environment configuration
+const supabaseUrl = SUPABASE_URL;
+const supabaseAnonKey = SUPABASE_ANON_KEY;
+
 // Validate configuration
 if (!supabaseUrl || !supabaseAnonKey) {
-  // Supabase is optional - continue without it
+  console.warn('⚠️ Supabase not configured. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY');
 }
 // Create Supabase client with optimizations for scale
 export const supabase = supabaseUrl && supabaseAnonKey ? createClient(
