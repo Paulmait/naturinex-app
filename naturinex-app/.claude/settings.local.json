@@ -35,7 +35,8 @@
       "Bash(npm:*)",
       "Bash(nvm --version:*)",
       "Bash(nvm install:*)",
-      "Bash(nvm use:*)"
+      "Bash(nvm use:*)",
+      "Bash(supabase --version:*)"
     ],
     "deny": []
   }

@@ -1,0 +1,39 @@
+version: 2
+updates:
+  # Enable version updates for npm
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    # Group all updates into a single PR
+    groups:
+      production-dependencies:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      security-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "security"
+    # Security updates only for now (safer)
+    allow:
+      - dependency-type: "all"
+    # Ignore these (handled manually)
+    ignore:
+      - dependency-name: "crypto-js"
+        # Keeping for now - will migrate in v1.1
+      - dependency-name: "expo"
+        # Only update with npx expo install
+      - dependency-name: "react-native"
+        # Only update with npx expo install
+    # Auto-merge security patches
+    labels:
+      - "dependencies"
+      - "security"
+    commit-message:
+      prefix: "chore"
+      include: "scope"
