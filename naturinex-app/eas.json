@@ -41,7 +41,8 @@
     "production": {
       "ios": {
         "buildConfiguration": "Release",
-        "resourceClass": "m-medium"
+        "resourceClass": "m-medium",
+        "autoIncrement": true
       },
       "android": {
         "buildType": "app-bundle",
@@ -49,7 +50,8 @@
       },
       "env": {
         "EXPO_PUBLIC_ENV": "production",
-        "EXPO_PUBLIC_API_URL": "https://naturinex-app-zsga.onrender.com"
+        "EXPO_PUBLIC_API_URL": "https://naturinex-app-zsga.onrender.com",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       }
     }
   },
