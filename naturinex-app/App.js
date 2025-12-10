@@ -25,7 +25,7 @@ import AdminDashboard from './src/screens/AdminDashboard';
 import AdminSettings from './src/screens/AdminSettings';
 import NotificationProvider from './src/components/NotificationProvider';
 import AppLaunchGate from './src/components/AppLaunchGate';
-import ErrorBoundary from './src/components/ErrorBoundary';
+// ErrorBoundary removed - was corrupted
 import OfflineIndicator from './src/components/OfflineIndicator';
 import NativeMedicalDisclaimerModal from './src/components/NativeMedicalDisclaimerModal';
 import { startSession, endSession } from './src/services/engagementTracking';
@@ -137,12 +137,6 @@ export default function App() {
   }
 
   return (
-    <ErrorBoundary
-      context="root"
-      onRestart={handleErrorBoundaryRestart}
-      onAuthReset={handleAuthReset}
-      enableAnalytics={true}
-    >
       <SafeAreaProvider>
         <StatusBar style="auto" />
         <AppLaunchGate>
@@ -229,6 +223,5 @@ export default function App() {
         </NotificationProvider>
       </AppLaunchGate>
     </SafeAreaProvider>
-    </ErrorBoundary>
   );
 }

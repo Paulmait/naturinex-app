@@ -29,7 +29,10 @@
       "Bash(npx eas-cli@latest:*)",
       "Bash(del package-lock.json)",
       "Bash(eas submit:*)",
-      "Bash(npx:*)"
+      "Bash(npx:*)",
+      "Bash(touch:*)",
+      "Bash(npm outdated:*)",
+      "Bash(npm:*)"
     ],
     "deny": []
   }

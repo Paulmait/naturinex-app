@@ -56,7 +56,7 @@
   "submit": {
     "production": {
       "ios": {
-        "appleId": "your-apple-id@email.com",
+        "appleId": "paul@cienrios.com",
         "ascAppId": "6749164831",
         "appleTeamId": "LFB9Z5Q3Y9",
         "ascApiKeyPath": "./secrets/AuthKey_NUNBB3ZFJJ.p8",

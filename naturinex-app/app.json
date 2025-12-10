@@ -30,14 +30,9 @@
       "bundleIdentifier": "com.naturinex.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCameraUsageDescription": "Naturinex Wellness Guide uses the camera to capture text from product labels for educational wellness information lookup",
-        "NSPhotoLibraryUsageDescription": "Naturinex Wellness Guide accesses photos to analyze product labels and provide educational wellness information",
-        "NSPhotoLibraryAddUsageDescription": "Naturinex Wellness Guide can save educational wellness information to your photo library for future reference",
-        "NSHealthShareUsageDescription": "Naturinex needs access to read your health data to provide personalized wellness insights and track your health metrics",
-        "NSHealthUpdateUsageDescription": "Naturinex can save wellness data to your Health app to help you track your health progress",
-        "NSBluetoothPeripheralUsageDescription": "Naturinex uses Bluetooth to connect with health monitoring devices for real-time health tracking",
-        "NSLocationWhenInUseUsageDescription": "Naturinex uses your location to find nearby pharmacies and health services",
-        "NSMotionUsageDescription": "Naturinex tracks your physical activity to provide personalized wellness recommendations"
+        "NSCameraUsageDescription": "Naturinex Wellness Guide uses the camera to capture medication labels so you can learn about natural wellness alternatives. This helps you make informed decisions about your health.",
+        "NSPhotoLibraryUsageDescription": "Naturinex Wellness Guide accesses your photos to analyze medication labels and provide educational wellness information. Your photos are processed locally and not stored on our servers.",
+        "NSPhotoLibraryAddUsageDescription": "Naturinex Wellness Guide can save wellness analysis results to your photo library for easy reference and to share with your healthcare provider."
       },
       "config": {
         "usesNonExemptEncryption": false
