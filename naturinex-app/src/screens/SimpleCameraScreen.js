@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,17 +10,57 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
+  ActivityIndicator,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { MaterialIcons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
+import deviceFingerprintService from '../services/deviceFingerprintService';
+import aiServiceSecure from '../services/aiServiceSecure';
+import logger from '../utils/logger';
 const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-1.onrender.com';
 export default function SimpleCameraScreen({ navigation }) {
   const [capturedImage, setCapturedImage] = useState(null);
   const [showManualInput, setShowManualInput] = useState(false);
   const [medicationName, setMedicationName] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
+  const [deviceId, setDeviceId] = useState(null);
+  const [remainingScans, setRemainingScans] = useState(null);
+  const [isGuest, setIsGuest] = useState(false);
+
+  // Get device ID and check quota on mount
+  useEffect(() => {
+    checkQuotaAndInit();
+  }, []);
+
+  const checkQuotaAndInit = async () => {
+    try {
+      // Get device fingerprint
+      const fingerprint = await deviceFingerprintService.getDeviceFingerprint();
+      setDeviceId(fingerprint);
+
+      // Check if guest user
+      const guestStatus = await SecureStore.getItemAsync('is_guest') || 'false';
+      setIsGuest(guestStatus === 'true');
+
+      // Check quota (server-side)
+      if (guestStatus === 'true') {
+        const quota = await aiServiceSecure.checkQuota(null, fingerprint);
+        setRemainingScans(quota.remainingScans);
+
+        if (quota.isBlocked) {
+          Alert.alert(
+            'Account Blocked',
+            quota.reason || 'Your device has been blocked. Please contact support.',
+            [{ text: 'OK', onPress: () => navigation.replace('Login') }]
+          );
+        }
+      }
+    } catch (error) {
+      logger.error('Failed to initialize camera screen', { error: error.message });
+    }
+  };
   const takePhoto = async () => {
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
@@ -49,25 +89,51 @@ export default function SimpleCameraScreen({ navigation }) {
   const analyzeImage = async (image) => {
     try {
       setAnalyzing(true);
-      // Check if guest user and update free scans
-      const isGuest = await SecureStore.getItemAsync('is_guest') || 'false';
-      if (isGuest === 'true') {
-        const remainingScans = parseInt(await SecureStore.getItemAsync('free_scans_remaining') || '0');
-        if (remainingScans > 0) {
-          await SecureStore.setItemAsync('free_scans_remaining', String(remainingScans - 1));
+
+      // Check quota (server-side) before allowing scan
+      if (isGuest && deviceId) {
+        const quota = await aiServiceSecure.checkQuota(null, deviceId);
+
+        if (quota.isBlocked) {
+          Alert.alert(
+            'Account Blocked',
+            quota.reason || 'Your device has been blocked.',
+            [{ text: 'OK' }]
+          );
+          return;
         }
+
+        if (!quota.canScan) {
+          Alert.alert(
+            'Free Scans Used',
+            `You've used all your free scans. Sign up for unlimited access!`,
+            [
+              { text: 'Later', style: 'cancel' },
+              { text: 'Sign Up', onPress: () => navigation.replace('Login') }
+            ]
+          );
+          return;
+        }
+
+        // Increment scan count on server
+        await aiServiceSecure.incrementScanCount(deviceId);
+        setRemainingScans(quota.remainingScans - 1);
       }
-      // Update total scan count
+
+      // Update local scan count for stats
       const scanCount = parseInt(await SecureStore.getItemAsync('scan_count') || '0');
       await SecureStore.setItemAsync('scan_count', String(scanCount + 1));
+
       // Navigate to analysis screen
-      navigation.navigate('Analysis', { 
+      navigation.navigate('Analysis', {
         imageUri: image.uri,
         imageBase64: image.base64,
-        analyzing: true 
+        deviceId: deviceId,
+        analyzing: true
       });
     } catch (error) {
-      Alert.alert('Error', 'Failed to process image');
+      logger.error('Failed to analyze image', { error: error.message });
+      Alert.alert('Error', 'Failed to process image. Please try again.');
     } finally {
       setAnalyzing(false);
       setCapturedImage(null);
@@ -78,34 +144,59 @@ export default function SimpleCameraScreen({ navigation }) {
       Alert.alert('Error', 'Please enter a medication name');
       return;
     }
-    setShowManualInput(false);
-    // Check if guest user and update free scans
-    const isGuest = await SecureStore.getItemAsync('is_guest') || 'false';
-    if (isGuest === 'true') {
-      const remainingScans = parseInt(await SecureStore.getItemAsync('free_scans_remaining') || '0');
-      if (remainingScans <= 0) {
-        Alert.alert(
-          'Free Scans Used',
-          'You\'ve used all your free scans. Sign up for unlimited access!',
-          [
-            { text: 'Later', style: 'cancel' },
-            { text: 'Sign Up', onPress: () => navigation.replace('Login') }
-          ]
-        );
-        return;
+
+    try {
+      setShowManualInput(false);
+      setAnalyzing(true);
+
+      // Check quota (server-side) before allowing scan
+      if (isGuest && deviceId) {
+        const quota = await aiServiceSecure.checkQuota(null, deviceId);
+
+        if (quota.isBlocked) {
+          Alert.alert(
+            'Account Blocked',
+            quota.reason || 'Your device has been blocked.',
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+
+        if (!quota.canScan) {
+          Alert.alert(
+            'Free Scans Used',
+            `You've used all your free scans (${quota.scanCount}/3). Sign up for unlimited access!`,
+            [
+              { text: 'Later', style: 'cancel' },
+              { text: 'Sign Up', onPress: () => navigation.replace('Login') }
+            ]
+          );
+          return;
+        }
+
+        // Increment scan count on server
+        await aiServiceSecure.incrementScanCount(deviceId);
+        setRemainingScans(quota.remainingScans - 1);
       }
-      await SecureStore.setItemAsync('free_scans_remaining', String(remainingScans - 1));
+
+      // Update local scan count for stats
+      const scanCount = parseInt(await SecureStore.getItemAsync('scan_count') || '0');
+      await SecureStore.setItemAsync('scan_count', String(scanCount + 1));
+
+      // Navigate to analysis with medication name
+      navigation.navigate('Analysis', {
+        medicationName: medicationName.trim(),
+        deviceId: deviceId,
+        isManualEntry: true,
+        analyzing: true
+      });
+      setMedicationName('');
+    } catch (error) {
+      logger.error('Failed to process manual input', { error: error.message });
+      Alert.alert('Error', 'Failed to process medication name. Please try again.');
+    } finally {
+      setAnalyzing(false);
     }
-    // Update total scan count
-    const scanCount = parseInt(await SecureStore.getItemAsync('scan_count') || '0');
-    await SecureStore.setItemAsync('scan_count', String(scanCount + 1));
-    // Navigate to analysis with medication name
-    navigation.navigate('Analysis', { 
-      medicationName: medicationName.trim(),
-      isManualEntry: true,
-      analyzing: true 
-    });
-    setMedicationName('');
   };
   return (
     <View style={styles.container}>

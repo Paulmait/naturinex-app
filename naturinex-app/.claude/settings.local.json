@@ -32,7 +32,10 @@
       "Bash(npx:*)",
       "Bash(touch:*)",
       "Bash(npm outdated:*)",
-      "Bash(npm:*)"
+      "Bash(npm:*)",
+      "Bash(nvm --version:*)",
+      "Bash(nvm install:*)",
+      "Bash(nvm use:*)"
     ],
     "deny": []
   }
