@@ -28,6 +28,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.naturinex.app",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Naturinex Wellness Guide uses the camera to capture medication labels so you can learn about natural wellness alternatives. This helps you make informed decisions about your health.",
@@ -84,7 +85,8 @@
           "faceIDPermission": "Allow Naturinex to use Face ID for secure access to your health data"
         }
       ],
-      "@sentry/react-native"
+      "@sentry/react-native",
+      "expo-apple-authentication"
     ],
     "extra": {
       "apiUrl": "https://hxhbsxzkzarqwksbjpce.supabase.co",
