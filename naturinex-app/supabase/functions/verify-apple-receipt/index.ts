@@ -1,29 +1,36 @@
 /**
  * Apple Subscription Verification Edge Function
  *
- * Uses App Store Server API (NOT deprecated verifyReceipt) for subscription validation.
- * Supports both:
- * 1. JWS signed transactions from StoreKit 2
- * 2. Legacy receipt validation (fallback only)
+ * SECURITY-HARDENED implementation using App Store Server API.
+ *
+ * Verification Priority:
+ * 1. App Store Server API (PRIMARY - authoritative source)
+ * 2. Client signedTransaction decode (ONLY if server API unavailable)
+ * 3. Legacy verifyReceipt (DEPRECATED - last resort fallback)
+ *
+ * SECURITY:
+ * - userId is derived from Supabase Auth JWT, NOT from request body
+ * - Client-supplied signedTransaction is NOT trusted if server API works
+ * - Entitlement escalation attacks are prevented
  *
  * Required Secrets:
- * - APPLE_ISSUER_ID: Your App Store Connect Issuer ID
- * - APPLE_KEY_ID: Your App Store Connect API Key ID
- * - APPLE_PRIVATE_KEY: Your .p8 private key contents (base64 encoded)
- * - APPLE_BUNDLE_ID: Your app's bundle identifier
+ * - APPLE_ISSUER_ID: App Store Connect Issuer ID
+ * - APPLE_KEY_ID: App Store Connect API Key ID
+ * - APPLE_PRIVATE_KEY: .p8 private key contents (base64 encoded)
+ * - APPLE_BUNDLE_ID: App bundle identifier
  * - APPLE_SHARED_SECRET: (Legacy) Only for verifyReceipt fallback
  */
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { SignJWT, importPKCS8 } from 'https://deno.land/x/jose@v5.2.0/index.ts'
 import { corsHeaders } from '../_shared/cors.ts'
-import { decode as base64Decode } from 'https://deno.land/std@0.168.0/encoding/base64.ts'
 
 // App Store Server API endpoints
 const APP_STORE_SERVER_API_PRODUCTION = 'https://api.storekit.itunes.apple.com'
 const APP_STORE_SERVER_API_SANDBOX = 'https://api.storekit-sandbox.itunes.apple.com'
 
-// Legacy verifyReceipt endpoints (fallback only)
+// Legacy verifyReceipt endpoints (DEPRECATED - fallback only)
 const APPLE_PRODUCTION_URL = 'https://buy.itunes.apple.com/verifyReceipt'
 const APPLE_SANDBOX_URL = 'https://sandbox.itunes.apple.com/verifyReceipt'
 
@@ -33,16 +40,32 @@ const PRODUCT_TIERS: Record<string, string> = {
   'naturinex_premium_yearly': 'premium',
 }
 
-interface JWTPayload {
-  iss: string
-  iat: number
-  exp: number
-  aud: string
-  bid: string
+// Verification methods for logging
+type VerificationMethod = 'server_api' | 'signed_transaction' | 'legacy_receipt' | 'none'
+
+interface Entitlement {
+  tier: string
+  expiresAt: string | null
+  productId: string | null
+  isActive: boolean
+  transactionId: string | null
+  isTrial: boolean
+  environment: string
+}
+
+const DEFAULT_ENTITLEMENT: Entitlement = {
+  tier: 'free',
+  expiresAt: null,
+  productId: null,
+  isActive: false,
+  transactionId: null,
+  isTrial: false,
+  environment: 'Production',
 }
 
 /**
- * Generate JWT for App Store Server API authentication
+ * Generate JWT for App Store Server API using JOSE library
+ * This is the correct, standards-compliant way to sign ES256 JWTs
  */
 async function generateAppStoreJWT(): Promise<string> {
   const issuerId = Deno.env.get('APPLE_ISSUER_ID')
@@ -54,62 +77,63 @@ async function generateAppStoreJWT(): Promise<string> {
     throw new Error('Missing App Store Server API credentials')
   }
 
-  // Decode private key from base64
-  const privateKeyPem = new TextDecoder().decode(base64Decode(privateKeyBase64))
+  // Decode base64 private key to PEM format
+  const privateKeyPem = new TextDecoder().decode(
+    Uint8Array.from(atob(privateKeyBase64), c => c.charCodeAt(0))
+  )
 
-  // Create JWT header
-  const header = {
-    alg: 'ES256',
-    kid: keyId,
-    typ: 'JWT',
-  }
+  // Import the private key using JOSE
+  const privateKey = await importPKCS8(privateKeyPem, 'ES256')
 
-  // Create JWT payload
-  const now = Math.floor(Date.now() / 1000)
-  const payload: JWTPayload = {
-    iss: issuerId,
-    iat: now,
-    exp: now + 3600, // 1 hour expiry
-    aud: 'appstoreconnect-v1',
+  // Create and sign the JWT using JOSE SignJWT
+  const jwt = await new SignJWT({
     bid: bundleId,
+  })
+    .setProtectedHeader({ alg: 'ES256', kid: keyId, typ: 'JWT' })
+    .setIssuer(issuerId)
+    .setIssuedAt()
+    .setExpirationTime('1h')
+    .setAudience('appstoreconnect-v1')
+    .sign(privateKey)
+
+  return jwt
+}
+
+/**
+ * Decode JWS signed transaction - SYNCHRONOUS
+ * Only performs base64url decode and JSON parse
+ * Does NOT verify signature (we trust Apple's signature)
+ */
+function decodeSignedTransaction(signedTransaction: string): Record<string, unknown> {
+  const parts = signedTransaction.split('.')
+  if (parts.length !== 3) {
+    throw new Error('Invalid JWS format: expected 3 parts')
   }
 
-  // Encode header and payload
-  const encodedHeader = btoa(JSON.stringify(header)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
-  const encodedPayload = btoa(JSON.stringify(payload)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+  // Decode payload (middle part)
+  const payloadBase64 = parts[1]
+    .replace(/-/g, '+')
+    .replace(/_/g, '/')
 
-  // Import private key for signing
-  const pemContents = privateKeyPem
-    .replace('-----BEGIN PRIVATE KEY-----', '')
-    .replace('-----END PRIVATE KEY-----', '')
-    .replace(/\s/g, '')
+  // Add padding if needed
+  const padding = '='.repeat((4 - (payloadBase64.length % 4)) % 4)
+  const payloadJson = atob(payloadBase64 + padding)
 
-  const binaryKey = base64Decode(pemContents)
+  return JSON.parse(payloadJson)
+}
 
-  const cryptoKey = await crypto.subtle.importKey(
-    'pkcs8',
-    binaryKey,
-    { name: 'ECDSA', namedCurve: 'P-256' },
-    false,
-    ['sign']
-  )
-
-  // Sign the JWT
-  const signatureData = new TextEncoder().encode(`${encodedHeader}.${encodedPayload}`)
-  const signature = await crypto.subtle.sign(
-    { name: 'ECDSA', hash: 'SHA-256' },
-    cryptoKey,
-    signatureData
-  )
-
-  // Convert signature to base64url
-  const signatureArray = new Uint8Array(signature)
-  const encodedSignature = btoa(String.fromCharCode(...signatureArray))
-    .replace(/=/g, '')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-
-  return `${encodedHeader}.${encodedPayload}.${encodedSignature}`
+/**
+ * Safely parse expiresDate which may be string or number
+ */
+function parseExpiresDate(expiresDate: unknown): number | null {
+  if (typeof expiresDate === 'number') {
+    return expiresDate
+  }
+  if (typeof expiresDate === 'string') {
+    const parsed = parseInt(expiresDate, 10)
+    return isNaN(parsed) ? null : parsed
+  }
+  return null
 }
 
 /**
@@ -118,61 +142,116 @@ async function generateAppStoreJWT(): Promise<string> {
 async function getSubscriptionStatus(
   originalTransactionId: string,
   useSandbox: boolean
-): Promise<any> {
+): Promise<Record<string, unknown> | null> {
   const baseUrl = useSandbox ? APP_STORE_SERVER_API_SANDBOX : APP_STORE_SERVER_API_PRODUCTION
-  const jwt = await generateAppStoreJWT()
 
-  const response = await fetch(
-    `${baseUrl}/inApps/v1/subscriptions/${originalTransactionId}`,
-    {
-      headers: {
-        Authorization: `Bearer ${jwt}`,
-        'Content-Type': 'application/json',
-      },
-    }
-  )
+  try {
+    const jwt = await generateAppStoreJWT()
 
-  if (!response.ok) {
-    const errorText = await response.text()
-    console.error('[verify-apple] Server API error:', response.status, errorText)
+    const response = await fetch(
+      `${baseUrl}/inApps/v1/subscriptions/${originalTransactionId}`,
+      {
+        headers: {
+          Authorization: `Bearer ${jwt}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    )
 
-    // If 4040000, transaction not found - might need to use legacy endpoint
     if (response.status === 404) {
+      console.log('[verify-apple] Transaction not found in Server API')
       return null
     }
 
-    throw new Error(`App Store Server API error: ${response.status}`)
-  }
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('[verify-apple] Server API error:', response.status, errorText)
+      return null
+    }
 
-  return await response.json()
+    return await response.json()
+  } catch (error) {
+    console.error('[verify-apple] Server API request failed:', error)
+    return null
+  }
 }
 
 /**
- * Decode and verify JWS signed transaction
+ * Process subscription data from App Store Server API
  */
-async function decodeSignedTransaction(signedTransaction: string): Promise<any> {
-  // JWS format: header.payload.signature
-  const parts = signedTransaction.split('.')
-  if (parts.length !== 3) {
-    throw new Error('Invalid JWS format')
+function processServerAPIResponse(subscriptionData: Record<string, unknown>): Entitlement | null {
+  const data = subscriptionData.data as Array<Record<string, unknown>> | undefined
+  if (!data?.length) {
+    return null
   }
 
-  // Decode payload (we trust Apple's signature)
-  const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
-  const padding = '='.repeat((4 - (payloadBase64.length % 4)) % 4)
-  const payloadJson = atob(payloadBase64 + padding)
+  const now = Date.now()
+  let bestSubscription: {
+    productId: string
+    expiresMs: number
+    transactionId: string
+    isTrial: boolean
+    environment: string
+  } | null = null
 
-  return JSON.parse(payloadJson)
+  for (const subscriptionGroup of data) {
+    const lastTransactions = subscriptionGroup.lastTransactions as Array<Record<string, unknown>> | undefined
+    if (!lastTransactions) continue
+
+    for (const transaction of lastTransactions) {
+      const status = transaction.status as string
+      if (status !== 'ACTIVE' && status !== 'BILLING_RETRY') continue
+
+      const signedInfo = transaction.signedTransactionInfo as string | undefined
+      if (!signedInfo) continue
+
+      try {
+        const decoded = decodeSignedTransaction(signedInfo)
+        const expiresMs = parseExpiresDate(decoded.expiresDate)
+
+        if (expiresMs && expiresMs > now) {
+          if (!bestSubscription || expiresMs > bestSubscription.expiresMs) {
+            bestSubscription = {
+              productId: decoded.productId as string,
+              expiresMs,
+              transactionId: decoded.originalTransactionId as string,
+              isTrial: decoded.offerType === 1,
+              environment: (decoded.environment as string) || 'Production',
+            }
+          }
+        }
+      } catch (e) {
+        console.error('[verify-apple] Error decoding transaction info:', e)
+      }
+    }
+  }
+
+  if (!bestSubscription) {
+    return null
+  }
+
+  const tier = PRODUCT_TIERS[bestSubscription.productId] || 'premium'
+  return {
+    tier,
+    expiresAt: new Date(bestSubscription.expiresMs).toISOString(),
+    productId: bestSubscription.productId,
+    isActive: true,
+    transactionId: bestSubscription.transactionId,
+    isTrial: bestSubscription.isTrial,
+    environment: bestSubscription.environment,
+  }
 }
 
 /**
- * Legacy: Validate receipt with verifyReceipt endpoint
- * Used as fallback when App Store Server API credentials are not configured
+ * DEPRECATED: Legacy verifyReceipt validation
+ * Only used as last-resort fallback when Server API credentials are unavailable
  */
 async function validateReceiptLegacy(
   receiptData: string,
   useSandbox: boolean
-): Promise<any> {
+): Promise<Record<string, unknown>> {
+  console.warn('[verify-apple] Using DEPRECATED verifyReceipt endpoint')
+
   const url = useSandbox ? APPLE_SANDBOX_URL : APPLE_PRODUCTION_URL
   const sharedSecret = Deno.env.get('APPLE_SHARED_SECRET')
 
@@ -190,73 +269,127 @@ async function validateReceiptLegacy(
 }
 
 /**
- * Process subscription data and determine entitlement
+ * Process legacy verifyReceipt response
  */
-function processSubscriptionData(subscriptionData: any): any {
-  if (!subscriptionData?.data?.length) {
-    return {
-      tier: 'free',
-      expiresAt: null,
-      productId: null,
-      isActive: false,
-      transactionId: null,
-    }
+function processLegacyReceiptResponse(appleResponse: Record<string, unknown>): Entitlement | null {
+  const status = appleResponse.status as number
+
+  if (status !== 0 && status !== 21006) {
+    return null
   }
 
+  const latestReceiptInfo = appleResponse.latest_receipt_info as Array<Record<string, unknown>> | undefined
+  const receipt = appleResponse.receipt as Record<string, unknown> | undefined
+  const inApp = receipt?.in_app as Array<Record<string, unknown>> | undefined
+
+  const receipts = latestReceiptInfo || inApp || []
   const now = Date.now()
-  let bestSubscription: any = null
 
-  // Find the best active subscription
-  for (const subscriptionGroup of subscriptionData.data) {
-    const lastTransactions = subscriptionGroup.lastTransactions || []
+  // Find active subscription with latest expiration
+  const activeSubscription = receipts
+    .map(r => ({
+      productId: r.product_id as string,
+      expiresMs: parseExpiresDate(r.expires_date_ms),
+      transactionId: r.original_transaction_id as string,
+      isTrial: r.is_trial_period === 'true',
+    }))
+    .filter(r => r.expiresMs && r.expiresMs > now)
+    .sort((a, b) => (b.expiresMs || 0) - (a.expiresMs || 0))[0]
 
-    for (const transaction of lastTransactions) {
-      if (transaction.status === 'ACTIVE' || transaction.status === 'BILLING_RETRY') {
-        const signedInfo = transaction.signedTransactionInfo
-        if (signedInfo) {
-          try {
-            const decoded = decodeSignedTransaction(signedInfo)
-            const expiresMs = decoded.expiresDate
-
-            if (expiresMs > now) {
-              if (!bestSubscription || expiresMs > bestSubscription.expiresMs) {
-                bestSubscription = {
-                  productId: decoded.productId,
-                  expiresMs,
-                  transactionId: decoded.originalTransactionId,
-                  isInTrial: decoded.offerType === 1,
-                  environment: decoded.environment,
-                }
-              }
-            }
-          } catch (e) {
-            console.error('[verify-apple] Error decoding transaction:', e)
-          }
-        }
-      }
-    }
+  if (!activeSubscription || !activeSubscription.expiresMs) {
+    return null
   }
 
-  if (bestSubscription) {
-    const tier = PRODUCT_TIERS[bestSubscription.productId] || 'premium'
-    return {
-      tier,
-      expiresAt: new Date(bestSubscription.expiresMs).toISOString(),
-      productId: bestSubscription.productId,
-      isActive: true,
-      transactionId: bestSubscription.transactionId,
-      isTrial: bestSubscription.isInTrial || false,
-      environment: bestSubscription.environment,
-    }
-  }
-
+  const tier = PRODUCT_TIERS[activeSubscription.productId] || 'premium'
   return {
-    tier: 'free',
-    expiresAt: null,
-    productId: null,
-    isActive: false,
-    transactionId: null,
+    tier,
+    expiresAt: new Date(activeSubscription.expiresMs).toISOString(),
+    productId: activeSubscription.productId,
+    isActive: true,
+    transactionId: activeSubscription.transactionId,
+    isTrial: activeSubscription.isTrial,
+    environment: (appleResponse.environment as string) || 'Production',
   }
+}
+
+/**
+ * Extract authenticated user from Supabase Auth
+ * SECURITY: User ID must come from auth token, not request body
+ */
+async function getAuthenticatedUser(authHeader: string | null): Promise<string | null> {
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null
+  }
+
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+  const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!
+
+  const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    global: {
+      headers: { Authorization: authHeader },
+    },
+  })
+
+  const { data: { user }, error } = await supabase.auth.getUser()
+
+  if (error || !user) {
+    console.error('[verify-apple] Auth error:', error?.message)
+    return null
+  }
+
+  return user.id
+}
+
+/**
+ * Save entitlement to database
+ * Uses SERVICE_ROLE key for database writes
+ */
+async function saveEntitlement(
+  userId: string,
+  entitlement: Entitlement,
+  method: VerificationMethod
+): Promise<void> {
+  const supabaseUrl = Deno.env.get('SUPABASE_URL')!
+  const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey)
+
+  // Upsert subscription record
+  const { error: upsertError } = await supabase
+    .from('user_subscriptions')
+    .upsert({
+      user_id: userId,
+      tier: entitlement.tier,
+      product_id: entitlement.productId,
+      expires_at: entitlement.expiresAt,
+      is_active: entitlement.isActive,
+      platform: 'ios',
+      original_transaction_id: entitlement.transactionId,
+      is_trial: entitlement.isTrial,
+      environment: entitlement.environment,
+      updated_at: new Date().toISOString(),
+    }, {
+      onConflict: 'user_id',
+    })
+
+  if (upsertError) {
+    console.error('[verify-apple] Database upsert error:', upsertError)
+  }
+
+  // Log transaction
+  await supabase
+    .from('subscription_transactions')
+    .insert({
+      user_id: userId,
+      platform: 'ios',
+      product_id: entitlement.productId,
+      transaction_id: entitlement.transactionId,
+      action: 'verify',
+      status: entitlement.isActive ? 'active' : 'expired',
+      environment: entitlement.environment,
+      metadata: { verification_method: method },
+    })
+    .catch(err => console.error('[verify-apple] Transaction log error:', err))
 }
 
 serve(async (req) => {
@@ -266,165 +399,126 @@ serve(async (req) => {
   }
 
   try {
+    // SECURITY: Extract user from Supabase Auth JWT
+    const authHeader = req.headers.get('Authorization')
+    const userId = await getAuthenticatedUser(authHeader)
+
+    if (!userId) {
+      return new Response(
+        JSON.stringify({ success: false, error: 'Unauthorized' }),
+        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      )
+    }
+
+    // Parse request body
+    const body = await req.json()
     const {
       receipt,
       originalTransactionId,
       signedTransaction,
-      userId,
       sandbox,
-    } = await req.json()
+    } = body
 
-    // Determine if we should use App Store Server API or legacy
+    // Check if Server API credentials are available
     const hasServerAPICredentials = !!(
       Deno.env.get('APPLE_ISSUER_ID') &&
       Deno.env.get('APPLE_KEY_ID') &&
       Deno.env.get('APPLE_PRIVATE_KEY')
     )
 
-    let entitlement: any = null
+    let entitlement: Entitlement | null = null
+    let method: VerificationMethod = 'none'
 
-    // Method 1: Use originalTransactionId with App Store Server API (preferred)
+    // METHOD 1: App Store Server API (PRIMARY - authoritative)
     if (originalTransactionId && hasServerAPICredentials) {
-      console.log('[verify-apple] Using App Store Server API with transactionId')
+      console.log('[verify-apple] Attempting Server API verification')
 
-      try {
-        const subscriptionData = await getSubscriptionStatus(originalTransactionId, sandbox || false)
+      const subscriptionData = await getSubscriptionStatus(originalTransactionId, sandbox || false)
 
-        if (subscriptionData) {
-          entitlement = processSubscriptionData(subscriptionData)
+      if (subscriptionData) {
+        entitlement = processServerAPIResponse(subscriptionData)
+        if (entitlement) {
+          method = 'server_api'
+          console.log('[verify-apple] Server API verification successful')
         }
-      } catch (error) {
-        console.error('[verify-apple] Server API error:', error)
-        // Will fall through to legacy method
       }
     }
 
-    // Method 2: Decode signed transaction directly (StoreKit 2)
-    if (!entitlement && signedTransaction) {
-      console.log('[verify-apple] Decoding signed transaction')
+    // METHOD 2: Decode client signedTransaction (ONLY if Server API unavailable)
+    // SECURITY: Only use this if we couldn't verify via Server API
+    if (!entitlement && signedTransaction && !hasServerAPICredentials) {
+      console.log('[verify-apple] Attempting signed transaction decode (no Server API credentials)')
 
       try {
-        const decoded = await decodeSignedTransaction(signedTransaction)
+        const decoded = decodeSignedTransaction(signedTransaction)
+        const expiresMs = parseExpiresDate(decoded.expiresDate)
         const now = Date.now()
 
-        if (decoded.expiresDate && decoded.expiresDate > now) {
-          const tier = PRODUCT_TIERS[decoded.productId] || 'premium'
+        if (expiresMs && expiresMs > now) {
+          const productId = decoded.productId as string
+          const tier = PRODUCT_TIERS[productId] || 'premium'
+
           entitlement = {
             tier,
-            expiresAt: new Date(decoded.expiresDate).toISOString(),
-            productId: decoded.productId,
+            expiresAt: new Date(expiresMs).toISOString(),
+            productId,
             isActive: true,
-            transactionId: decoded.originalTransactionId,
+            transactionId: decoded.originalTransactionId as string,
             isTrial: decoded.offerType === 1,
-            environment: decoded.environment,
+            environment: (decoded.environment as string) || 'Production',
           }
+          method = 'signed_transaction'
+          console.log('[verify-apple] Signed transaction decode successful')
         }
       } catch (error) {
-        console.error('[verify-apple] Error decoding signed transaction:', error)
+        console.error('[verify-apple] Signed transaction decode failed:', error)
       }
     }
 
-    // Method 3: Legacy verifyReceipt fallback
-    if (!entitlement && receipt) {
-      console.log('[verify-apple] Using legacy verifyReceipt (deprecated)')
+    // METHOD 3: Legacy verifyReceipt (DEPRECATED - last resort)
+    // Only if no Server API credentials AND no signed transaction worked
+    if (!entitlement && receipt && !hasServerAPICredentials) {
+      console.log('[verify-apple] Falling back to DEPRECATED verifyReceipt')
 
       let appleResponse = await validateReceiptLegacy(receipt, sandbox || false)
 
-      // Status 21007 means receipt is from sandbox but sent to production
+      // Handle sandbox/production mismatch
       if (appleResponse.status === 21007) {
+        console.log('[verify-apple] Retrying with sandbox endpoint')
         appleResponse = await validateReceiptLegacy(receipt, true)
       }
 
-      if (appleResponse.status === 0 || appleResponse.status === 21006) {
-        const latestReceipts = appleResponse.latest_receipt_info || appleResponse.receipt?.in_app || []
-        const now = Date.now()
-
-        const activeSubscription = latestReceipts
-          .filter((r: any) => r.expires_date_ms && parseInt(r.expires_date_ms) > now)
-          .sort((a: any, b: any) => parseInt(b.expires_date_ms || '0') - parseInt(a.expires_date_ms || '0'))[0]
-
-        if (activeSubscription) {
-          const tier = PRODUCT_TIERS[activeSubscription.product_id] || 'premium'
-          entitlement = {
-            tier,
-            expiresAt: new Date(parseInt(activeSubscription.expires_date_ms)).toISOString(),
-            productId: activeSubscription.product_id,
-            isActive: true,
-            transactionId: activeSubscription.original_transaction_id,
-            isTrial: activeSubscription.is_trial_period === 'true',
-            environment: appleResponse.environment || 'Production',
-          }
-        }
+      entitlement = processLegacyReceiptResponse(appleResponse)
+      if (entitlement) {
+        method = 'legacy_receipt'
+        console.log('[verify-apple] Legacy receipt verification successful')
       }
     }
 
-    // Default to free if nothing found
-    if (!entitlement) {
-      entitlement = {
-        tier: 'free',
-        expiresAt: null,
-        productId: null,
-        isActive: false,
-        transactionId: null,
-      }
-    }
+    // Default to free tier if no valid entitlement found
+    const finalEntitlement = entitlement || { ...DEFAULT_ENTITLEMENT }
 
-    // Update user subscription in Supabase if userId provided
-    if (userId && entitlement) {
-      const supabaseUrl = Deno.env.get('SUPABASE_URL')!
-      const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-      const supabase = createClient(supabaseUrl, supabaseServiceKey)
+    // Save to database
+    await saveEntitlement(userId, finalEntitlement, method)
 
-      // Upsert subscription record
-      const { error: upsertError } = await supabase
-        .from('user_subscriptions')
-        .upsert({
-          user_id: userId,
-          tier: entitlement.tier,
-          product_id: entitlement.productId,
-          expires_at: entitlement.expiresAt,
-          is_active: entitlement.isActive,
-          platform: 'ios',
-          original_transaction_id: entitlement.transactionId,
-          is_trial: entitlement.isTrial || false,
-          environment: entitlement.environment || 'Production',
-          updated_at: new Date().toISOString(),
-        }, {
-          onConflict: 'user_id',
-        })
-
-      if (upsertError) {
-        console.error('[verify-apple] Database update error:', upsertError)
-      }
-
-      // Log the transaction
-      await supabase
-        .from('subscription_transactions')
-        .insert({
-          user_id: userId,
-          platform: 'ios',
-          product_id: entitlement.productId,
-          transaction_id: entitlement.transactionId,
-          action: 'verify',
-          status: entitlement.isActive ? 'active' : 'expired',
-          environment: entitlement.environment || 'Production',
-        })
-        .catch(err => console.error('[verify-apple] Transaction log error:', err))
-    }
-
-    console.log('[verify-apple] Success:', {
-      tier: entitlement.tier,
-      isActive: entitlement.isActive,
-      method: hasServerAPICredentials ? 'server_api' : 'legacy',
+    console.log('[verify-apple] Verification complete:', {
+      userId: userId.substring(0, 8) + '...',
+      tier: finalEntitlement.tier,
+      isActive: finalEntitlement.isActive,
+      method,
     })
 
     return new Response(
-      JSON.stringify({ success: true, entitlement }),
+      JSON.stringify({
+        success: true,
+        entitlement: finalEntitlement,
+        verification_method: method,
+      }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     )
 
   } catch (error) {
-    console.error('[verify-apple] Error:', error)
+    console.error('[verify-apple] Unhandled error:', error)
     return new Response(
       JSON.stringify({ success: false, error: error.message }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

@@ -84,8 +84,17 @@ const setupPurchaseListeners = () => {
     const receipt = purchase.transactionReceipt;
     if (receipt) {
       try {
-        // Validate receipt on server
-        const validation = await validateReceipt(receipt);
+        // Extract transaction IDs for Server API verification
+        const originalTransactionId = purchase.originalTransactionIdentifierIOS ||
+                                       purchase.transactionId ||
+                                       null;
+
+        // Validate with server - passes originalTransactionId for Server API
+        const validation = await validateReceipt(
+          receipt,
+          originalTransactionId,
+          null // signedTransaction - not available in react-native-iap v12
+        );
 
         if (validation.success) {
           // Update local entitlement
@@ -247,8 +256,17 @@ export const restorePurchases = async () => {
     }, null);
 
     if (latestPurchase && latestPurchase.transactionReceipt) {
-      // Validate the receipt
-      const validation = await validateReceipt(latestPurchase.transactionReceipt);
+      // Extract originalTransactionId for Server API verification
+      const originalTransactionId = latestPurchase.originalTransactionIdentifierIOS ||
+                                     latestPurchase.transactionId ||
+                                     null;
+
+      // Validate with server
+      const validation = await validateReceipt(
+        latestPurchase.transactionReceipt,
+        originalTransactionId,
+        null
+      );
 
       if (validation.success) {
         await updateEntitlement(validation.entitlement);
@@ -267,12 +285,22 @@ export const restorePurchases = async () => {
 };
 
 /**
- * Validate receipt with server
+ * Validate receipt/transaction with server
+ *
+ * SECURITY: userId is derived from auth token on server, not sent in body.
+ * Server uses App Store Server API as primary verification method.
+ *
+ * @param {string} receipt - Base64 receipt data
+ * @param {string} originalTransactionId - For Server API verification
+ * @param {string} signedTransaction - JWS signed transaction from StoreKit 2
  */
-const validateReceipt = async (receipt) => {
+const validateReceipt = async (receipt, originalTransactionId = null, signedTransaction = null) => {
   try {
     const authToken = await SecureStore.getItemAsync('auth_token');
-    const userId = await SecureStore.getItemAsync('user_id');
+
+    if (!authToken) {
+      throw new Error('Not authenticated');
+    }
 
     const response = await fetch(`${API_URL}/verify-apple-receipt`, {
       method: 'POST',
@@ -282,21 +310,30 @@ const validateReceipt = async (receipt) => {
       },
       body: JSON.stringify({
         receipt,
-        userId,
+        originalTransactionId,
+        signedTransaction,
         sandbox: __DEV__,
       }),
     });
 
-    if (!response.ok) {
-      throw new Error('Server validation failed');
+    if (response.status === 401) {
+      throw new Error('Authentication required');
     }
 
-    return await response.json();
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Server validation failed');
+    }
+
+    const result = await response.json();
+    console.log('[AppleIAPService] Verification method:', result.verification_method);
+    return result;
   } catch (error) {
     console.error('[AppleIAPService] Receipt validation error:', error);
 
-    // Fallback to local validation for demo/testing
+    // Fallback to local validation for demo/testing ONLY
     if (__DEV__) {
+      console.warn('[AppleIAPService] Using DEV fallback - not for production!');
       return {
         success: true,
         entitlement: {
@@ -305,6 +342,7 @@ const validateReceipt = async (receipt) => {
           productId: 'naturinex_premium_monthly',
           isActive: true,
         },
+        verification_method: 'dev_fallback',
       };
     }
 
