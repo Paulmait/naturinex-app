@@ -1,0 +1,25 @@
+# Flow: Scan History Screenshot
+# Captures the scan history list screen
+
+appId: com.naturinex.wellness
+
+---
+
+# Run setup first
+- runFlow: 00_setup_demo_login.yaml
+
+# Navigate to scan history
+- tapOn: "History"
+
+# Wait for history to load with demo data
+- waitForAnimationToEnd:
+    timeout: 3000
+
+# In demo mode, should show pre-loaded scan history
+- assertVisible:
+    text: ".*History.*"
+    optional: true
+
+# Take screenshot
+- takeScreenshot:
+    path: ./artifacts/app-store/iphone-67/04_scan_history.png

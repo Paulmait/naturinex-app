@@ -1,0 +1,41 @@
+# Flow: IAP Confirmation Screenshot
+# Captures the purchase confirmation for IAP review
+# This shows the system payment sheet interaction
+
+appId: com.naturinex.wellness
+
+---
+
+# Run setup first
+- runFlow: 00_setup_demo_login.yaml
+
+# Navigate to subscription paywall
+- tapOn: "Profile"
+- waitForAnimationToEnd:
+    timeout: 2000
+
+- tapOn:
+    text: ".*Premium.*"
+    optional: true
+
+- tapOn:
+    text: ".*Upgrade.*"
+    optional: true
+
+- waitForAnimationToEnd:
+    timeout: 3000
+
+# Tap on a subscription option to trigger purchase flow
+# Note: In sandbox mode, this will show the StoreKit payment sheet
+- tapOn:
+    text: ".*Monthly.*"
+    optional: true
+
+# Wait briefly for payment sheet to appear
+- waitForAnimationToEnd:
+    timeout: 2000
+
+# Take screenshot of purchase confirmation area
+# Note: Cannot capture system dialogs, but can capture app state before
+- takeScreenshot:
+    path: ./artifacts/app-store/iap-review/purchase_initiation.png

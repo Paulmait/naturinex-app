@@ -14,8 +14,12 @@ import HomeScreen from './src/screens/HomeScreen';
 import SimpleCameraScreen from './src/screens/SimpleCameraScreen';
 import AnalysisScreen from './src/screens/AnalysisScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
-import SubscriptionScreen from './src/screens/SubscriptionScreen';
+import SubscriptionScreenWrapper from './src/screens/SubscriptionScreenWrapper';
 import OnboardingScreen from './src/screens/OnboardingScreen';
+
+// Platform-specific services
+import { Platform } from 'react-native';
+import DemoDataService from './src/services/DemoDataService';
 
 // Components
 import ScanHistory from './src/components/ScanHistory';
@@ -57,6 +61,22 @@ export default function App() {
       MonitoringService.trackEvent('app_launch', {
         timestamp: new Date().toISOString(),
       });
+
+      // Initialize demo mode if enabled
+      if (DemoDataService.isDemoMode()) {
+        await DemoDataService.initializeDemoData();
+        console.log('[App] Demo mode initialized');
+      }
+
+      // Initialize Apple IAP on iOS
+      if (Platform.OS === 'ios') {
+        try {
+          const AppleIAPService = require('./src/billing/AppleIAPService').default;
+          await AppleIAPService.initializeIAP();
+        } catch (iapError) {
+          console.log('[App] IAP initialization skipped:', iapError.message);
+        }
+      }
 
       // Check if user has accepted disclaimer
       const accepted = await AsyncStorage.getItem('disclaimer_accepted');
@@ -183,9 +203,9 @@ export default function App() {
             component={ProfileScreen}
             options={{ title: 'Profile' }}
           />
-          <Stack.Screen 
-            name="Subscription" 
-            component={SubscriptionScreen}
+          <Stack.Screen
+            name="Subscription"
+            component={SubscriptionScreenWrapper}
             options={{ title: 'Premium' }}
           />
           <Stack.Screen 

@@ -1,0 +1,32 @@
+# Flow: Demo Login Setup
+# This flow logs in with the demo account to set up for screenshots
+
+appId: com.naturinex.wellness
+
+---
+
+# Wait for app to load
+- waitForAnimationToEnd:
+    timeout: 5000
+
+# Wait for login screen
+- assertVisible: "Welcome to Naturinex"
+
+# Enter demo credentials
+- tapOn:
+    id: "email-input"
+- inputText: "demo@naturinex.app"
+
+- tapOn:
+    id: "password-input"
+- inputText: "ReviewDemo2024!"
+
+# Tap login button
+- tapOn: "Sign In"
+
+# Wait for home screen to load
+- waitForAnimationToEnd:
+    timeout: 8000
+
+# Verify we're on home screen
+- assertVisible: "Naturinex"

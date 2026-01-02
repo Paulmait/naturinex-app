@@ -1,0 +1,34 @@
+# Flow: Analysis Results Screenshot
+# Captures the ingredient analysis results screen
+
+appId: com.naturinex.wellness
+
+---
+
+# Run setup first
+- runFlow: 00_setup_demo_login.yaml
+
+# Navigate to scan history first (demo data has pre-loaded scans)
+- tapOn: "History"
+
+# Wait for history to load
+- waitForAnimationToEnd:
+    timeout: 3000
+
+# Tap on first scan result to view analysis
+- tapOn:
+    index: 0
+    text: ".*Vitamin.*"
+
+# Wait for analysis screen to load
+- waitForAnimationToEnd:
+    timeout: 3000
+
+# Verify analysis content is visible
+- assertVisible:
+    text: ".*Analysis.*"
+    optional: true
+
+# Take screenshot
+- takeScreenshot:
+    path: ./artifacts/app-store/iphone-67/03_analysis_results.png
