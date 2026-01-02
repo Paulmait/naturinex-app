@@ -274,7 +274,7 @@ const validateReceipt = async (receipt) => {
     const authToken = await SecureStore.getItemAsync('auth_token');
     const userId = await SecureStore.getItemAsync('user_id');
 
-    const response = await fetch(`${API_URL}/api/verify-apple-receipt`, {
+    const response = await fetch(`${API_URL}/verify-apple-receipt`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${authToken}`,
