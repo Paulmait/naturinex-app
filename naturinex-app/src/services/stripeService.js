@@ -1,10 +1,31 @@
 // Stripe Service - Production Ready with Idempotency
 // Handles all Stripe operations securely
+//
+// IMPORTANT: Stripe is NOT used on iOS for digital subscriptions.
+// iOS uses Apple IAP exclusively. This service is for Android/Web only.
 
+import { Platform } from 'react-native';
 import { supabase } from '../config/supabase';
 import ErrorService from './ErrorService';
 import auditLogger, { ACCESS_TYPES, RESOURCE_TYPES } from './auditLogger';
 import Logger from './Logger';
+
+/**
+ * Guard to prevent Stripe usage on iOS
+ * Apple requires all digital purchases to use IAP on iOS
+ */
+const assertNotIOS = (methodName) => {
+  if (Platform.OS === 'ios') {
+    const error = new Error(
+      `FATAL: Stripe ${methodName} called on iOS. ` +
+      `iOS must use Apple IAP for digital subscriptions. ` +
+      `This is a violation of App Store Guidelines 3.1.1.`
+    );
+    Logger.error('iOS_STRIPE_VIOLATION', { method: methodName });
+    ErrorService.logError(error, `StripeService.${methodName}`, { platform: 'ios' });
+    throw error;
+  }
+};
 
 class StripeService {
   constructor() {
@@ -112,8 +133,10 @@ class StripeService {
 
   /**
    * Create checkout session with idempotency
+   * NOT available on iOS - use Apple IAP instead
    */
   async createCheckoutSession(userId, priceId, mode = 'subscription') {
+    assertNotIOS('createCheckoutSession');
     try {
       // Generate idempotency key
       const idempotencyKey = await this.generateIdempotencyKey('checkout', {
@@ -442,8 +465,10 @@ class StripeService {
 
   /**
    * Cancel subscription with idempotency
+   * NOT available on iOS - use Apple IAP instead
    */
   async cancelSubscription(userId, subscriptionId) {
+    assertNotIOS('cancelSubscription');
     try {
       const idempotencyKey = await this.generateIdempotencyKey('cancel', {
         userId,
@@ -526,8 +551,10 @@ class StripeService {
 
   /**
    * Get customer portal URL
+   * NOT available on iOS - use Apple subscription management instead
    */
   async getCustomerPortalURL(userId) {
+    assertNotIOS('getCustomerPortalURL');
     try {
       const { data, error } = await supabase.functions.invoke('create-portal-session', {
         body: { userId },

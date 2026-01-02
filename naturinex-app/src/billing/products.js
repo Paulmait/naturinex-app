@@ -2,64 +2,27 @@
  * Apple IAP Product Definitions
  *
  * These product IDs MUST match exactly what is configured in App Store Connect.
- * Update these when you create the IAP products in App Store Connect.
+ *
+ * IMPORTANT: Only Premium Monthly and Yearly are launched for v2.0
+ * Basic and Professional tiers are reserved for future releases.
  */
 
 // Product IDs - Must match App Store Connect exactly
 export const PRODUCT_IDS = {
-  // Basic tier subscriptions
-  BASIC_MONTHLY: 'naturinex_basic_monthly',
-  BASIC_YEARLY: 'naturinex_basic_yearly',
-
-  // Premium tier subscriptions
+  // Premium tier subscriptions (ACTIVE - submitted for App Review)
   PREMIUM_MONTHLY: 'naturinex_premium_monthly',
   PREMIUM_YEARLY: 'naturinex_premium_yearly',
-
-  // Professional tier subscriptions
-  PROFESSIONAL_MONTHLY: 'naturinex_professional_monthly',
-  PROFESSIONAL_YEARLY: 'naturinex_professional_yearly',
 };
 
 // All subscription product IDs for fetching from StoreKit
+// Only include products that are submitted for App Review
 export const ALL_SUBSCRIPTION_IDS = [
-  PRODUCT_IDS.BASIC_MONTHLY,
-  PRODUCT_IDS.BASIC_YEARLY,
   PRODUCT_IDS.PREMIUM_MONTHLY,
   PRODUCT_IDS.PREMIUM_YEARLY,
-  PRODUCT_IDS.PROFESSIONAL_MONTHLY,
-  PRODUCT_IDS.PROFESSIONAL_YEARLY,
 ];
 
 // Product metadata (display info, entitlements)
 export const PRODUCT_METADATA = {
-  [PRODUCT_IDS.BASIC_MONTHLY]: {
-    displayName: 'Basic Monthly',
-    tier: 'basic',
-    period: 'monthly',
-    periodDisplay: 'per month',
-    entitlement: 'basic',
-    features: [
-      '10 scans per month',
-      '30-day scan history',
-      'Basic wellness insights',
-      'Email support',
-    ],
-    trialDays: 7,
-  },
-  [PRODUCT_IDS.BASIC_YEARLY]: {
-    displayName: 'Basic Yearly',
-    tier: 'basic',
-    period: 'yearly',
-    periodDisplay: 'per year',
-    entitlement: 'basic',
-    features: [
-      'All Basic Monthly features',
-      '2 months free',
-      'Priority email support',
-    ],
-    trialDays: 7,
-    savings: '~17% savings',
-  },
   [PRODUCT_IDS.PREMIUM_MONTHLY]: {
     displayName: 'Premium Monthly',
     tier: 'premium',
@@ -68,8 +31,8 @@ export const PRODUCT_METADATA = {
     entitlement: 'premium',
     popular: true,
     features: [
-      '50 scans per month',
-      'Permanent scan history',
+      'Unlimited scans',
+      'Full scan history',
       'Advanced AI analysis',
       'Export PDF reports',
       'Share discoveries',
@@ -91,45 +54,12 @@ export const PRODUCT_METADATA = {
       'Early access to new features',
     ],
     trialDays: 7,
-    savings: '~22% savings',
-  },
-  [PRODUCT_IDS.PROFESSIONAL_MONTHLY]: {
-    displayName: 'Professional Monthly',
-    tier: 'professional',
-    period: 'monthly',
-    periodDisplay: 'per month',
-    entitlement: 'professional',
-    features: [
-      '200 scans per month',
-      'API access',
-      'Bulk analysis tools',
-      'Custom integrations',
-      'Dedicated support',
-      'Team collaboration',
-      'Advanced analytics',
-    ],
-    trialDays: 7,
-  },
-  [PRODUCT_IDS.PROFESSIONAL_YEARLY]: {
-    displayName: 'Professional Yearly',
-    tier: 'professional',
-    period: 'yearly',
-    periodDisplay: 'per year',
-    entitlement: 'professional',
-    features: [
-      'All Pro Monthly features',
-      '3+ months free',
-      'White-label options',
-      'SLA guarantee',
-    ],
-    trialDays: 7,
-    savings: '~25% savings',
+    savings: '~17% savings',
   },
 };
 
 // Entitlement hierarchy (higher includes lower)
 export const ENTITLEMENT_HIERARCHY = {
-  professional: ['professional', 'premium', 'basic'],
   premium: ['premium', 'basic'],
   basic: ['basic'],
   free: [],
@@ -155,13 +85,13 @@ export const getProductsForTier = (tier) => {
 };
 
 // Group products by tier for display
+// Only returns premium tier for v2.0 launch
 export const getProductsByTier = () => {
-  const tiers = ['basic', 'premium', 'professional'];
-  return tiers.map(tier => ({
-    tier,
-    displayName: tier.charAt(0).toUpperCase() + tier.slice(1),
-    products: getProductsForTier(tier),
-  }));
+  return [{
+    tier: 'premium',
+    displayName: 'Premium',
+    products: getProductsForTier('premium'),
+  }];
 };
 
 export default {

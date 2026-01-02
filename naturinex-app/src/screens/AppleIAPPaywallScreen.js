@@ -14,16 +14,11 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
-  Linking,
-  Platform,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import AppleIAPService from '../billing/AppleIAPService';
 import { PRODUCT_METADATA, getProductsByTier } from '../billing/products';
 import DemoDataService from '../services/DemoDataService';
-
-const TERMS_URL = 'https://naturinex.com/terms';
-const PRIVACY_URL = 'https://naturinex.com/privacy';
 
 export default function AppleIAPPaywallScreen({ navigation }) {
   const [loading, setLoading] = useState(true);
@@ -118,8 +113,12 @@ export default function AppleIAPPaywallScreen({ navigation }) {
     AppleIAPService.openSubscriptionManagement();
   };
 
-  const openURL = (url) => {
-    Linking.openURL(url).catch(err => console.error('Error opening URL:', err));
+  const openTerms = () => {
+    navigation.navigate('TermsOfUse');
+  };
+
+  const openPrivacy = () => {
+    navigation.navigate('PrivacyPolicy');
   };
 
   // Filter products by selected period
@@ -342,13 +341,13 @@ export default function AppleIAPPaywallScreen({ navigation }) {
           </Text>
         </View>
 
-        {/* Legal Links */}
+        {/* Legal Links - In-app navigation as required by Apple */}
         <View style={styles.legalLinks}>
-          <TouchableOpacity onPress={() => openURL(TERMS_URL)}>
+          <TouchableOpacity onPress={openTerms}>
             <Text style={styles.legalLink}>Terms of Service</Text>
           </TouchableOpacity>
           <Text style={styles.legalSeparator}>|</Text>
-          <TouchableOpacity onPress={() => openURL(PRIVACY_URL)}>
+          <TouchableOpacity onPress={openPrivacy}>
             <Text style={styles.legalLink}>Privacy Policy</Text>
           </TouchableOpacity>
         </View>
