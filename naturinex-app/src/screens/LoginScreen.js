@@ -40,6 +40,13 @@ export default function LoginScreen({ navigation }) {
 
   const auth = getAuth();
 
+  // Check if Google OAuth is properly configured
+  const googleClientId = Constants.expoConfig?.extra?.googleIosClientId ||
+                         Constants.expoConfig?.extra?.googleExpoClientId ||
+                         Constants.expoConfig?.extra?.googleAndroidClientId;
+  // On iOS, only show Google if Apple Sign In is unavailable or if Google is properly configured
+  const showGoogleSignIn = Platform.OS !== 'ios' || (googleClientId && !appleAuthAvailable);
+
   const [request, response, promptAsync] = Google.useAuthRequest({
     expoClientId: Constants.expoConfig?.extra?.googleExpoClientId,
     iosClientId: Constants.expoConfig?.extra?.googleIosClientId,
@@ -248,8 +255,33 @@ export default function LoginScreen({ navigation }) {
     }
   };
 
-  const handleGoogleSignIn = () => {
-    promptAsync();
+  const handleGoogleSignIn = async () => {
+    // Check if Google OAuth is properly configured
+    const googleClientId = Constants.expoConfig?.extra?.googleIosClientId ||
+                          Constants.expoConfig?.extra?.googleExpoClientId;
+
+    if (!googleClientId) {
+      Alert.alert(
+        'Configuration Error',
+        'Google Sign-In is not available at this time. Please use email/password or Sign in with Apple.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await promptAsync();
+    } catch (error) {
+      console.error('Google sign-in prompt error:', error);
+      Alert.alert(
+        'Sign In Error',
+        'Unable to start Google sign-in. Please try again or use another sign-in method.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleForgotPassword = () => {
@@ -369,13 +401,16 @@ export default function LoginScreen({ navigation }) {
             />
           )}
 
-          <TouchableOpacity
-            style={[styles.button, styles.googleButton]}
-            onPress={handleGoogleSignIn}
-            disabled={loading}
-          >
-            <Text style={styles.googleButtonText}>Sign in with Google</Text>
-          </TouchableOpacity>
+          {/* Google Sign-in - hidden on iOS when Apple Sign In is available */}
+          {showGoogleSignIn && (
+            <TouchableOpacity
+              style={[styles.button, styles.googleButton]}
+              onPress={handleGoogleSignIn}
+              disabled={loading}
+            >
+              <Text style={styles.googleButtonText}>Sign in with Google</Text>
+            </TouchableOpacity>
+          )}
 
           <TouchableOpacity
             style={[styles.button, styles.skipButton]}

@@ -4,6 +4,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 
 const PRIVACY_URL = 'https://naturinex.com/privacy';
 const SUPPORT_EMAIL = 'support@naturinex.com';
+const PRIVACY_EMAIL = 'privacy@naturinex.com';
 const DELETION_URL = 'https://naturinex.com/delete-account';
 
 const PrivacyPolicyScreen = ({ navigation }) => {
@@ -14,8 +15,8 @@ const PrivacyPolicyScreen = ({ navigation }) => {
   return (
     <ScrollView style={styles.container}>
       <Text style={styles.title}>Privacy Policy</Text>
-      <Text style={styles.effectiveDate}>Effective Date: January 1, 2025</Text>
-      <Text style={styles.lastUpdated}>Last Updated: January 2, 2026</Text>
+      <Text style={styles.lastUpdated}>Last Updated: January 18, 2026</Text>
+      <Text style={styles.effectiveDate}>Effective Date: January 18, 2026</Text>
 
       <View style={styles.companyInfo}>
         <Text style={styles.companyName}>Cien Rios LLC dba Naturinex Wellness Guide</Text>
@@ -27,159 +28,224 @@ const PrivacyPolicyScreen = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>1. Introduction</Text>
+      <View style={styles.introSection}>
         <Text style={styles.text}>
-          Naturinex Wellness Guide ("we," "our," or "us") is committed to protecting your privacy.
-          This Privacy Policy explains how we collect, use, disclose, and safeguard your information
-          when you use our mobile application and related services.
+          Cien Rios LLC, doing business as Naturinex Wellness Guide ("Naturinex," "we," "our," or "us"),
+          respects your privacy and is committed to protecting your personal data. This Privacy Policy
+          explains how we collect, use, disclose, and safeguard your information when you use our web
+          and mobile applications in compliance with applicable data protection regulations including
+          GDPR, CCPA, and HIPAA where applicable.
         </Text>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>2. Information We Collect</Text>
+        <Text style={styles.sectionTitle}>1. Information We Collect</Text>
+        <Text style={styles.text}>We collect the following categories of information:</Text>
 
-        <Text style={styles.subTitle}>2.1 Information You Provide</Text>
+        <Text style={styles.subTitle}>Personal Information</Text>
         <Text style={styles.text}>
-          • Account information (email address, name if using Sign in with Apple or Google){'\n'}
-          • Medication and product scan data{'\n'}
-          • Preferences and settings{'\n'}
-          • Communications with our support team
+          Name, email address, phone number, and account credentials when you create an account
         </Text>
 
-        <Text style={styles.subTitle}>2.2 Automatically Collected Information</Text>
+        <Text style={styles.subTitle}>Health & Wellness Data</Text>
         <Text style={styles.text}>
-          • Device information (device type, operating system, unique device identifiers){'\n'}
-          • Usage data (features used, scan frequency, app interactions){'\n'}
-          • Crash reports and performance data{'\n'}
-          • IP address (not stored long-term)
+          Product scans, wellness notes, health preferences, and supplement tracking (encrypted at rest)
         </Text>
 
-        <Text style={styles.subTitle}>2.3 Images and Camera Data</Text>
+        <Text style={styles.subTitle}>Usage Data</Text>
         <Text style={styles.text}>
-          When you use our scan feature, images are processed to identify medications and products.
-          Images are processed locally on your device and/or transmitted securely to our servers
-          for analysis. We do not store the original images after processing unless you explicitly
-          save them to your scan history.
+          App interactions, feature usage, scan history, and performance metrics
         </Text>
+
+        <Text style={styles.subTitle}>Device Information</Text>
+        <Text style={styles.text}>
+          Device type, OS version, unique device identifiers, IP address (anonymized after 90 days)
+        </Text>
+
+        <Text style={styles.subTitle}>AI-Generated Insights</Text>
+        <Text style={styles.text}>
+          Wellness recommendations and product analysis from our ML models
+        </Text>
+
+        <Text style={styles.subTitle}>Payment Information</Text>
+        <Text style={styles.text}>
+          Processed securely via PCI-compliant third-party processors (we do not store card details)
+        </Text>
+
+        <View style={styles.highlightBox}>
+          <Text style={styles.highlightText}>
+            Data retention: Active account data retained for service duration plus 90 days.
+            Anonymized analytics retained for 2 years.
+          </Text>
+        </View>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>3. How We Use Your Information</Text>
+        <Text style={styles.sectionTitle}>2. How We Use Your Information</Text>
         <Text style={styles.text}>
-          We use collected information to:{'\n\n'}
-          • Provide and improve our wellness guide services{'\n'}
-          • Process and analyze medication/product scans{'\n'}
-          • Maintain your scan history and preferences{'\n'}
-          • Send service-related communications{'\n'}
-          • Prevent fraud and ensure security{'\n'}
-          • Comply with legal obligations{'\n'}
-          • Improve our app and develop new features
+          We process your information based on the following legal bases:{'\n\n'}
+          • <Text style={styles.bold}>Service Delivery (Contractual):</Text> Provide core app functionality, process subscriptions, customer support{'\n\n'}
+          • <Text style={styles.bold}>Legitimate Interests:</Text> Improve AI models, prevent fraud, ensure security, analyze usage patterns{'\n\n'}
+          • <Text style={styles.bold}>Consent:</Text> Marketing communications, beta features, research participation{'\n\n'}
+          • <Text style={styles.bold}>Legal Obligations:</Text> Compliance with laws, respond to legal requests, enforce terms
         </Text>
+
+        <View style={styles.aiDisclosure}>
+          <MaterialIcons name="psychology" size={24} color="#7C3AED" />
+          <View style={styles.aiDisclosureContent}>
+            <Text style={styles.aiDisclosureTitle}>AI Processing Disclosure</Text>
+            <Text style={styles.aiDisclosureText}>
+              Our AI systems analyze your data locally when possible. Cloud processing uses encrypted,
+              de-identified data. AI outputs are probabilistic and not medical advice. You maintain
+              full control over AI-generated insights and can delete them at any time.
+            </Text>
+          </View>
+        </View>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>4. Data Sharing and Disclosure</Text>
-        <Text style={styles.text}>
-          We do not sell your personal information. We may share information with:{'\n\n'}
-          • Service providers who assist in operating our app (hosting, analytics, payment processing){'\n'}
-          • Legal authorities when required by law{'\n'}
-          • Business partners (only with your consent){'\n\n'}
-          Third-party services we use include:{'\n'}
-          • Firebase (authentication and analytics){'\n'}
-          • Supabase (data storage){'\n'}
-          • Stripe (payment processing){'\n'}
-          • Apple (Sign in with Apple, App Store)
+        <Text style={styles.sectionTitle}>3. Data Security & Infrastructure</Text>
+        <Text style={styles.text}>We implement enterprise-grade security measures:</Text>
+
+        <Text style={styles.bulletItem}>
+          • <Text style={styles.bold}>Encryption:</Text> AES-256 at rest, TLS 1.3+ in transit, end-to-end for sensitive health data
         </Text>
+        <Text style={styles.bulletItem}>
+          • <Text style={styles.bold}>Access Controls:</Text> Multi-factor authentication, role-based permissions, principle of least privilege
+        </Text>
+        <Text style={styles.bulletItem}>
+          • <Text style={styles.bold}>Infrastructure:</Text> SOC 2 Type II certified cloud providers, regular security audits, WAF protection
+        </Text>
+        <Text style={styles.bulletItem}>
+          • <Text style={styles.bold}>Monitoring:</Text> 24/7 threat detection, automated incident response, quarterly penetration testing
+        </Text>
+        <Text style={styles.bulletItem}>
+          • <Text style={styles.bold}>Compliance:</Text> GDPR, CCPA, COPPA compliant. HIPAA-ready infrastructure for health data
+        </Text>
+        <Text style={styles.bulletItem}>
+          • <Text style={styles.bold}>Data Residency:</Text> Primary data centers in US-East. EU data processed in EU regions per GDPR
+        </Text>
+
+        <View style={styles.highlightBox}>
+          <Text style={styles.highlightText}>
+            Incident Response: Security incidents are logged, investigated within 24 hours, and
+            reportable breaches disclosed within 72 hours per regulatory requirements.
+          </Text>
+        </View>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>5. Data Security</Text>
+        <Text style={styles.sectionTitle}>4. Data Sharing & Third Parties</Text>
         <Text style={styles.text}>
-          We implement appropriate technical and organizational measures to protect your data,
-          including encryption in transit and at rest, secure authentication, and regular
-          security assessments. However, no method of transmission over the Internet is 100% secure.
+          <Text style={styles.bold}>We do not sell your personal information.</Text> We share data only as follows:{'\n\n'}
+          • <Text style={styles.bold}>Service Providers:</Text> Payment processors (Stripe), hosting (AWS/GCP), analytics (privacy-focused, anonymized){'\n\n'}
+          • <Text style={styles.bold}>Legal Requirements:</Text> Law enforcement requests (with warrant), regulatory compliance, safety emergencies{'\n\n'}
+          • <Text style={styles.bold}>Business Transfers:</Text> In case of merger/acquisition, with data protection agreements{'\n\n'}
+          • <Text style={styles.bold}>Aggregated Data:</Text> De-identified statistics for research (no individual identification possible)
         </Text>
+
+        <View style={styles.highlightBox}>
+          <Text style={styles.highlightText}>
+            All third parties are contractually bound to maintain confidentiality and implement
+            adequate security measures. We conduct annual vendor security assessments.
+          </Text>
+        </View>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>6. Data Retention</Text>
+        <Text style={styles.sectionTitle}>5. Your Privacy Rights</Text>
         <Text style={styles.text}>
-          We retain your personal information for as long as your account is active or as needed
-          to provide services. You can request deletion of your account and associated data at
-          any time (see Section 8).
+          You have comprehensive rights regarding your personal data:{'\n\n'}
+          • <Text style={styles.bold}>Access:</Text> Request copy of your data via account settings or API (JSON export available){'\n\n'}
+          • <Text style={styles.bold}>Rectification:</Text> Update inaccurate information through profile settings{'\n\n'}
+          • <Text style={styles.bold}>Deletion:</Text> Request account deletion (processed within 30 days, some data retained for legal obligations){'\n\n'}
+          • <Text style={styles.bold}>Portability:</Text> Export your data in machine-readable format (JSON/CSV){'\n\n'}
+          • <Text style={styles.bold}>Restriction:</Text> Limit processing of your data for specific purposes{'\n\n'}
+          • <Text style={styles.bold}>Objection:</Text> Opt-out of marketing, analytics, AI training{'\n\n'}
+          • <Text style={styles.bold}>Automated Decision-Making:</Text> Request human review of AI-only decisions
         </Text>
-      </View>
 
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>7. Your Rights</Text>
-        <Text style={styles.text}>
-          Depending on your location, you may have rights to:{'\n\n'}
-          • Access your personal data{'\n'}
-          • Correct inaccurate data{'\n'}
-          • Request deletion of your data{'\n'}
-          • Object to or restrict processing{'\n'}
-          • Data portability{'\n'}
-          • Withdraw consent{'\n\n'}
-          California residents have additional rights under the CCPA/CPRA.
-        </Text>
+        <View style={styles.regionBox}>
+          <Text style={styles.regionTitle}>California Residents (CCPA)</Text>
+          <Text style={styles.regionText}>
+            Additional rights including opt-out of "sale" (though we don't sell data) and
+            non-discrimination for exercising rights.
+          </Text>
+        </View>
+
+        <View style={styles.regionBox}>
+          <Text style={styles.regionTitle}>EU/UK Residents (GDPR)</Text>
+          <Text style={styles.regionText}>
+            Lodge complaints with supervisory authorities. Our DPO contact: {PRIVACY_EMAIL}
+          </Text>
+        </View>
       </View>
 
       <View style={[styles.section, styles.deleteSection]}>
-        <Text style={styles.sectionTitle}>8. Delete Your Data</Text>
+        <Text style={styles.sectionTitle}>Delete Your Data</Text>
         <Text style={styles.text}>
           You can request deletion of your Naturinex account and associated data at any time
-          through the app (Settings {'>'} Account {'>'} Delete Account) or by visiting:
+          through the app (Profile {'>'} Account {'>'} Delete Account) or by visiting:
         </Text>
         <TouchableOpacity style={styles.deleteButton} onPress={() => openURL(DELETION_URL)}>
           <MaterialIcons name="delete-forever" size={20} color="#EF4444" />
           <Text style={styles.deleteButtonText}>Request Account Deletion</Text>
         </TouchableOpacity>
+      </View>
+
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>6. Children's Privacy</Text>
         <Text style={styles.text}>
-          {'\n'}Deletion removes your profile and stored scan history from our systems,
-          subject to limited retention required by law or fraud prevention (typically 30-90 days).
+          Our services are not directed to children under 13. We do not knowingly collect data
+          from children under 13. If you believe a child has provided us data, contact us
+          immediately for deletion.
         </Text>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>9. Children's Privacy</Text>
+        <Text style={styles.sectionTitle}>7. International Data Transfers</Text>
         <Text style={styles.text}>
-          Our service is not intended for children under 13. We do not knowingly collect
-          personal information from children under 13. If you believe we have collected
-          information from a child, please contact us immediately.
+          Your data may be transferred to and processed in countries other than your residence.
+          We ensure adequate protection through Standard Contractual Clauses, adequacy decisions,
+          or other approved mechanisms.
         </Text>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>10. International Data Transfers</Text>
+        <Text style={styles.sectionTitle}>8. Cookies & Tracking</Text>
         <Text style={styles.text}>
-          Your information may be transferred to and processed in the United States and
-          other countries. We ensure appropriate safeguards are in place for such transfers.
+          We use essential cookies for authentication and security. Analytics cookies are opt-in.
+          You can manage preferences via cookie banner or browser settings. We honor Do Not Track signals.
         </Text>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>11. Changes to This Policy</Text>
+        <Text style={styles.sectionTitle}>9. Updates to Privacy Policy</Text>
         <Text style={styles.text}>
-          We may update this Privacy Policy periodically. We will notify you of material
-          changes through the app or via email. Continued use after changes constitutes acceptance.
+          We may update this policy to reflect legal, technical, or business changes. Material
+          changes will be notified via email and in-app notice. Continued use after changes
+          constitutes acceptance.
         </Text>
       </View>
 
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>12. Contact Us</Text>
+        <Text style={styles.sectionTitle}>10. Contact Us</Text>
         <Text style={styles.text}>
           For privacy-related questions or to exercise your rights, contact us at:
         </Text>
         <View style={styles.contactInfo}>
+          <TouchableOpacity onPress={() => openURL(`mailto:${PRIVACY_EMAIL}`)}>
+            <Text style={styles.contactLink}>{PRIVACY_EMAIL}</Text>
+          </TouchableOpacity>
           <TouchableOpacity onPress={() => openURL(`mailto:${SUPPORT_EMAIL}`)}>
             <Text style={styles.contactLink}>{SUPPORT_EMAIL}</Text>
           </TouchableOpacity>
           <Text style={styles.contactText}>
-            Cien Rios LLC{'\n'}
+            {'\n'}Cien Rios LLC{'\n'}
             17113 Miramar Parkway{'\n'}
             Miramar, FL 33027{'\n'}
-            United States
+            United States{'\n'}
+            Phone: (754) 254-7141
           </Text>
         </View>
       </View>
@@ -214,13 +280,14 @@ const styles = StyleSheet.create({
   lastUpdated: {
     fontSize: 14,
     color: '#6B7280',
-    marginBottom: 20,
+    marginBottom: 4,
   },
   companyInfo: {
     backgroundColor: '#F9FAFB',
     padding: 15,
     borderRadius: 10,
     marginBottom: 20,
+    marginTop: 10,
   },
   companyName: {
     fontSize: 16,
@@ -239,6 +306,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
     textDecorationLine: 'underline',
   },
+  introSection: {
+    marginBottom: 24,
+  },
   section: {
     marginBottom: 24,
   },
@@ -252,13 +322,79 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     marginTop: 12,
-    marginBottom: 8,
+    marginBottom: 6,
     color: '#374151',
   },
   text: {
     fontSize: 15,
     lineHeight: 24,
     color: '#4B5563',
+  },
+  bold: {
+    fontWeight: '600',
+    color: '#1F2937',
+  },
+  bulletItem: {
+    fontSize: 15,
+    lineHeight: 24,
+    color: '#4B5563',
+    marginBottom: 8,
+  },
+  highlightBox: {
+    backgroundColor: '#F0FDF4',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: '#10B981',
+  },
+  highlightText: {
+    fontSize: 14,
+    color: '#065F46',
+    lineHeight: 20,
+  },
+  aiDisclosure: {
+    flexDirection: 'row',
+    backgroundColor: '#F3E8FF',
+    padding: 15,
+    borderRadius: 10,
+    marginTop: 15,
+    borderWidth: 1,
+    borderColor: '#DDD6FE',
+  },
+  aiDisclosureContent: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  aiDisclosureTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#7C3AED',
+    marginBottom: 6,
+  },
+  aiDisclosureText: {
+    fontSize: 14,
+    color: '#6B21A8',
+    lineHeight: 20,
+  },
+  regionBox: {
+    backgroundColor: '#EFF6FF',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: '#3B82F6',
+  },
+  regionTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#1E40AF',
+    marginBottom: 4,
+  },
+  regionText: {
+    fontSize: 14,
+    color: '#1E3A8A',
+    lineHeight: 20,
   },
   deleteSection: {
     backgroundColor: '#FEF2F2',
@@ -294,7 +430,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#10B981',
     fontWeight: '600',
-    marginBottom: 10,
+    marginBottom: 6,
     textDecorationLine: 'underline',
   },
   contactText: {

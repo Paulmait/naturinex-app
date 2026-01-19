@@ -154,20 +154,41 @@ export default function SimpleCameraScreen({ navigation }) {
   };
 
   const takePhoto = async () => {
+    // Set analyzing state to show loading indicator immediately
+    setAnalyzing(true);
+
     try {
       // Check/request permission first
       if (cameraPermission !== 'granted') {
+        setAnalyzing(false); // Stop loading while permission dialog shows
         const granted = await requestCameraPermission();
         if (!granted) return;
+        setAnalyzing(true); // Resume loading after permission granted
       }
 
-      logger.info('Launching camera');
+      logger.info('Launching camera on platform:', Platform.OS);
+
+      // Check if camera is available (important for iPad/simulator)
+      const cameraAvailable = await ImagePicker.getCameraPermissionsAsync();
+      if (!cameraAvailable.granted && !cameraAvailable.canAskAgain) {
+        setAnalyzing(false);
+        Alert.alert(
+          'Camera Access Required',
+          'Please enable camera access in Settings to take photos.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ]
+        );
+        return;
+      }
 
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
         aspect: [4, 3],
         quality: 0.8,
         base64: true,
+        exif: false, // Disable EXIF for better performance on iPad
       });
 
       logger.info('Camera result', { cancelled: result.canceled });
@@ -175,24 +196,48 @@ export default function SimpleCameraScreen({ navigation }) {
       if (!result.canceled && result.assets && result.assets[0]) {
         setCapturedImage(result.assets[0]);
         await analyzeImage(result.assets[0]);
+      } else {
+        // User cancelled camera
+        setAnalyzing(false);
       }
     } catch (error) {
       logger.error('Camera error', { error: error.message, code: error.code });
+      setAnalyzing(false);
 
       // Handle specific iOS/iPad errors
-      if (error.message?.includes('Camera not available')) {
+      if (error.message?.includes('Camera not available') ||
+          error.message?.includes('no camera') ||
+          error.code === 'E_NO_CAMERA') {
         Alert.alert(
           'Camera Not Available',
-          'The camera is not available on this device. Please try selecting an image from your photo library instead.',
-          [{ text: 'OK' }]
+          'This device does not have a camera or the camera is currently unavailable. Please try selecting an image from your photo library instead.',
+          [
+            {
+              text: 'Choose from Gallery',
+              onPress: () => pickImage(),
+            },
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+      } else if (error.message?.includes('permission') || error.code === 'E_NO_PERMISSIONS') {
+        Alert.alert(
+          'Camera Permission Required',
+          'Please grant camera permission to take photos of medication labels.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ]
         );
       } else {
         Alert.alert(
           'Camera Error',
-          'Failed to open camera. Please check your camera permissions and try again.',
+          'Unable to open camera. Please try selecting an image from your photo library instead.',
           [
+            {
+              text: 'Choose from Gallery',
+              onPress: () => pickImage(),
+            },
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Open Settings', onPress: () => Linking.openSettings() },
           ]
         );
       }

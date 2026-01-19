@@ -175,11 +175,11 @@ export default function AppleIAPPaywallScreen({ navigation }) {
   return (
     <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Header */}
+        {/* Header - Apple requires clear subscription title */}
         <View style={styles.header}>
-          <Text style={styles.title}>Naturinex Premium</Text>
+          <Text style={styles.title}>Naturinex Premium Subscription</Text>
           <Text style={styles.subtitle}>
-            Unlock the full power of natural wellness insights
+            Auto-renewable subscription for natural wellness insights
           </Text>
         </View>
 
@@ -321,9 +321,29 @@ export default function AppleIAPPaywallScreen({ navigation }) {
           </>
         )}
 
-        {/* Apple Required Subscription Disclosure */}
+        {/* Apple Required Subscription Disclosure - All requirements per Guideline 3.1.2 */}
         <View style={styles.disclosureContainer}>
-          <Text style={styles.disclosureTitle}>Subscription Terms</Text>
+          <Text style={styles.disclosureTitle}>Naturinex Premium Subscription Terms</Text>
+
+          {/* Subscription Title & Description */}
+          <Text style={styles.disclosureText}>
+            • Title: Naturinex Premium - Natural Wellness Guide
+          </Text>
+
+          {/* Subscription Length & Content */}
+          <Text style={styles.disclosureText}>
+            • Length: Monthly subscription renews every 30 days; Yearly subscription renews every 365 days
+          </Text>
+          <Text style={styles.disclosureText}>
+            • Content: Unlimited medication scans, full scan history, advanced AI analysis, PDF report exports, share discoveries, priority support, and ad-free experience
+          </Text>
+
+          {/* Pricing */}
+          <Text style={styles.disclosureText}>
+            • Price: Monthly $9.99/month; Yearly $99.99/year (~17% savings)
+          </Text>
+
+          {/* Payment Terms */}
           <Text style={styles.disclosureText}>
             • Payment will be charged to your Apple ID account at confirmation of purchase
           </Text>
