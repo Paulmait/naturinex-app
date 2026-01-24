@@ -1,177 +1,309 @@
-# 🔐 Admin Setup & Authentication Guide
+# Admin Setup & Authentication Guide
 
-## Current Admin System
+*Last Updated: January 2026*
 
-**IMPORTANT**: There is no hardcoded admin username/password. Admin access is granted through Firebase Authentication with special privileges.
+## Overview
 
-## How Admin Authentication Works
+The Naturinex admin system provides comprehensive user management, analytics, and security features. Admin access is granted through Firebase Authentication with special privileges, and enhanced features are powered by Supabase.
 
-1. **No Default Admin Credentials**
-   - For security, there's no pre-set admin username/password
-   - Admins are regular users with elevated privileges
-   - Admin status is stored in Firestore user metadata
+**Important:** There are no hardcoded admin credentials. All admins are regular users with elevated privileges.
 
-2. **Admin Features**
-   - Change password functionality
-   - Access to admin dashboard
-   - View all user data and analytics
-   - Monitor app usage and revenue
+---
 
-## Setting Up Your First Admin
+## Quick Start
 
-### Method 1: Via Firebase Console (Easiest)
+### 1. Create Your Admin Account
 
-1. **Create a User Account**:
-   - Open the Naturinex app
-   - Sign up with your admin email (e.g., admin@yourcompany.com)
-   - Use a strong password
+1. Open the Naturinex app and sign up with your admin email
+2. Use a strong password (16+ characters, see requirements below)
+3. Verify your email address
 
-2. **Grant Admin Access in Firebase Console**:
-   ```javascript
-   // Go to Firebase Console > Firestore Database
-   // Find your user document in the 'users' collection
-   // Add this field to the document:
-   {
-     "metadata": {
-       "isAdmin": true
-     }
-   }
-   ```
+### 2. Grant Admin Privileges
 
-3. **Verify Admin Access**:
-   - Log out and log back in to the app
-   - You should see "Admin Dashboard" and "Admin Settings" in Profile
+**Via Firebase Console:**
 
-### Method 2: Via Server Script
+1. Go to [Firebase Console](https://console.firebase.google.com) > Firestore Database
+2. Find your user in the `users` collection
+3. Add these fields:
 
-Create a file `makeAdmin.js` on your server:
+```json
+{
+  "metadata": {
+    "isAdmin": true,
+    "adminRole": "super_admin"
+  }
+}
+```
+
+4. Also create an entry in the `admins` collection:
+
+```json
+{
+  "email": "your-email@company.com",
+  "role": "super_admin",
+  "active": true,
+  "passwordExpiresAt": "<timestamp 6 months from now>",
+  "require2FA": true
+}
+```
+
+### 3. Set Custom Claims (Required for Full Access)
+
+Run this Node.js script on your server:
 
 ```javascript
 const admin = require('firebase-admin');
 
-// Initialize admin SDK (already done in your server)
-admin.initializeApp({
-  credential: admin.credential.cert({
-    // Your service account credentials
-  })
-});
+async function createSuperAdmin(email) {
+  const user = await admin.auth().getUserByEmail(email);
 
-async function makeUserAdmin(email) {
-  try {
-    // Get user by email
-    const user = await admin.auth().getUserByEmail(email);
-    
-    // Set custom claims
-    await admin.auth().setCustomUserClaims(user.uid, { admin: true });
-    
-    // Update Firestore
-    await admin.firestore().collection('users').doc(user.uid).set({
-      metadata: {
-        isAdmin: true,
-        adminGrantedAt: admin.firestore.FieldValue.serverTimestamp()
-      }
-    }, { merge: true });
-    
-    console.log(`Successfully made ${email} an admin`);
-  } catch (error) {
-    console.error('Error making user admin:', error);
-  }
+  await admin.auth().setCustomUserClaims(user.uid, {
+    admin: true,
+    role: 'super_admin'
+  });
+
+  await admin.firestore().collection('admins').doc(user.uid).set({
+    email: email,
+    role: 'super_admin',
+    active: true,
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    passwordExpiresAt: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
+    require2FA: true,
+    permissions: ['all']
+  });
+
+  console.log(`Super admin created: ${email}`);
 }
 
-// Replace with your admin email
-makeUserAdmin('your-admin@email.com');
+createSuperAdmin('your-admin@email.com');
 ```
 
-Run it once:
-```bash
-node makeAdmin.js
-```
+### 4. Verify Access
 
-## Admin Security Best Practices
+Log out and back in. You should see "Admin Dashboard" in your Profile.
 
-### Password Requirements
-- Minimum 8 characters
-- Mix of uppercase, lowercase, numbers, and symbols
-- Change every 90 days
-- Never share admin credentials
+---
 
-### Two-Factor Authentication (Recommended)
-Enable 2FA in Firebase Authentication:
-1. Firebase Console > Authentication > Sign-in method
-2. Enable "Multi-factor authentication"
-3. Require for admin accounts
+## Admin Role Hierarchy
 
-### Admin Activity Monitoring
-All admin actions are logged:
-- Login times and locations
-- Data exports
-- User management actions
-- Configuration changes
+| Role | Level | Capabilities |
+|------|-------|--------------|
+| `owner` | 5 | Full access, can manage other admins, delete users permanently |
+| `super_admin` | 4 | User management, policy changes, critical operations |
+| `admin` | 3 | Standard admin operations, view analytics |
+| `moderator` | 2 | Issue warnings, content moderation only |
+| `viewer` | 1 | Read-only access to dashboards |
 
-## Admin Features Available
+---
 
-### 1. Admin Dashboard
-- **Total Users**: See registered user count
-- **Premium Users**: Monitor subscriptions
-- **Daily Scans**: Track app usage
-- **Revenue**: Monthly subscription income
-- **Popular Products**: Most scanned items
+## Password Requirements (Industry Standard)
 
-### 2. Admin Settings
-- **Change Password**: Update admin credentials
-- **Create New Admin**: Instructions for adding admins
-- **Security Settings**: Best practices
+All admin accounts must follow these password requirements:
 
-### 3. User Management
-- View all user data
-- Export user information (GDPR)
-- Monitor suspicious activity
-- Manage subscriptions
+| Requirement | Value |
+|-------------|-------|
+| **Minimum Length** | 16 characters |
+| **Maximum Length** | 128 characters |
+| **Uppercase Letters** | At least 2 |
+| **Lowercase Letters** | At least 2 |
+| **Numbers** | At least 2 |
+| **Special Characters** | At least 2 (`!@#$%^&*()_+-=[]{}|;:,.<>?`) |
+| **Expiration** | 6 months (180 days) |
+| **History** | Cannot reuse last 12 passwords |
+| **Lockout** | 5 failed attempts = 30 minute lockout |
+| **2FA** | Required for write operations |
+
+### Password Change
+
+1. Profile > Admin Settings > Change Password
+2. Enter current password
+3. Enter new password meeting requirements
+4. Confirm and save
+
+You'll receive warnings 14 days before password expiration.
+
+---
+
+## Admin Features
+
+### Dashboard (Mobile & Web)
+
+Access via Profile > Admin Dashboard
+
+- **Overview Tab:** Total users, premium users, daily scans, revenue
+- **Recent Scans Tab:** Latest user activity with product details
+- **Users Tab:** User management tools
+
+### User Management
+
+**Available Actions:**
+
+| Action | Required Role | Description |
+|--------|---------------|-------------|
+| View Users | Admin | List all users with status |
+| View User Details | Admin | Full profile, scans, status |
+| Issue Warning | Admin | Record violation warnings |
+| Suspend User | Admin | Temporary or permanent suspension |
+| Unsuspend User | Admin | Reinstate suspended accounts |
+| Reset Password | Admin | Force password reset for user |
+| Delete User | Super Admin | Soft delete with 30-day grace period |
+| Immediate Delete | Owner | Permanent deletion (irreversible) |
+
+### Analytics Access
+
+Admins can view:
+- User engagement metrics
+- Scan statistics
+- Subscription/revenue data (super_admin+)
+- Error analytics
+- Performance metrics
+
+---
+
+## Supabase Tables (Enhanced Admin Features)
+
+The following tables store admin management data:
+
+| Table | Purpose |
+|-------|---------|
+| `user_account_status` | User suspensions, bans, violations |
+| `admin_audit_log` | Comprehensive admin action logging |
+| `admin_password_policy` | Password requirements configuration |
+| `admin_password_reset_requests` | Admin-initiated password resets |
+| `user_data_access_log` | GDPR-compliant data access logging |
+| `admin_analytics_access` | Per-admin analytics permissions |
+
+### Accessing Supabase
+
+1. Go to: https://supabase.com/dashboard
+2. Select the Naturinex project
+3. Use SQL Editor for reports and queries
+
+**Note:** Full SOP with SQL queries is in `ADMIN_SOP.md` (not in version control for security).
+
+---
+
+## Audit Logging
+
+**All admin actions are logged with:**
+
+- Admin ID, email, role
+- Action type and severity
+- Target user information
+- IP address and geolocation
+- Device, browser, OS details
+- Before/after state of changes
+- Timestamp and duration
+- Success/failure status
+
+**Action Severity Levels:**
+- `critical` - Delete operations
+- `high` - Suspensions, policy changes, exports
+- `medium` - Password resets, warnings
+- `low` - View operations
+
+View audit logs: Admin Dashboard > Audit Logs (or Supabase)
+
+---
+
+## Security Best Practices
+
+### Daily Tasks
+- Review audit logs for unusual activity
+- Check failed login attempts
+- Monitor suspended user queue
+
+### Weekly Tasks
+- Audit admin access logs
+- Review password expiration status
+- Verify 2FA is enabled for all admins
+
+### Monthly Tasks
+- Full admin access audit
+- Update password policy if needed
+- Test account recovery procedures
+
+### Two-Factor Authentication (2FA)
+
+Required for all admin accounts:
+
+1. Profile > Security > Enable 2FA
+2. Scan QR code with authenticator app (Google Authenticator, Authy)
+3. Enter verification code
+4. Save backup codes securely
+
+---
 
 ## Troubleshooting
 
 ### "Admin options not showing"
-1. Check Firestore for `metadata.isAdmin: true`
-2. Log out and log back in
-3. Clear app cache
-
-### "Can't change password"
-1. Ensure current password is correct
-2. New password must be 8+ characters
-3. Check internet connection
+1. Verify `metadata.isAdmin: true` in Firestore `users` collection
+2. Verify entry exists in `admins` collection with `active: true`
+3. Log out and back in to refresh token
+4. Clear app cache
 
 ### "Access denied to admin dashboard"
-1. Verify admin status in Firestore
-2. Check authentication token
-3. Ensure user document exists
+1. Check custom claims are set (requires server script)
+2. Verify admin role in `admins` collection
+3. Ensure account is not suspended
 
-## Security Considerations
+### "Password expired"
+1. You'll see a prompt to change password
+2. Enter current password
+3. Create new password meeting all requirements
+4. Log in again with new password
 
-1. **Limit Admin Accounts**: Only trusted personnel
-2. **Regular Audits**: Review admin list monthly
-3. **Activity Logs**: Monitor admin actions
-4. **Secure Communication**: Never share credentials via email/chat
-5. **Incident Response**: Have a plan for compromised accounts
+### "2FA not working"
+1. Check device time is synced correctly
+2. Ensure you're using the correct authenticator entry
+3. Contact another admin to reset your 2FA
+4. Use backup codes if available
 
-## Removing Admin Access
+---
 
-To revoke admin privileges:
-```javascript
-// In Firestore, update the user document:
-{
-  "metadata": {
-    "isAdmin": false,
-    "adminRevokedAt": timestamp
-  }
-}
-```
+## Emergency Procedures
 
-The user will lose admin access on next login.
+### Compromised Admin Account
+1. Immediately disable the account in Firebase Auth
+2. Revoke all sessions in `adminSessions` collection
+3. Review audit logs for unauthorized actions
+4. Create new account for affected admin
+5. Document incident
 
-## Support
+### Revoking Admin Access
 
-For admin-related issues:
-1. Check server logs for errors
-2. Verify Firebase configuration
-3. Ensure Firestore security rules are correct
-4. Contact technical support with error details
+To remove admin privileges:
+
+1. Firebase Console > Firestore > `users` collection
+2. Update: `metadata.isAdmin: false`
+3. Update `admins` collection: `active: false`
+4. Optionally disable in Firebase Auth
+
+Access revoked on next login attempt.
+
+---
+
+## Additional Resources
+
+- **Full SOP:** `ADMIN_SOP.md` (local only, not in git)
+- **Firebase Console:** https://console.firebase.google.com
+- **Supabase Dashboard:** https://supabase.com/dashboard
+- **Security Policies:** See `DATABASE_SECURITY_GUIDE.md`
+
+---
+
+## Changelog
+
+### January 2026
+- Added comprehensive admin user management
+- Implemented 6-month password expiration
+- Added industry-standard password requirements
+- Created Supabase tables for admin operations
+- Added comprehensive audit logging
+- Created admin role hierarchy (owner, super_admin, admin, moderator, viewer)
+- Added user suspension/deletion capabilities
+- Created GDPR-compliant data access logging
+
+### December 2025
+- Initial admin setup guide
+- Basic Firebase-based admin authentication

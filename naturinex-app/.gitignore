@@ -134,3 +134,15 @@ webhook-secrets.json
 # Temporary test files with credentials
 test-credentials-*.json
 *-test-key.json
+
+# ============================================
+# CONFIDENTIAL DOCUMENTATION
+# ============================================
+# Admin Standard Operating Procedures (contains sensitive info)
+ADMIN_SOP.md
+*_SOP.md
+*-sop.md
+
+# Internal admin guides
+ADMIN_CREDENTIALS.md
+ADMIN_ACCESS.md
