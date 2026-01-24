@@ -1,5 +1,19 @@
-// AI Service for Naturinex - Secure Version
-// Uses Supabase Edge Functions to protect API keys
+/**
+ * AI Service for Naturinex - Secure Version (RECOMMENDED FOR PRODUCTION)
+ *
+ * ============================================================================
+ * This is the RECOMMENDED AI service for production use.
+ * ============================================================================
+ *
+ * Security benefits:
+ * - API keys (Gemini, Vision) stay server-side in Edge Functions
+ * - All sensitive operations happen on the server
+ * - Rate limiting enforced server-side
+ * - Input sanitization and validation
+ *
+ * Alternative: Direct API calls to backend /api/analyze endpoints
+ * (also secure - API calls go through Render backend)
+ */
 
 import { supabase } from '../config/supabase';
 import { SUPABASE_URL } from '../config/env';

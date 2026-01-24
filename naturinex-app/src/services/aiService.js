@@ -1,11 +1,26 @@
 /**
- * AI Service for Naturinex
- * Handles medication analysis and natural alternative suggestions
- * Provides differentiated analysis based on subscription tier
+ * AI Service for Naturinex - DEMO/TEST ONLY
+ *
+ * ============================================================================
+ * WARNING: This service returns MOCK DATA and is for testing/development only.
+ * DO NOT use this service in production code!
+ * ============================================================================
+ *
+ * For production, use:
+ * - aiServiceSecure.js - Calls Supabase Edge Functions (RECOMMENDED)
+ * - Direct API calls to backend /api/analyze endpoints
+ *
+ * This mock service is useful for:
+ * - Unit tests that need predictable responses
+ * - UI development without API calls
+ * - Offline development
  */
 
 import { APP_CONFIG } from '../constants/appConfig';
 import { PRICING_TIERS } from '../config/pricing';
+
+// Flag to identify this as a demo service
+export const IS_DEMO_SERVICE = true;
 
 class AIService {
   constructor() {

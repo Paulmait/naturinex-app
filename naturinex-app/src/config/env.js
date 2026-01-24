@@ -180,28 +180,104 @@ export const ENABLE_BIOMETRIC = getEnvVar('EXPO_PUBLIC_ENABLE_BIOMETRIC', 'REACT
 // VALIDATION
 // ============================================================================
 
-export const validateConfig = () => {
+/**
+ * Validates client-side configuration (runs in mobile/web apps)
+ * AI keys are NOT required on client since all AI processing goes through backend API
+ */
+export const validateClientConfig = () => {
   const errors = [];
+  const warnings = [];
 
-  // Client-side required
+  // Critical - app cannot function without these
   if (!SUPABASE_URL) errors.push('SUPABASE_URL is required');
   if (!SUPABASE_ANON_KEY) errors.push('SUPABASE_ANON_KEY is required');
-  if (!STRIPE_PUBLISHABLE_KEY) errors.push('STRIPE_PUBLISHABLE_KEY is required');
+  if (!API_URL) errors.push('API_URL is required for backend communication');
+
+  // Important - features will be degraded without these
+  if (!FIREBASE_API_KEY) warnings.push('FIREBASE_API_KEY is not set - authentication may not work');
+  if (!STRIPE_PUBLISHABLE_KEY) warnings.push('STRIPE_PUBLISHABLE_KEY is not set - payments will not work');
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    warnings,
+  };
+};
+
+/**
+ * Validates server-side configuration (runs on backend/edge functions)
+ */
+export const validateServerConfig = () => {
+  const errors = [];
+
+  // Server-side required
+  if (!JWT_SECRET) errors.push('JWT_SECRET is required');
+  if (!SESSION_SECRET) errors.push('SESSION_SECRET is required');
+  if (!ENCRYPTION_KEY) errors.push('ENCRYPTION_KEY is required');
+  if (!STRIPE_SECRET_KEY) errors.push('STRIPE_SECRET_KEY is required');
   if (!GEMINI_API_KEY) errors.push('GEMINI_API_KEY is required for AI features');
   if (!GOOGLE_VISION_API_KEY) errors.push('GOOGLE_VISION_API_KEY is required for OCR');
-
-  // Server-side required (only check if running on server)
-  if (isServer) {
-    if (!JWT_SECRET) errors.push('JWT_SECRET is required (server-side)');
-    if (!SESSION_SECRET) errors.push('SESSION_SECRET is required (server-side)');
-    if (!ENCRYPTION_KEY) errors.push('ENCRYPTION_KEY is required (server-side)');
-    if (!STRIPE_SECRET_KEY) errors.push('STRIPE_SECRET_KEY is required (server-side)');
-  }
 
   return {
     isValid: errors.length === 0,
     errors,
   };
+};
+
+/**
+ * Full configuration validation (backwards compatible)
+ */
+export const validateConfig = () => {
+  const clientValidation = validateClientConfig();
+
+  if (isServer) {
+    const serverValidation = validateServerConfig();
+    return {
+      isValid: clientValidation.isValid && serverValidation.isValid,
+      errors: [...clientValidation.errors, ...serverValidation.errors],
+      warnings: clientValidation.warnings || [],
+    };
+  }
+
+  return clientValidation;
+};
+
+// Configuration validation state - used by AppLaunchGate
+let configValidationResult = null;
+let configValidationPerformed = false;
+
+/**
+ * Performs startup validation and caches the result
+ * Call this early in app initialization
+ */
+export const performStartupValidation = () => {
+  if (configValidationPerformed) {
+    return configValidationResult;
+  }
+
+  configValidationResult = validateConfig();
+  configValidationPerformed = true;
+
+  return configValidationResult;
+};
+
+/**
+ * Gets the cached validation result
+ */
+export const getValidationResult = () => {
+  if (!configValidationPerformed) {
+    return performStartupValidation();
+  }
+  return configValidationResult;
+};
+
+/**
+ * Checks if the app is properly configured to run
+ * Returns true if all critical config is present
+ */
+export const isAppConfigured = () => {
+  const result = getValidationResult();
+  return result.isValid;
 };
 
 // ============================================================================
@@ -275,22 +351,38 @@ export const ENV_CONFIG = {
   },
 };
 
-// Log configuration status (only in development, never log secrets)
+// Run startup validation immediately when this module loads
+const startupValidation = performStartupValidation();
+
+// Log configuration status in development (never log secrets)
 if (IS_DEVELOPMENT && !isServer) {
   console.log('🔧 Environment Configuration Loaded:', {
     supabaseUrl: SUPABASE_URL,
     supabaseAnonKeyConfigured: !!SUPABASE_ANON_KEY,
     firebaseConfigured: !!FIREBASE_API_KEY,
-    geminiConfigured: !!GEMINI_API_KEY,
-    visionConfigured: !!GOOGLE_VISION_API_KEY,
     stripeConfigured: !!STRIPE_PUBLISHABLE_KEY,
+    apiUrl: API_URL,
     environment: EXPO_ENV,
   });
+}
 
-  const validation = validateConfig();
-  if (!validation.isValid) {
-    console.warn('⚠️ Configuration Errors:', validation.errors);
+// Always log validation errors (in development) or fail fast (in production server)
+if (!startupValidation.isValid) {
+  if (IS_DEVELOPMENT) {
+    console.error('❌ CRITICAL: Missing required environment configuration:');
+    startupValidation.errors.forEach(err => console.error(`   - ${err}`));
+    console.error('The app may not function correctly. Please set all required environment variables.');
+  } else if (isServer) {
+    // On server in production, fail fast
+    throw new Error(`Missing required configuration: ${startupValidation.errors.join(', ')}`);
   }
+  // On client in production, AppLaunchGate will handle showing error UI
+}
+
+// Log warnings in development
+if (IS_DEVELOPMENT && startupValidation.warnings?.length > 0) {
+  console.warn('⚠️ Configuration Warnings:');
+  startupValidation.warnings.forEach(warn => console.warn(`   - ${warn}`));
 }
 
 export default ENV_CONFIG;

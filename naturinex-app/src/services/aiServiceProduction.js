@@ -1,5 +1,21 @@
-// Production AI Service - Real Gemini Integration
-// Handles medication analysis with proper safety guardrails
+/**
+ * Production AI Service - Direct Gemini Integration
+ *
+ * ============================================================================
+ * DEPRECATED: This service is DEPRECATED for client-side use.
+ *
+ * SECURITY WARNING: This service requires the Gemini API key to be available
+ * on the client, which exposes it in the app bundle. This is a security risk!
+ *
+ * For production, use instead:
+ * - aiServiceSecure.js - Calls Supabase Edge Functions (API key stays server-side)
+ * - Direct API calls to backend /api/analyze endpoints
+ * ============================================================================
+ *
+ * This service may still be useful for:
+ * - Server-side Node.js scripts
+ * - Backend services where the API key is properly secured
+ */
 
 import { APP_CONFIG } from '../constants/appConfig';
 import ErrorService from './ErrorService';
