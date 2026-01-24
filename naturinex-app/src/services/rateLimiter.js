@@ -10,27 +10,32 @@ const RATE_LIMITS = {
     scansPerDay: 3,
     scansPerMonth: 3,
     windowMs: 24 * 60 * 60 * 1000, // 24 hours
+    maxDevices: 1,
   },
   free: {
     scansPerMonth: 3,
     scansPerDay: 3,
     apiRequestsPerMinute: 10,
+    maxDevices: 1,
   },
   premium: {
-    scansPerMonth: -1, // unlimited
-    scansPerDay: -1, // unlimited
-    apiRequestsPerMinute: 100,
+    scansPerMonth: 25,
+    scansPerDay: 10,
+    apiRequestsPerMinute: 60,
+    maxDevices: 3, // Allow up to 3 devices (phone, tablet, web)
   },
   // Backward compatibility aliases
   plus: {
-    scansPerMonth: -1,
-    scansPerDay: -1,
-    apiRequestsPerMinute: 100,
+    scansPerMonth: 25,
+    scansPerDay: 10,
+    apiRequestsPerMinute: 60,
+    maxDevices: 3,
   },
   pro: {
-    scansPerMonth: -1,
-    scansPerDay: -1,
-    apiRequestsPerMinute: 100,
+    scansPerMonth: 25,
+    scansPerDay: 10,
+    apiRequestsPerMinute: 60,
+    maxDevices: 3,
   },
 };
 

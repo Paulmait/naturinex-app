@@ -19,6 +19,7 @@ import engagementTracker from '../services/engagementTracking';
 import { notificationManager } from '../components/NotificationBanner';
 import reviewPrompt from '../utils/reviewPrompt';
 import { exportToPdf } from '../services/PdfExportService';
+import { useScreenshotProtection } from '../services/ScreenshotProtectionService';
 
 const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-zsga.onrender.com';
 
@@ -31,6 +32,10 @@ export default function AnalysisScreen({ route, navigation }) {
   const [showDisclaimer, setShowDisclaimer] = useState(false);
   const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [subscriptionTier, setSubscriptionTier] = useState('free');
+
+  // Screenshot protection for free users
+  const { isProtected } = useScreenshotProtection(subscriptionTier, navigation);
 
   useEffect(() => {
     checkUserStatus();
@@ -52,8 +57,10 @@ export default function AnalysisScreen({ route, navigation }) {
   const checkUserStatus = async () => {
     const guestStatus = await SecureStore.getItemAsync('is_guest') || 'false';
     const premiumStatus = await SecureStore.getItemAsync('is_premium') || 'false';
+    const tier = await SecureStore.getItemAsync('subscription_tier') || 'free';
     setIsGuest(guestStatus === 'true');
     setIsPremium(premiumStatus === 'true');
+    setSubscriptionTier(premiumStatus === 'true' ? 'premium' : tier);
   };
 
   const analyzeMedicationByName = async (medicationName) => {
@@ -201,11 +208,15 @@ export default function AnalysisScreen({ route, navigation }) {
   const handleShare = async () => {
     if (isGuest || !isPremium) {
       Alert.alert(
-        'Premium Feature',
-        'Share your wellness discoveries with friends and family!\n\nUpgrade to Premium to:\n- Share analysis results\n- Download PDF reports\n- Access full history\n- Unlimited scans',
+        'Unlock Sharing',
+        'Share your wellness discoveries with friends and family!\n\nPremium members get:\n\n• Share analysis results instantly\n• Export professional PDF reports\n• Save unlimited scan history\n• Use on up to 3 devices\n• Take screenshots freely\n\nStart your 7-day free trial today!',
         [
-          { text: 'Maybe Later', style: 'cancel' },
-          { text: 'Upgrade Now', onPress: () => navigation.navigate('Subscription') }
+          { text: 'Not Now', style: 'cancel' },
+          {
+            text: 'Start Free Trial',
+            style: 'default',
+            onPress: () => navigation.navigate('Subscription')
+          }
         ]
       );
       return;
@@ -228,11 +239,15 @@ export default function AnalysisScreen({ route, navigation }) {
   const handleDownload = async () => {
     if (isGuest || !isPremium) {
       Alert.alert(
-        'Premium Feature',
-        'Download professional PDF reports!\n\nUpgrade to Premium to:\n- Download PDF reports\n- Export wellness history\n- Build your wellness library\n- Access offline',
+        'Export PDF Reports',
+        'Create professional wellness reports to share with your healthcare provider!\n\nPremium includes:\n\n• Beautiful PDF reports\n• Research citations included\n• Dosage recommendations\n• Drug interaction warnings\n• Export entire scan history\n\nOnly $9.99/month - Cancel anytime!',
         [
-          { text: 'Maybe Later', style: 'cancel' },
-          { text: 'Upgrade Now', onPress: () => navigation.navigate('Subscription') }
+          { text: 'Not Now', style: 'cancel' },
+          {
+            text: 'Upgrade to Premium',
+            style: 'default',
+            onPress: () => navigation.navigate('Subscription')
+          }
         ]
       );
       return;

@@ -8,10 +8,16 @@
 - Basic analysis without dosage recommendations
 - No scan history saved
 - No PDF export
+- Single device only
+- Screenshots blocked (upgrade CTA shown)
+- Sharing blocked (upgrade CTA shown)
 
 ### Premium ($9.99/month or $99.99/year)
-- **Unlimited scans**
-- Full scan history with cloud sync
+- **25 scans per month** (10 per day max)
+- Full scan history (1 year retention)
+- Use on up to **3 devices**
+- Screenshots allowed
+- Sharing allowed
 - **Advanced AI analysis** with:
   - 5+ natural alternatives per scan
   - Detailed dosage recommendations
@@ -127,3 +133,28 @@ CREATE TABLE profiles (
 - `src/screens/AnalysisScreen.js` - PDF export integration
 - `src/web/pages/WebHistory.js` - Web history UI
 - `src/web/pages/WebSubscription.js` - Unified pricing display
+- `src/services/AccountSecurityService.js` - Device/IP tracking
+- `src/services/ScreenshotProtectionService.js` - Screenshot blocking
+
+## Security Features
+
+### Device Tracking
+- Each user limited to max devices per tier (Free: 1, Premium: 3)
+- Device fingerprinting via `deviceFingerprintService.js`
+- IP address logged with each scan
+- Suspicious activity detection (multiple IPs in 24h)
+
+### Account Sharing Prevention
+- Device registration required
+- Automatic device limit enforcement
+- Security events logged for audit
+- Users can manage devices in profile
+
+### Screenshot Protection (Free Tier)
+- Screenshots blocked on analysis screens
+- Upgrade CTA shown on screenshot attempt
+- Premium users can screenshot freely
+
+### Database Tables
+- `user_devices` - Registered devices per user
+- `security_events` - Audit trail for security events
