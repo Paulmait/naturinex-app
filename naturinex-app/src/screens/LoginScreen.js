@@ -28,6 +28,7 @@ import * as Crypto from 'expo-crypto';
 import Constants from 'expo-constants';
 import TwoFactorVerificationModal from '../components/TwoFactorVerificationModal';
 import TwoFactorAuthService from '../services/TwoFactorAuthService';
+import accountSecurityService from '../services/AccountSecurityService';
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState('');
@@ -242,6 +243,29 @@ export default function LoginScreen({ navigation }) {
       await SecureStore.setItemAsync('user_id', user.uid);
       await SecureStore.setItemAsync('user_email', user.email || 'apple-private-email');
       await SecureStore.setItemAsync('is_guest', 'false');
+
+      // Register device for account security tracking
+      // Get user's subscription tier (default to 'free' for new users)
+      const subscriptionTier = await SecureStore.getItemAsync('subscription_tier') || 'free';
+      const deviceResult = await accountSecurityService.registerDevice(user.uid, subscriptionTier);
+
+      if (!deviceResult.allowed) {
+        // Device limit reached - show alert with options
+        Alert.alert(
+          'Device Limit Reached',
+          deviceResult.message + '\n\nYou can manage your devices in your profile settings.',
+          [
+            { text: 'Manage Devices', onPress: () => navigation.replace('Profile') },
+            { text: 'OK', style: 'cancel' }
+          ]
+        );
+        setLoading(false);
+        return;
+      }
+
+      if (deviceResult.isNewDevice) {
+        console.log('New device registered successfully');
+      }
 
       const onboardingCompleted = await SecureStore.getItemAsync('onboarding_completed');
       if (onboardingCompleted !== 'true') {

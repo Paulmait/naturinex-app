@@ -17,6 +17,7 @@ import * as SecureStore from 'expo-secure-store';
 import { getAuth, signOut, deleteUser, reauthenticateWithCredential, EmailAuthProvider } from 'firebase/auth';
 import { getFirestore, doc, getDoc, deleteDoc, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
 import Constants from 'expo-constants';
+import accountSecurityService from '../services/AccountSecurityService';
 
 const API_URL = Constants.expoConfig?.extra?.apiUrl || 'https://hxhbsxzkzarqwksbjpce.supabase.co/functions/v1';
 const DELETION_URL = 'https://naturinex.com/delete-account';
@@ -33,11 +34,14 @@ export default function ProfileScreen({ navigation }) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [password, setPassword] = useState('');
   const [showPasswordField, setShowPasswordField] = useState(false);
+  const [devices, setDevices] = useState([]);
+  const [devicesLoading, setDevicesLoading] = useState(false);
 
   const auth = getAuth();
 
   useEffect(() => {
     loadUserData();
+    loadDevices();
   }, []);
 
   const loadUserData = async () => {
@@ -67,6 +71,47 @@ export default function ProfileScreen({ navigation }) {
     } catch (error) {
       console.error('Error loading user data:', error);
     }
+  };
+
+  const loadDevices = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    setDevicesLoading(true);
+    try {
+      const userDevices = await accountSecurityService.getUserDevices(user.uid);
+      setDevices(userDevices);
+    } catch (error) {
+      console.error('Error loading devices:', error);
+    } finally {
+      setDevicesLoading(false);
+    }
+  };
+
+  const handleRemoveDevice = (device) => {
+    Alert.alert(
+      'Remove Device',
+      `Are you sure you want to remove "${device.device_name || 'Unknown Device'}"?\n\nThis device will need to re-authenticate to access your account.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            const user = auth.currentUser;
+            if (!user) return;
+
+            const success = await accountSecurityService.removeDevice(user.uid, device.device_id);
+            if (success) {
+              Alert.alert('Success', 'Device removed successfully.');
+              loadDevices(); // Refresh the list
+            } else {
+              Alert.alert('Error', 'Failed to remove device. Please try again.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleLogout = async () => {
@@ -387,6 +432,47 @@ export default function ProfileScreen({ navigation }) {
             <Text style={styles.actionText}>Clear Scan History</Text>
             <MaterialIcons name="chevron-right" size={24} color="#6B7280" />
           </TouchableOpacity>
+        </View>
+
+        {/* Devices */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Registered Devices</Text>
+          {devicesLoading ? (
+            <ActivityIndicator size="small" color="#10B981" style={{ padding: 20 }} />
+          ) : devices.length === 0 ? (
+            <Text style={styles.noDevicesText}>No devices registered yet</Text>
+          ) : (
+            devices.map((device, index) => (
+              <View key={device.id || index} style={styles.deviceItem}>
+                <View style={styles.deviceInfo}>
+                  <MaterialIcons
+                    name={
+                      device.device_type === 'ios' ? 'phone-iphone' :
+                      device.device_type === 'android' ? 'phone-android' :
+                      'computer'
+                    }
+                    size={24}
+                    color="#10B981"
+                  />
+                  <View style={styles.deviceDetails}>
+                    <Text style={styles.deviceName}>{device.device_name || 'Unknown Device'}</Text>
+                    <Text style={styles.deviceMeta}>
+                      Last active: {new Date(device.last_seen_at).toLocaleDateString()}
+                    </Text>
+                  </View>
+                </View>
+                <TouchableOpacity
+                  onPress={() => handleRemoveDevice(device)}
+                  style={styles.removeDeviceButton}
+                >
+                  <MaterialIcons name="remove-circle" size={24} color="#EF4444" />
+                </TouchableOpacity>
+              </View>
+            ))
+          )}
+          <Text style={styles.deviceLimitText}>
+            Device limit: {devices.length}/{isPremium ? '3' : '1'}
+          </Text>
         </View>
 
         {/* Legal */}
@@ -792,5 +878,48 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#6B7280',
     textDecorationLine: 'underline',
+  },
+  // Device management styles
+  deviceItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E7EB',
+  },
+  deviceInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  deviceDetails: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  deviceName: {
+    fontSize: 16,
+    color: '#1F2937',
+    fontWeight: '500',
+  },
+  deviceMeta: {
+    fontSize: 12,
+    color: '#6B7280',
+    marginTop: 2,
+  },
+  removeDeviceButton: {
+    padding: 8,
+  },
+  noDevicesText: {
+    fontSize: 14,
+    color: '#6B7280',
+    textAlign: 'center',
+    padding: 20,
+  },
+  deviceLimitText: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    textAlign: 'center',
+    marginTop: 10,
   },
 });
