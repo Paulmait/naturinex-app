@@ -43,6 +43,7 @@ function WebSubscription() {
 
   useEffect(() => {
     loadUserData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   const loadUserData = async () => {
@@ -109,54 +110,16 @@ function WebSubscription() {
   }
 
   const currentTier = userData?.subscriptionType?.toUpperCase() || 'FREE';
-  const isPremium = currentTier === 'PLUS' || currentTier === 'PRO';
+  const isPremium = currentTier === 'PREMIUM' || currentTier === 'PLUS' || currentTier === 'PRO';
 
   return (
-    <Container maxWidth="lg" sx={{ py: 4 }}>
-      <Typography variant="h4" fontWeight="bold" gutterBottom>
-        Subscription & Billing
+    <Container maxWidth="md" sx={{ py: 4 }}>
+      <Typography variant="h4" fontWeight="bold" gutterBottom align="center">
+        Choose Your Plan
       </Typography>
-
-      {/* Current Plan */}
-      <Card sx={{ mb: 4 }}>
-        <CardContent>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-            <Typography variant="h6">
-              Current Plan
-            </Typography>
-            <Chip
-              label={currentTier}
-              color={isPremium ? 'success' : 'default'}
-              icon={isPremium ? <Star /> : undefined}
-            />
-          </Box>
-          {isPremium ? (
-            <Box>
-              <Typography variant="body1" gutterBottom>
-                You&apos;re enjoying all {PRICING_TIERS[currentTier].name} features!
-              </Typography>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Next billing date: {new Date(userData.subscriptionStartDate).toLocaleDateString()}
-              </Typography>
-              <Button
-                variant="outlined"
-                color="error"
-                size="small"
-                sx={{ mt: 2 }}
-                onClick={() => setCancelDialogOpen(true)}
-              >
-                Cancel Subscription
-              </Button>
-            </Box>
-          ) : (
-            <Box>
-              <Typography variant="body1" gutterBottom>
-                Upgrade to unlock premium features
-              </Typography>
-            </Box>
-          )}
-        </CardContent>
-      </Card>
+      <Typography variant="body1" color="text.secondary" align="center" sx={{ mb: 4 }}>
+        Unlock the full Naturinex experience
+      </Typography>
 
       {/* Billing Cycle Toggle */}
       <Box sx={{ display: 'flex', justifyContent: 'center', mb: 4 }}>
@@ -181,10 +144,10 @@ function WebSubscription() {
         </ToggleButtonGroup>
       </Box>
 
-      {/* Plan Comparison */}
-      <Grid container spacing={3}>
+      {/* Plan Comparison - 2 columns */}
+      <Grid container spacing={3} justifyContent="center">
         {/* Free Plan */}
-        <Grid item xs={12} md={4}>
+        <Grid item xs={12} sm={6}>
           <Card sx={{ height: '100%' }}>
             <CardContent>
               <Typography variant="h5" fontWeight="bold" gutterBottom>
@@ -223,8 +186,8 @@ function WebSubscription() {
           </Card>
         </Grid>
 
-        {/* Plus Plan */}
-        <Grid item xs={12} md={4}>
+        {/* Premium Plan */}
+        <Grid item xs={12} sm={6}>
           <Card
             sx={{
               height: '100%',
@@ -251,24 +214,24 @@ function WebSubscription() {
             </Box>
             <CardContent>
               <Typography variant="h5" fontWeight="bold" gutterBottom>
-                {PRICING_TIERS.PLUS.name}
+                {PRICING_TIERS.PREMIUM.name}
               </Typography>
               <Typography variant="h3" fontWeight="bold" color="primary">
-                ${billingCycle === 'monthly' ? '6.99' : '69.99'}
+                ${billingCycle === 'monthly' ? '9.99' : '99.99'}
                 <Typography component="span" variant="h6" color="text.secondary">
                   /{billingCycle === 'monthly' ? 'month' : 'year'}
                 </Typography>
               </Typography>
               {billingCycle === 'yearly' && (
                 <Typography variant="caption" color="success.main" sx={{ display: 'block', mt: 0.5 }}>
-                  Save $13.89/year
+                  Save $19.89/year (2 months free!)
                 </Typography>
               )}
               <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 3 }}>
-                {PRICING_TIERS.PLUS.description}
+                {PRICING_TIERS.PREMIUM.description}
               </Typography>
               <List sx={{ mt: 3 }}>
-                {PRICING_TIERS.PLUS.benefits.map((feature, index) => (
+                {PRICING_TIERS.PREMIUM.benefits.map((feature, index) => (
                   <ListItem key={index} disablePadding sx={{ mb: 1 }}>
                     <ListItemIcon sx={{ minWidth: 36 }}>
                       <CheckCircle color="primary" />
@@ -277,7 +240,7 @@ function WebSubscription() {
                   </ListItem>
                 ))}
               </List>
-              {currentTier === 'PLUS' ? (
+              {isPremium ? (
                 <Button
                   fullWidth
                   variant="contained"
@@ -291,71 +254,50 @@ function WebSubscription() {
                   fullWidth
                   variant="contained"
                   sx={{ mt: 3 }}
-                  onClick={() => handleUpgrade('PLUS')}
+                  onClick={() => handleUpgrade('PREMIUM')}
                 >
-                  Upgrade to Plus
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Pro Plan */}
-        <Grid item xs={12} md={4}>
-          <Card sx={{ height: '100%' }}>
-            <CardContent>
-              <Typography variant="h5" fontWeight="bold" gutterBottom>
-                {PRICING_TIERS.PRO.name}
-              </Typography>
-              <Typography variant="h3" fontWeight="bold" color="secondary">
-                ${billingCycle === 'monthly' ? '12.99' : '129.99'}
-                <Typography component="span" variant="h6" color="text.secondary">
-                  /{billingCycle === 'monthly' ? 'month' : 'year'}
-                </Typography>
-              </Typography>
-              {billingCycle === 'yearly' && (
-                <Typography variant="caption" color="success.main" sx={{ display: 'block', mt: 0.5 }}>
-                  Save $26.89/year
-                </Typography>
-              )}
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 1, mb: 3 }}>
-                {PRICING_TIERS.PRO.description}
-              </Typography>
-              <List sx={{ mt: 3 }}>
-                {PRICING_TIERS.PRO.benefits.map((feature, index) => (
-                  <ListItem key={index} disablePadding sx={{ mb: 1 }}>
-                    <ListItemIcon sx={{ minWidth: 36 }}>
-                      <CheckCircle color="secondary" />
-                    </ListItemIcon>
-                    <ListItemText primary={feature} />
-                  </ListItem>
-                ))}
-              </List>
-              {currentTier === 'PRO' ? (
-                <Button
-                  fullWidth
-                  variant="contained"
-                  color="secondary"
-                  disabled
-                  sx={{ mt: 3 }}
-                >
-                  Current Plan
-                </Button>
-              ) : (
-                <Button
-                  fullWidth
-                  variant="contained"
-                  color="secondary"
-                  sx={{ mt: 3 }}
-                  onClick={() => handleUpgrade('PRO')}
-                >
-                  Upgrade to Pro
+                  {PRICING_TIERS.PREMIUM.trialDays ? `Start ${PRICING_TIERS.PREMIUM.trialDays}-Day Free Trial` : 'Upgrade to Premium'}
                 </Button>
               )}
             </CardContent>
           </Card>
         </Grid>
       </Grid>
+
+      {/* Current Plan Status */}
+      {isPremium && (
+        <Card sx={{ mt: 4 }}>
+          <CardContent>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+              <Typography variant="h6">
+                Current Plan
+              </Typography>
+              <Chip
+                label="PREMIUM"
+                color="success"
+                icon={<Star />}
+              />
+            </Box>
+            <Typography variant="body1" gutterBottom>
+              You&apos;re enjoying all Premium features!
+            </Typography>
+            {userData?.subscriptionStartDate && (
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                Next billing date: {new Date(userData.subscriptionStartDate).toLocaleDateString()}
+              </Typography>
+            )}
+            <Button
+              variant="outlined"
+              color="error"
+              size="small"
+              sx={{ mt: 2 }}
+              onClick={() => setCancelDialogOpen(true)}
+            >
+              Cancel Subscription
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Special Offers */}
       {!isPremium && (
@@ -364,10 +306,10 @@ function WebSubscription() {
             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
               <Box sx={{ color: 'white' }}>
                 <Typography variant="h6" fontWeight="bold">
-                  Limited Time Offer!
+                  7-Day Free Trial
                 </Typography>
                 <Typography variant="body2">
-                  Get 20% off your first month with code WELLNESS20
+                  Try Premium free for 7 days. Cancel anytime.
                 </Typography>
               </Box>
               <Button
@@ -379,9 +321,9 @@ function WebSubscription() {
                     bgcolor: 'grey.100',
                   },
                 }}
-                onClick={() => handleUpgrade('PLUS')}
+                onClick={() => handleUpgrade('PREMIUM')}
               >
-                Claim Offer
+                Start Free Trial
               </Button>
             </Box>
           </CardContent>
@@ -393,7 +335,7 @@ function WebSubscription() {
         <DialogTitle>Cancel Subscription</DialogTitle>
         <DialogContent>
           <Typography>
-            Are you sure you want to cancel your {PRICING_TIERS[currentTier]?.name} subscription?
+            Are you sure you want to cancel your Premium subscription?
             You&apos;ll lose access to:
           </Typography>
           <List>
@@ -401,13 +343,13 @@ function WebSubscription() {
               <ListItemIcon>
                 <Cancel color="error" />
               </ListItemIcon>
-              <ListItemText primary={currentTier === 'PRO' ? 'Unlimited scans' : '100 scans per month'} />
+              <ListItemText primary="Unlimited scans" />
             </ListItem>
             <ListItem>
               <ListItemIcon>
                 <Cancel color="error" />
               </ListItemIcon>
-              <ListItemText primary="Advanced wellness insights" />
+              <ListItemText primary="Advanced AI analysis" />
             </ListItem>
             <ListItem>
               <ListItemIcon>
@@ -415,22 +357,12 @@ function WebSubscription() {
               </ListItemIcon>
               <ListItemText primary="Export capabilities" />
             </ListItem>
-            {currentTier === 'PRO' && (
-              <>
-                <ListItem>
-                  <ListItemIcon>
-                    <Cancel color="error" />
-                  </ListItemIcon>
-                  <ListItemText primary="Family sharing (5 accounts)" />
-                </ListItem>
-                <ListItem>
-                  <ListItemIcon>
-                    <Cancel color="error" />
-                  </ListItemIcon>
-                  <ListItemText primary="2 consultations per month" />
-                </ListItem>
-              </>
-            )}
+            <ListItem>
+              <ListItemIcon>
+                <Cancel color="error" />
+              </ListItemIcon>
+              <ListItemText primary="Priority support" />
+            </ListItem>
           </List>
         </DialogContent>
         <DialogActions>
