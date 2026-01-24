@@ -1,0 +1,25 @@
+# Flow: Scan Camera Screenshot
+# Captures the camera scanning interface
+
+appId: com.naturinex.wellness
+
+---
+
+# Run setup first
+- runFlow: 00_setup_demo_login.yaml
+
+# Navigate to camera screen
+- tapOn: "Scan Product"
+
+# Wait for camera to initialize
+- waitForAnimationToEnd:
+    timeout: 5000
+
+# In demo mode, should show simulated camera view
+- assertVisible:
+    text: ".*Scan.*"
+    optional: true
+
+# Take screenshot
+- takeScreenshot:
+    path: ./artifacts/app-store/iphone-67/02_scan_camera.png

@@ -1,0 +1,33 @@
+# Flow: Settings/Privacy/Delete Account Screenshot
+# Captures the account deletion feature for Apple compliance
+
+appId: com.naturinex.wellness
+
+---
+
+# Run setup first
+- runFlow: 00_setup_demo_login.yaml
+
+# Navigate to Profile
+- tapOn: "Profile"
+
+# Wait for profile to load
+- waitForAnimationToEnd:
+    timeout: 2000
+
+# Scroll to bottom to show delete account option
+- scroll:
+    direction: DOWN
+
+# Wait for scroll to complete
+- waitForAnimationToEnd:
+    timeout: 1000
+
+# Verify delete account option is visible
+- assertVisible:
+    text: ".*Delete.*Account.*"
+    optional: true
+
+# Take screenshot showing delete account option
+- takeScreenshot:
+    path: ./artifacts/app-store/iphone-67/06_settings_delete_account.png

@@ -1,0 +1,20 @@
+# Maestro Configuration for Naturinex App Store Screenshots
+# https://maestro.mobile.dev/
+
+appId: com.naturinex.wellness
+name: Naturinex Screenshot Automation
+
+# Environment variables for screenshot mode
+env:
+  EXPO_PUBLIC_SCREENSHOT_MODE: "1"
+  EXPO_PUBLIC_REVIEW_MODE: "1"
+
+# Default settings
+tags:
+  - screenshots
+  - app-store
+
+# Screenshot output configuration
+onFlowComplete:
+  - copyArtifacts:
+      destination: ./artifacts/app-store/

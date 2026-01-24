@@ -1,0 +1,15 @@
+# Master Flow: Run All Screenshots
+# Executes all screenshot flows in sequence
+
+appId: com.naturinex.wellness
+
+---
+
+# Run all screenshot flows
+- runFlow: flows/01_home_dashboard.yaml
+- runFlow: flows/02_scan_camera.yaml
+- runFlow: flows/03_analysis_results.yaml
+- runFlow: flows/04_scan_history.yaml
+- runFlow: flows/05_subscription_paywall.yaml
+- runFlow: flows/06_settings_privacy_delete.yaml
+- runFlow: flows/07_iap_confirmation.yaml

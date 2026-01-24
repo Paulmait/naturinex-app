@@ -1,1 +1,596 @@
-import React, { useState } from 'react';import {  View,  Text,  TextInput,  TouchableOpacity,  StyleSheet,  Alert,  KeyboardAvoidingView,  Platform,  ScrollView,  Image,} from 'react-native';import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword, signInAnonymously, GoogleAuthProvider, signInWithCredential, sendPasswordResetEmail } from 'firebase/auth';import * as Google from 'expo-auth-session/providers/google';import * as SecureStore from 'expo-secure-store';import Constants from 'expo-constants';import TwoFactorVerificationModal from '../components/TwoFactorVerificationModal';import TwoFactorAuthService from '../services/TwoFactorAuthService';export default function LoginScreen({ navigation }) {  const [email, setEmail] = useState('');  const [password, setPassword] = useState('');  const [loading, setLoading] = useState(false);  const [isSignUp, setIsSignUp] = useState(false);  const [show2FAModal, setShow2FAModal] = useState(false);  const [pendingUser, setPendingUser] = useState(null);  const auth = getAuth();  const [request, response, promptAsync] = Google.useAuthRequest({    expoClientId: Constants.expoConfig?.extra?.googleExpoClientId,    iosClientId: Constants.expoConfig?.extra?.googleIosClientId,    androidClientId: Constants.expoConfig?.extra?.googleAndroidClientId,  });  React.useEffect(() => {    if (response?.type === 'success') {      const { id_token } = response.params;      const credential = GoogleAuthProvider.credential(id_token);      signInWithCredential(auth, credential)        .then(async (result) => {          await checkTwoFactorAuth(result.user);        })        .catch((error) => {          console.error('Google sign-in error:', error);          Alert.alert('Error', 'Google sign-in failed. Please try again.');        });    }  }, [response]);  const checkTwoFactorAuth = async (user) => {    try {      const userSettings = await TwoFactorAuthService.getUserSettings(user.uid);      // Check if user has any 2FA methods enabled      const has2FA = userSettings.phone_2fa_enabled ||                     userSettings.totp_enabled ||                     userSettings.biometric_enabled;      if (has2FA) {        setPendingUser(user);        setShow2FAModal(true);      } else {        await handleAuthSuccess(user);      }    } catch (error) {      console.error('2FA check error:', error);      // If 2FA check fails, proceed with normal login      await handleAuthSuccess(user);    }  };  const handle2FASuccess = async () => {    setShow2FAModal(false);    if (pendingUser) {      await handleAuthSuccess(pendingUser);      setPendingUser(null);    }  };  const handle2FACancel = () => {    setShow2FAModal(false);    setPendingUser(null);    setLoading(false);  };  const handleEmailAuth = async () => {    if (!email || !password) {      Alert.alert('Error', 'Please enter both email and password');      return;    }    setLoading(true);    try {      let result;      if (isSignUp) {        result = await createUserWithEmailAndPassword(auth, email, password);        Alert.alert('Success', 'Account created successfully!');      } else {        result = await signInWithEmailAndPassword(auth, email, password);      }      await checkTwoFactorAuth(result.user);    } catch (error) {      console.error('Auth error:', error);      if (error.code === 'auth/email-already-in-use') {        Alert.alert('Error', 'This email is already registered. Please sign in.');      } else if (error.code === 'auth/weak-password') {        Alert.alert('Error', 'Password should be at least 6 characters.');      } else if (error.code === 'auth/invalid-email') {        Alert.alert('Error', 'Please enter a valid email address.');      } else if (error.code === 'auth/user-not-found') {        Alert.alert('Error', 'No account found with this email. Please sign up.');      } else {        Alert.alert('Error', isSignUp ? 'Failed to create account.' : 'Invalid email or password.');      }    } finally {      setLoading(false);    }  };  const handleSkip = async () => {    setLoading(true);    try {      // Create a local guest session without Firebase auth      const guestId = `guest_${Date.now()}`;      await SecureStore.setItemAsync('is_guest', 'true');      await SecureStore.setItemAsync('free_scans_remaining', '3');      await SecureStore.setItemAsync('user_id', guestId);      await SecureStore.setItemAsync('user_email', 'guest@naturinex.app');      await SecureStore.setItemAsync('auth_token', 'guest_token');      // Skip onboarding for guests      await SecureStore.setItemAsync('onboarding_completed', 'true');      navigation.replace('Home');    } catch (error) {      console.error('Guest login error:', error);      Alert.alert('Error', 'Failed to continue as guest. Please try again.');    } finally {      setLoading(false);    }  };  const handleAuthSuccess = async (user) => {    try {      // Store auth token      const token = await user.getIdToken();      await SecureStore.setItemAsync('auth_token', token);      await SecureStore.setItemAsync('user_id', user.uid);      await SecureStore.setItemAsync('user_email', user.email);      // Check if user needs onboarding      const onboardingCompleted = await SecureStore.getItemAsync('onboarding_completed');      if (onboardingCompleted !== 'true') {        navigation.replace('Onboarding');      } else {        navigation.replace('Home');      }    } catch (error) {      console.error('Auth success handling error:', error);      Alert.alert('Error', 'Failed to complete login. Please try again.');    }  };  const handleGoogleSignIn = () => {    promptAsync();  };  const handleForgotPassword = () => {    if (!email) {      Alert.alert('Email Required', 'Please enter your email address first.');      return;    }    Alert.alert(      'Reset Password',      `Send password reset instructions to ${email}?`,      [        { text: 'Cancel', style: 'cancel' },        {          text: 'Send',          onPress: async () => {            try {              await sendPasswordResetEmail(auth, email);              Alert.alert(                'Email Sent! ✅',                'Check your email for password reset instructions. Please also check your spam folder.',                [{ text: 'OK' }]              );            } catch (error) {              console.error('Password reset error:', error);              if (error.code === 'auth/user-not-found') {                Alert.alert('Error', 'No account found with this email address.');              } else if (error.code === 'auth/invalid-email') {                Alert.alert('Error', 'Please enter a valid email address.');              } else {                Alert.alert('Error', 'Failed to send reset email. Please try again.');              }            }          },        },      ]    );  };  return (    <KeyboardAvoidingView      style={styles.container}      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}    >      <ScrollView         contentContainerStyle={styles.scrollContainer}        showsVerticalScrollIndicator={false}        keyboardShouldPersistTaps="handled"      >        <View style={styles.logoContainer}>          <Text style={styles.logo}>🌿</Text>          <Text style={styles.appName}>Naturinex</Text>          <Text style={styles.tagline}>Your Natural Wellness Guide</Text>        </View>        <View style={styles.formContainer}>          <TextInput            style={styles.input}            placeholder="Email"            value={email}            onChangeText={setEmail}            keyboardType="email-address"            autoCapitalize="none"            autoCorrect={false}          />          <TextInput            style={styles.input}            placeholder="Password"            value={password}            onChangeText={setPassword}            secureTextEntry            autoCapitalize="none"          />          <TouchableOpacity            style={[styles.button, styles.primaryButton]}            onPress={handleEmailAuth}            disabled={loading}          >            <Text style={styles.buttonText}>              {loading ? (isSignUp ? 'Creating Account...' : 'Signing In...') : (isSignUp ? 'Sign Up' : 'Sign In')}            </Text>          </TouchableOpacity>          <TouchableOpacity            style={styles.switchAuth}            onPress={() => setIsSignUp(!isSignUp)}          >            <Text style={styles.switchAuthText}>              {isSignUp ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}            </Text>          </TouchableOpacity>          <View style={styles.divider}>            <View style={styles.dividerLine} />            <Text style={styles.dividerText}>OR</Text>            <View style={styles.dividerLine} />          </View>          <TouchableOpacity            style={[styles.button, styles.googleButton]}            onPress={handleGoogleSignIn}            disabled={loading}          >            <Text style={styles.googleButtonText}>Continue with Google</Text>          </TouchableOpacity>          <TouchableOpacity            style={[styles.button, styles.skipButton]}            onPress={handleSkip}            disabled={loading}          >            <Text style={styles.skipButtonText}>Try Free (3 Scans) 🎁</Text>          </TouchableOpacity>          <TouchableOpacity            style={styles.forgotPassword}            onPress={() => handleForgotPassword()}          >            <Text style={styles.forgotPasswordText}>Forgot Password?</Text>          </TouchableOpacity>        </View>        <View style={styles.footer}>          <Text style={styles.footerText}>            By signing in, you agree to our{' '}            <Text style={styles.link} onPress={() => navigation.navigate('TermsOfUse')}>Terms of Service</Text> and{' '}            <Text style={styles.link} onPress={() => navigation.navigate('PrivacyPolicy')}>Privacy Policy</Text>          </Text>        </View>      </ScrollView>      <TwoFactorVerificationModal        visible={show2FAModal}        onClose={handle2FACancel}        onSuccess={handle2FASuccess}        userId={pendingUser?.uid}        operation="login"      />    </KeyboardAvoidingView>  );}const styles = StyleSheet.create({  container: {    flex: 1,    backgroundColor: '#10B981',  },  scrollContainer: {    flexGrow: 1,    justifyContent: 'center',    paddingHorizontal: 20,    paddingVertical: 40,  },  logoContainer: {    alignItems: 'center',    marginBottom: 30,    marginTop: 20,  },  logo: {    fontSize: 80,    marginBottom: 10,  },  appName: {    fontSize: 32,    fontWeight: 'bold',    color: 'white',    marginBottom: 5,  },  tagline: {    fontSize: 16,    color: 'rgba(255, 255, 255, 0.8)',  },  formContainer: {    backgroundColor: 'white',    borderRadius: 20,    padding: 25,    marginBottom: 20,    shadowColor: '#000',    shadowOffset: { width: 0, height: 2 },    shadowOpacity: 0.1,    shadowRadius: 8,    elevation: 5,  },  input: {    borderWidth: 1,    borderColor: '#E5E7EB',    borderRadius: 10,    padding: 15,    marginBottom: 15,    fontSize: 16,    backgroundColor: '#F9FAFB',  },  button: {    borderRadius: 10,    padding: 16,    alignItems: 'center',    marginBottom: 12,  },  primaryButton: {    backgroundColor: '#10B981',  },  googleButton: {    backgroundColor: '#4285F4',  },  skipButton: {    backgroundColor: '#6B7280',    marginTop: 5,    borderWidth: 2,    borderColor: '#4B5563',  },  buttonText: {    color: 'white',    fontSize: 16,    fontWeight: 'bold',  },  googleButtonText: {    color: 'white',    fontSize: 16,    fontWeight: 'bold',  },  skipButtonText: {    color: 'white',    fontSize: 16,    fontWeight: 'bold',  },  switchAuth: {    alignItems: 'center',    marginBottom: 15,  },  switchAuthText: {    color: '#10B981',    fontSize: 14,  },  divider: {    flexDirection: 'row',    alignItems: 'center',    marginVertical: 15,  },  dividerLine: {    flex: 1,    height: 1,    backgroundColor: '#E5E7EB',  },  dividerText: {    marginHorizontal: 15,    color: '#6B7280',    fontSize: 14,  },  forgotPassword: {    alignItems: 'center',    marginTop: 10,  },  forgotPasswordText: {    color: '#10B981',    fontSize: 14,  },  footer: {    alignItems: 'center',    marginTop: 10,    paddingBottom: 20,  },  footerText: {    color: 'rgba(255, 255, 255, 0.9)',    fontSize: 12,    textAlign: 'center',    lineHeight: 18,  },  link: {    color: 'white',    textDecorationLine: 'underline',  },}); 
+import React, { useState, useEffect } from 'react';
+import {
+  View,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  StyleSheet,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  Image,
+} from 'react-native';
+import {
+  getAuth,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInAnonymously,
+  GoogleAuthProvider,
+  OAuthProvider,
+  signInWithCredential,
+  sendPasswordResetEmail,
+} from 'firebase/auth';
+import * as Google from 'expo-auth-session/providers/google';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as SecureStore from 'expo-secure-store';
+import * as Crypto from 'expo-crypto';
+import Constants from 'expo-constants';
+import TwoFactorVerificationModal from '../components/TwoFactorVerificationModal';
+import TwoFactorAuthService from '../services/TwoFactorAuthService';
+
+export default function LoginScreen({ navigation }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [show2FAModal, setShow2FAModal] = useState(false);
+  const [pendingUser, setPendingUser] = useState(null);
+  const [appleAuthAvailable, setAppleAuthAvailable] = useState(false);
+
+  const auth = getAuth();
+
+  // Check if Google OAuth is properly configured
+  const googleClientId = Constants.expoConfig?.extra?.googleIosClientId ||
+                         Constants.expoConfig?.extra?.googleExpoClientId ||
+                         Constants.expoConfig?.extra?.googleAndroidClientId;
+  // On iOS, only show Google if Apple Sign In is unavailable or if Google is properly configured
+  const showGoogleSignIn = Platform.OS !== 'ios' || (googleClientId && !appleAuthAvailable);
+
+  const [request, response, promptAsync] = Google.useAuthRequest({
+    expoClientId: Constants.expoConfig?.extra?.googleExpoClientId,
+    iosClientId: Constants.expoConfig?.extra?.googleIosClientId,
+    androidClientId: Constants.expoConfig?.extra?.googleAndroidClientId,
+  });
+
+  // Check if Apple Sign In is available
+  useEffect(() => {
+    const checkAppleAuth = async () => {
+      if (Platform.OS === 'ios') {
+        const available = await AppleAuthentication.isAvailableAsync();
+        setAppleAuthAvailable(available);
+      }
+    };
+    checkAppleAuth();
+  }, []);
+
+  // Handle Google Sign In response
+  useEffect(() => {
+    if (response?.type === 'success') {
+      const { id_token } = response.params;
+      const credential = GoogleAuthProvider.credential(id_token);
+      signInWithCredential(auth, credential)
+        .then(async (result) => {
+          await checkTwoFactorAuth(result.user);
+        })
+        .catch((error) => {
+          console.error('Google sign-in error:', error);
+          let errorMessage = 'Google sign-in failed. Please try again.';
+          if (error.code === 'auth/account-exists-with-different-credential') {
+            errorMessage = 'An account already exists with this email using a different sign-in method.';
+          } else if (error.code === 'auth/popup-closed-by-user') {
+            errorMessage = 'Sign-in was cancelled. Please try again.';
+          } else if (error.code === 'auth/network-request-failed') {
+            errorMessage = 'Network error. Please check your connection and try again.';
+          }
+          Alert.alert('Sign In Error', errorMessage);
+        });
+    } else if (response?.type === 'error') {
+      console.error('Google auth error:', response.error);
+      Alert.alert('Sign In Error', 'Google sign-in encountered an error. Please try again.');
+    }
+  }, [response]);
+
+  const checkTwoFactorAuth = async (user) => {
+    try {
+      const userSettings = await TwoFactorAuthService.getUserSettings(user.uid);
+      const has2FA =
+        userSettings.phone_2fa_enabled ||
+        userSettings.totp_enabled ||
+        userSettings.biometric_enabled;
+
+      if (has2FA) {
+        setPendingUser(user);
+        setShow2FAModal(true);
+      } else {
+        await handleAuthSuccess(user);
+      }
+    } catch (error) {
+      console.error('2FA check error:', error);
+      await handleAuthSuccess(user);
+    }
+  };
+
+  const handle2FASuccess = async () => {
+    setShow2FAModal(false);
+    if (pendingUser) {
+      await handleAuthSuccess(pendingUser);
+      setPendingUser(null);
+    }
+  };
+
+  const handle2FACancel = () => {
+    setShow2FAModal(false);
+    setPendingUser(null);
+    setLoading(false);
+  };
+
+  const handleEmailAuth = async () => {
+    if (!email || !password) {
+      Alert.alert('Error', 'Please enter both email and password');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      let result;
+      if (isSignUp) {
+        result = await createUserWithEmailAndPassword(auth, email, password);
+        Alert.alert('Success', 'Account created successfully!');
+      } else {
+        result = await signInWithEmailAndPassword(auth, email, password);
+      }
+      await checkTwoFactorAuth(result.user);
+    } catch (error) {
+      console.error('Auth error:', error);
+      if (error.code === 'auth/email-already-in-use') {
+        Alert.alert('Error', 'This email is already registered. Please sign in.');
+      } else if (error.code === 'auth/weak-password') {
+        Alert.alert('Error', 'Password should be at least 6 characters.');
+      } else if (error.code === 'auth/invalid-email') {
+        Alert.alert('Error', 'Please enter a valid email address.');
+      } else if (error.code === 'auth/user-not-found') {
+        Alert.alert('Error', 'No account found with this email. Please sign up.');
+      } else {
+        Alert.alert('Error', isSignUp ? 'Failed to create account.' : 'Invalid email or password.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAppleSignIn = async () => {
+    try {
+      setLoading(true);
+
+      // Generate nonce for security
+      const nonce = Math.random().toString(36).substring(2, 10);
+      const hashedNonce = await Crypto.digestStringAsync(
+        Crypto.CryptoDigestAlgorithm.SHA256,
+        nonce
+      );
+
+      const appleCredential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+        nonce: hashedNonce,
+      });
+
+      // Create Firebase credential with Apple ID token
+      const provider = new OAuthProvider('apple.com');
+      const credential = provider.credential({
+        idToken: appleCredential.identityToken,
+        rawNonce: nonce,
+      });
+
+      // Sign in with Firebase
+      const result = await signInWithCredential(auth, credential);
+
+      // Store user name if provided (Apple only provides on first sign-in)
+      if (appleCredential.fullName?.givenName) {
+        await SecureStore.setItemAsync(
+          'apple_display_name',
+          `${appleCredential.fullName.givenName} ${appleCredential.fullName.familyName || ''}`
+        );
+      }
+
+      await checkTwoFactorAuth(result.user);
+    } catch (error) {
+      console.error('Apple sign-in error:', error);
+
+      if (error.code === 'ERR_REQUEST_CANCELED') {
+        // User cancelled - don't show error
+        return;
+      }
+
+      let errorMessage = 'Apple sign-in failed. Please try again.';
+      if (error.code === 'auth/account-exists-with-different-credential') {
+        errorMessage = 'An account already exists with this email using a different sign-in method.';
+      }
+
+      Alert.alert('Sign In Error', errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSkip = async () => {
+    setLoading(true);
+    try {
+      const guestId = `guest_${Date.now()}`;
+      await SecureStore.setItemAsync('is_guest', 'true');
+      await SecureStore.setItemAsync('free_scans_remaining', '3');
+      await SecureStore.setItemAsync('user_id', guestId);
+      await SecureStore.setItemAsync('user_email', 'guest@naturinex.app');
+      await SecureStore.setItemAsync('auth_token', 'guest_token');
+      await SecureStore.setItemAsync('onboarding_completed', 'true');
+      navigation.replace('Home');
+    } catch (error) {
+      console.error('Guest login error:', error);
+      Alert.alert('Error', 'Failed to continue as guest. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAuthSuccess = async (user) => {
+    try {
+      const token = await user.getIdToken();
+      await SecureStore.setItemAsync('auth_token', token);
+      await SecureStore.setItemAsync('user_id', user.uid);
+      await SecureStore.setItemAsync('user_email', user.email || 'apple-private-email');
+      await SecureStore.setItemAsync('is_guest', 'false');
+
+      const onboardingCompleted = await SecureStore.getItemAsync('onboarding_completed');
+      if (onboardingCompleted !== 'true') {
+        navigation.replace('Onboarding');
+      } else {
+        navigation.replace('Home');
+      }
+    } catch (error) {
+      console.error('Auth success handling error:', error);
+      Alert.alert('Error', 'Failed to complete login. Please try again.');
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    // Check if Google OAuth is properly configured
+    const googleClientId = Constants.expoConfig?.extra?.googleIosClientId ||
+                          Constants.expoConfig?.extra?.googleExpoClientId;
+
+    if (!googleClientId) {
+      Alert.alert(
+        'Configuration Error',
+        'Google Sign-In is not available at this time. Please use email/password or Sign in with Apple.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await promptAsync();
+    } catch (error) {
+      console.error('Google sign-in prompt error:', error);
+      Alert.alert(
+        'Sign In Error',
+        'Unable to start Google sign-in. Please try again or use another sign-in method.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleForgotPassword = () => {
+    if (!email) {
+      Alert.alert('Email Required', 'Please enter your email address first.');
+      return;
+    }
+
+    Alert.alert(
+      'Reset Password',
+      `Send password reset instructions to ${email}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Send',
+          onPress: async () => {
+            try {
+              await sendPasswordResetEmail(auth, email);
+              Alert.alert(
+                'Email Sent!',
+                'Check your email for password reset instructions. Please also check your spam folder.',
+                [{ text: 'OK' }]
+              );
+            } catch (error) {
+              console.error('Password reset error:', error);
+              if (error.code === 'auth/user-not-found') {
+                Alert.alert('Error', 'No account found with this email address.');
+              } else if (error.code === 'auth/invalid-email') {
+                Alert.alert('Error', 'Please enter a valid email address.');
+              } else {
+                Alert.alert('Error', 'Failed to send reset email. Please try again.');
+              }
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    >
+      <ScrollView
+        contentContainerStyle={styles.scrollContainer}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={styles.logoContainer}>
+          <Text style={styles.logo}>🌿</Text>
+          <Text style={styles.appName}>Naturinex</Text>
+          <Text style={styles.tagline}>Your Natural Wellness Guide</Text>
+        </View>
+
+        <View style={styles.formContainer}>
+          <TextInput
+            style={styles.input}
+            placeholder="Email"
+            value={email}
+            onChangeText={setEmail}
+            keyboardType="email-address"
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <TextInput
+            style={styles.input}
+            placeholder="Password"
+            value={password}
+            onChangeText={setPassword}
+            secureTextEntry
+            autoCapitalize="none"
+          />
+
+          <TouchableOpacity
+            style={[styles.button, styles.primaryButton]}
+            onPress={handleEmailAuth}
+            disabled={loading}
+          >
+            <Text style={styles.buttonText}>
+              {loading
+                ? isSignUp
+                  ? 'Creating Account...'
+                  : 'Signing In...'
+                : isSignUp
+                ? 'Sign Up'
+                : 'Sign In'}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.switchAuth}
+            onPress={() => setIsSignUp(!isSignUp)}
+          >
+            <Text style={styles.switchAuthText}>
+              {isSignUp
+                ? 'Already have an account? Sign In'
+                : "Don't have an account? Sign Up"}
+            </Text>
+          </TouchableOpacity>
+
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>OR</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          {/* Sign in with Apple - iOS only */}
+          {Platform.OS === 'ios' && appleAuthAvailable && (
+            <AppleAuthentication.AppleAuthenticationButton
+              buttonType={AppleAuthentication.AppleAuthenticationButtonType.SIGN_IN}
+              buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+              cornerRadius={10}
+              style={styles.appleButton}
+              onPress={handleAppleSignIn}
+            />
+          )}
+
+          {/* Google Sign-in - hidden on iOS when Apple Sign In is available */}
+          {showGoogleSignIn && (
+            <TouchableOpacity
+              style={[styles.button, styles.googleButton]}
+              onPress={handleGoogleSignIn}
+              disabled={loading}
+            >
+              <Text style={styles.googleButtonText}>Sign in with Google</Text>
+            </TouchableOpacity>
+          )}
+
+          <TouchableOpacity
+            style={[styles.button, styles.skipButton]}
+            onPress={handleSkip}
+            disabled={loading}
+          >
+            <Text style={styles.skipButtonText}>Try Free (3 Scans)</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.forgotPassword}
+            onPress={() => handleForgotPassword()}
+          >
+            <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.footer}>
+          <Text style={styles.footerText}>
+            By signing in, you agree to our{' '}
+            <Text
+              style={styles.link}
+              onPress={() => navigation.navigate('TermsOfUse')}
+            >
+              Terms of Service
+            </Text>{' '}
+            and{' '}
+            <Text
+              style={styles.link}
+              onPress={() => navigation.navigate('PrivacyPolicy')}
+            >
+              Privacy Policy
+            </Text>
+          </Text>
+        </View>
+      </ScrollView>
+
+      <TwoFactorVerificationModal
+        visible={show2FAModal}
+        onClose={handle2FACancel}
+        onSuccess={handle2FASuccess}
+        userId={pendingUser?.uid}
+        operation="login"
+      />
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#10B981',
+  },
+  scrollContainer: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 40,
+  },
+  logoContainer: {
+    alignItems: 'center',
+    marginBottom: 30,
+    marginTop: 20,
+  },
+  logo: {
+    fontSize: 80,
+    marginBottom: 10,
+  },
+  appName: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: 'white',
+    marginBottom: 5,
+  },
+  tagline: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  formContainer: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 25,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 15,
+    fontSize: 16,
+    backgroundColor: '#F9FAFB',
+  },
+  button: {
+    borderRadius: 10,
+    padding: 16,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  primaryButton: {
+    backgroundColor: '#10B981',
+  },
+  appleButton: {
+    width: '100%',
+    height: 50,
+    marginBottom: 12,
+  },
+  googleButton: {
+    backgroundColor: '#4285F4',
+  },
+  skipButton: {
+    backgroundColor: '#6B7280',
+    marginTop: 5,
+    borderWidth: 2,
+    borderColor: '#4B5563',
+  },
+  buttonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  googleButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  skipButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  switchAuth: {
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  switchAuthText: {
+    color: '#10B981',
+    fontSize: 14,
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 15,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E5E7EB',
+  },
+  dividerText: {
+    marginHorizontal: 15,
+    color: '#6B7280',
+    fontSize: 14,
+  },
+  forgotPassword: {
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  forgotPasswordText: {
+    color: '#10B981',
+    fontSize: 14,
+  },
+  footer: {
+    alignItems: 'center',
+    marginTop: 10,
+    paddingBottom: 20,
+  },
+  footerText: {
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  link: {
+    color: 'white',
+    textDecorationLine: 'underline',
+  },
+});

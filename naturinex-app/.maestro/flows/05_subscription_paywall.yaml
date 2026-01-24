@@ -1,0 +1,44 @@
+# Flow: Subscription Paywall Screenshot
+# Captures the Apple IAP subscription paywall screen
+# IMPORTANT: This is required for IAP review
+
+appId: com.naturinex.wellness
+
+---
+
+# Run setup first
+- runFlow: 00_setup_demo_login.yaml
+
+# Navigate to Profile first
+- tapOn: "Profile"
+
+# Wait for profile to load
+- waitForAnimationToEnd:
+    timeout: 2000
+
+# Tap on subscription/premium section
+- tapOn:
+    text: ".*Premium.*"
+    optional: true
+
+# Alternative: look for upgrade button
+- tapOn:
+    text: ".*Upgrade.*"
+    optional: true
+
+# Wait for paywall to load
+- waitForAnimationToEnd:
+    timeout: 3000
+
+# Verify paywall elements are visible
+- assertVisible:
+    text: ".*subscription.*"
+    optional: true
+
+# Take screenshot - This screenshot is required for IAP review
+- takeScreenshot:
+    path: ./artifacts/app-store/iphone-67/05_subscription_paywall.png
+
+# Also save as IAP review screenshot
+- takeScreenshot:
+    path: ./artifacts/app-store/iap-review/paywall_screen.png

@@ -1,0 +1,23 @@
+# Flow: Home Dashboard Screenshot
+# Captures the main home screen with wellness dashboard
+
+appId: com.naturinex.wellness
+
+---
+
+# Run setup first
+- runFlow: 00_setup_demo_login.yaml
+
+# Wait for home to fully render
+- waitForAnimationToEnd:
+    timeout: 3000
+
+# Ensure we're on home screen
+- assertVisible: "Naturinex"
+
+# Take screenshot - iPhone 6.7"
+- takeScreenshot:
+    path: ./artifacts/app-store/iphone-67/01_home_dashboard.png
+
+# Note: For iPad screenshots, run with iPad simulator
+# maestro test --device "iPad Pro (12.9-inch)" .maestro/flows/01_home_dashboard.yaml
