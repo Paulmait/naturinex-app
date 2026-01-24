@@ -22,7 +22,7 @@ import aiServiceSecure from '../services/aiServiceSecure';
 import logger from '../utils/logger';
 
 const API_URL =
-  Constants.expoConfig?.extra?.apiUrl || 'https://naturinex-app-1.onrender.com';
+  Constants.expoConfig?.extra?.apiUrl || 'https://hxhbsxzkzarqwksbjpce.supabase.co/functions/v1';
 
 export default function SimpleCameraScreen({ navigation }) {
   const [capturedImage, setCapturedImage] = useState(null);
@@ -35,6 +35,8 @@ export default function SimpleCameraScreen({ navigation }) {
   const [cameraPermission, setCameraPermission] = useState(null);
   const [libraryPermission, setLibraryPermission] = useState(null);
   const [checkingPermissions, setCheckingPermissions] = useState(true);
+  const [buttonPressed, setButtonPressed] = useState(null); // Track which button is pressed for visual feedback
+  const [isProcessing, setIsProcessing] = useState(false); // Prevent double-tap issues
 
   // Check permissions and quota on mount
   useEffect(() => {
@@ -154,7 +156,20 @@ export default function SimpleCameraScreen({ navigation }) {
   };
 
   const takePhoto = async () => {
-    // Set analyzing state to show loading indicator immediately
+    // Prevent double-tap and multiple calls
+    if (isProcessing || analyzing) {
+      logger.info('takePhoto blocked - already processing');
+      return;
+    }
+
+    // Set processing state immediately for visual feedback
+    setIsProcessing(true);
+    setButtonPressed('camera');
+
+    // Small delay to show visual feedback before async operations
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Set analyzing state to show loading indicator
     setAnalyzing(true);
 
     try {
@@ -162,7 +177,11 @@ export default function SimpleCameraScreen({ navigation }) {
       if (cameraPermission !== 'granted') {
         setAnalyzing(false); // Stop loading while permission dialog shows
         const granted = await requestCameraPermission();
-        if (!granted) return;
+        if (!granted) {
+          setIsProcessing(false);
+          setButtonPressed(null);
+          return;
+        }
         setAnalyzing(true); // Resume loading after permission granted
       }
 
@@ -172,6 +191,8 @@ export default function SimpleCameraScreen({ navigation }) {
       const cameraAvailable = await ImagePicker.getCameraPermissionsAsync();
       if (!cameraAvailable.granted && !cameraAvailable.canAskAgain) {
         setAnalyzing(false);
+        setIsProcessing(false);
+        setButtonPressed(null);
         Alert.alert(
           'Camera Access Required',
           'Please enable camera access in Settings to take photos.',
@@ -183,12 +204,18 @@ export default function SimpleCameraScreen({ navigation }) {
         return;
       }
 
+      // iPad-specific: Add slight delay before launching camera to ensure UI responsiveness
+      if (Platform.OS === 'ios') {
+        await new Promise(resolve => setTimeout(resolve, 150));
+      }
+
       const result = await ImagePicker.launchCameraAsync({
         allowsEditing: true,
         aspect: [4, 3],
-        quality: 0.8,
+        quality: 0.7, // Slightly lower quality for better iPad performance
         base64: true,
         exif: false, // Disable EXIF for better performance on iPad
+        presentationStyle: 'fullScreen', // Better iPad experience
       });
 
       logger.info('Camera result', { cancelled: result.canceled });
@@ -201,20 +228,25 @@ export default function SimpleCameraScreen({ navigation }) {
         setAnalyzing(false);
       }
     } catch (error) {
-      logger.error('Camera error', { error: error.message, code: error.code });
+      logger.error('Camera error', { error: error.message, code: error.code, platform: Platform.OS });
       setAnalyzing(false);
 
       // Handle specific iOS/iPad errors
       if (error.message?.includes('Camera not available') ||
           error.message?.includes('no camera') ||
-          error.code === 'E_NO_CAMERA') {
+          error.code === 'E_NO_CAMERA' ||
+          error.message?.includes('unavailable')) {
         Alert.alert(
           'Camera Not Available',
           'This device does not have a camera or the camera is currently unavailable. Please try selecting an image from your photo library instead.',
           [
             {
               text: 'Choose from Gallery',
-              onPress: () => pickImage(),
+              onPress: () => {
+                setIsProcessing(false);
+                setButtonPressed(null);
+                pickImage();
+              },
             },
             { text: 'Cancel', style: 'cancel' },
           ]
@@ -235,24 +267,47 @@ export default function SimpleCameraScreen({ navigation }) {
           [
             {
               text: 'Choose from Gallery',
-              onPress: () => pickImage(),
+              onPress: () => {
+                setIsProcessing(false);
+                setButtonPressed(null);
+                pickImage();
+              },
             },
             { text: 'Cancel', style: 'cancel' },
           ]
         );
       }
+    } finally {
+      setIsProcessing(false);
+      setButtonPressed(null);
     }
   };
 
   const pickImage = async () => {
+    // Prevent double-tap
+    if (isProcessing || analyzing) {
+      logger.info('pickImage blocked - already processing');
+      return;
+    }
+
+    setIsProcessing(true);
+    setButtonPressed('gallery');
+
     try {
       // Check/request permission first
       if (libraryPermission !== 'granted') {
         const granted = await requestLibraryPermission();
-        if (!granted) return;
+        if (!granted) {
+          setIsProcessing(false);
+          setButtonPressed(null);
+          return;
+        }
       }
 
       logger.info('Launching image picker');
+
+      // Small delay for visual feedback
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -265,6 +320,7 @@ export default function SimpleCameraScreen({ navigation }) {
       logger.info('Image picker result', { cancelled: result.canceled });
 
       if (!result.canceled && result.assets && result.assets[0]) {
+        setAnalyzing(true);
         setCapturedImage(result.assets[0]);
         await analyzeImage(result.assets[0]);
       }
@@ -278,6 +334,9 @@ export default function SimpleCameraScreen({ navigation }) {
           { text: 'Open Settings', onPress: () => Linking.openSettings() },
         ]
       );
+    } finally {
+      setIsProcessing(false);
+      setButtonPressed(null);
     }
   };
 
@@ -427,43 +486,69 @@ export default function SimpleCameraScreen({ navigation }) {
 
           <View style={styles.optionsContainer}>
             <TouchableOpacity
-              style={styles.option}
+              style={[
+                styles.option,
+                buttonPressed === 'camera' && styles.optionPressed,
+                isProcessing && buttonPressed !== 'camera' && styles.optionDisabled,
+              ]}
               onPress={takePhoto}
-              activeOpacity={0.7}
+              activeOpacity={0.6}
+              disabled={isProcessing}
             >
               <View style={styles.iconContainer}>
-                <MaterialIcons name="camera-alt" size={48} color="#10B981" />
+                {buttonPressed === 'camera' ? (
+                  <ActivityIndicator size={48} color="#10B981" />
+                ) : (
+                  <MaterialIcons name="camera-alt" size={48} color="#10B981" />
+                )}
               </View>
-              <Text style={styles.optionTitle}>Take Photo</Text>
+              <Text style={styles.optionTitle}>
+                {buttonPressed === 'camera' ? 'Opening Camera...' : 'Take Photo'}
+              </Text>
               <Text style={styles.optionDescription}>
                 Capture medication label with camera
               </Text>
-              {cameraPermission !== 'granted' && (
+              {cameraPermission !== 'granted' && !buttonPressed && (
                 <Text style={styles.permissionHint}>Tap to grant camera permission</Text>
               )}
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.option}
+              style={[
+                styles.option,
+                buttonPressed === 'gallery' && styles.optionPressed,
+                isProcessing && buttonPressed !== 'gallery' && styles.optionDisabled,
+              ]}
               onPress={pickImage}
-              activeOpacity={0.7}
+              activeOpacity={0.6}
+              disabled={isProcessing}
             >
               <View style={styles.iconContainer}>
-                <MaterialIcons name="photo-library" size={48} color="#10B981" />
+                {buttonPressed === 'gallery' ? (
+                  <ActivityIndicator size={48} color="#10B981" />
+                ) : (
+                  <MaterialIcons name="photo-library" size={48} color="#10B981" />
+                )}
               </View>
-              <Text style={styles.optionTitle}>Choose from Gallery</Text>
+              <Text style={styles.optionTitle}>
+                {buttonPressed === 'gallery' ? 'Opening Gallery...' : 'Choose from Gallery'}
+              </Text>
               <Text style={styles.optionDescription}>
                 Select existing photo of medication
               </Text>
-              {libraryPermission !== 'granted' && (
+              {libraryPermission !== 'granted' && !buttonPressed && (
                 <Text style={styles.permissionHint}>Tap to grant photo access</Text>
               )}
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.option}
-              onPress={() => setShowManualInput(true)}
-              activeOpacity={0.7}
+              style={[
+                styles.option,
+                isProcessing && styles.optionDisabled,
+              ]}
+              onPress={() => !isProcessing && setShowManualInput(true)}
+              activeOpacity={0.6}
+              disabled={isProcessing}
             >
               <View style={styles.iconContainer}>
                 <MaterialIcons name="keyboard" size={48} color="#10B981" />
@@ -590,6 +675,16 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    minHeight: 140, // Ensure consistent height for iPad touch targets
+  },
+  optionPressed: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 2,
+    borderColor: '#10B981',
+    transform: [{ scale: 0.98 }],
+  },
+  optionDisabled: {
+    opacity: 0.5,
   },
   iconContainer: {
     marginBottom: 10,

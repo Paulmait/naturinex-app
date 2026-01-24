@@ -10,12 +10,22 @@
 
 # production
 /build
+/dist
 
 # misc
 .DS_Store
+*.swp
+*.swo
+*~
+
+# ============================================
+# SECURITY - NEVER COMMIT SECRETS OR API KEYS
+# ============================================
 
 # Environment variables - NEVER commit actual values!
 .env
+.env.*
+!.env.example
 .env.local
 .env.development
 .env.development.local
@@ -24,29 +34,103 @@
 .env.production
 .env.production.local
 
+# Local secrets files
+secrets.local.json
+*.secrets.json
+**/secrets/
+secrets/
+
+# Apple certificates and keys
+*.p8
+*.p12
+*.cer
+*.mobileprovision
+AuthKey_*.p8
+
+# Android keystores
+*.jks
+*.keystore
+
+# Firebase/Google credentials
+*-key.json
+*-key.pem
+service-account*.json
+firebase-adminsdk*.json
+google-services.json.backup
+GoogleService-Info.plist.backup
+
+# App Store Connect
+appstore-connect-key.json
+appstore-api-key*.json
+
+# Google Play
+google-play-key.json
+play-store-key*.json
+
+# API Keys and Credentials files
+**/credentials.json
+**/config.production.json
+**/secrets.json
+**/api-keys.json
+**/private-keys/
+
+# Supabase local config
+supabase/.env
+supabase/.env.*
+
+# ============================================
+# END SECURITY SECTION
+# ============================================
+
 # Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 *.log
+logs/
 
-# Security - Never commit these!
-secrets/
-*.p8
-*.p12
-*-key.json
-*-key.pem
-*.jks
-*.keystore
-appstore-connect-key.json
-google-play-key.json
-service-account*.json
-firebase-adminsdk*.json
+# Expo
+.expo/
+dist/
+web-build/
 
-# API Keys and Credentials
-**/credentials.json
-**/config.production.json
-**/secrets.json
+# Metro bundler
+.metro-health-check*
+
+# IDE
+.idea/
+.vscode/
+*.sublime-*
+
+# OS
+Thumbs.db
 
 # Server-side code (not needed for mobile builds)
 server/
+
+# ============================================
+# DEMO ACCOUNTS & REVIEW MODE
+# ============================================
+# Never commit demo account credentials
+demo-credentials.json
+demo-accounts.json
+review-credentials.json
+.demo-config
+
+# Documentation with exposed secrets (should be reviewed and cleaned)
+ENVIRONMENT_VARIABLES_COMPLETE.md
+VERCEL_ENV_COMPLETE_LIST.md
+GET_SUPABASE_KEY.md
+VERCEL_SUPABASE_ENV_VARS.md
+API_KEYS_STEP_BY_STEP.md
+
+# ============================================
+# ADDITIONAL SECURITY
+# ============================================
+# Webhook secrets
+*.webhook-secret
+webhook-secrets.json
+
+# Temporary test files with credentials
+test-credentials-*.json
+*-test-key.json

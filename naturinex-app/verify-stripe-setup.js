@@ -12,7 +12,7 @@ console.log('   PUBLISHABLE_KEY:', process.env.STRIPE_PUBLISHABLE_KEY ? '✅ Set
 
 console.log('\n2️⃣ Webhook Configuration in Stripe:');
 console.log('   Endpoint URL: https://us-central1-mediscan-b6252.cloudfunctions.net/api/webhooks/stripe');
-console.log('   Signing Secret: whsec_0V6107GsHBfGlMEpTH1ooLyWXiVZIsr5');
+console.log('   Signing Secret: [REDACTED - Check Stripe Dashboard]');
 console.log('   API Version: 2024-12-18.acacia');
 console.log('   Events: checkout.session.completed, invoice.payment_failed');
 
