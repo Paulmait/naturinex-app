@@ -17,36 +17,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Setup Node
         uses: actions/setup-node@v3
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          
+
       - name: Install dependencies - App
-        run: |
-          cd naturinex-app
-          npm ci
-          
+        run: npm ci
+
       - name: Install dependencies - Functions
         run: |
-          cd naturinex-app/functions
+          cd functions
           npm ci
-          
+
       - name: Lint App
-        run: |
-          cd naturinex-app
-          npm run lint || true
-          
+        run: npm run lint || true
+
       - name: Test App
-        run: |
-          cd naturinex-app
-          npm test -- --passWithNoTests
-          
+        run: npm test -- --passWithNoTests
+
       - name: Build Functions
         run: |
-          cd naturinex-app/functions
+          cd functions
           npm run build
 
   # Build Mobile App - Development
@@ -56,27 +50,23 @@ jobs:
     if: github.event_name == 'pull_request'
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Setup Node
         uses: actions/setup-node@v3
         with:
           node-version: ${{ env.NODE_VERSION }}
-          
+
       - name: Setup Expo
         uses: expo/expo-github-action@v8
         with:
           eas-version: latest
           token: ${{ env.EXPO_TOKEN }}
-          
+
       - name: Install dependencies
-        run: |
-          cd naturinex-app
-          npm ci
-          
+        run: npm ci
+
       - name: Build for preview
-        run: |
-          cd naturinex-app
-          eas build --platform all --profile preview --non-interactive --no-wait
+        run: eas build --platform all --profile preview --non-interactive --no-wait
 
   # Build Mobile App - Production
   build-mobile-prod:
@@ -85,33 +75,27 @@ jobs:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Setup Node
         uses: actions/setup-node@v3
         with:
           node-version: ${{ env.NODE_VERSION }}
-          
+
       - name: Setup Expo
         uses: expo/expo-github-action@v8
         with:
           eas-version: latest
           token: ${{ env.EXPO_TOKEN }}
-          
+
       - name: Install dependencies
-        run: |
-          cd naturinex-app
-          npm ci
-          
+        run: npm ci
+
       - name: Build for production
-        run: |
-          cd naturinex-app
-          eas build --platform all --profile production --non-interactive --no-wait
-          
+        run: eas build --platform all --profile production --non-interactive --no-wait
+
       - name: Submit to stores (optional)
         if: github.event_name == 'push' && contains(github.event.head_commit.message, '[deploy]')
-        run: |
-          cd naturinex-app
-          eas submit --platform all --profile production --non-interactive
+        run: eas submit --platform all --profile production --non-interactive
 
   # Deploy Backend
   deploy-backend:
@@ -120,64 +104,30 @@ jobs:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Setup Node
         uses: actions/setup-node@v3
         with:
           node-version: ${{ env.NODE_VERSION }}
-          
+
       - name: Install Firebase CLI
         run: npm install -g firebase-tools
-        
+
       - name: Install dependencies
         run: |
-          cd naturinex-app/functions
+          cd functions
           npm ci
-          
+
       - name: Build functions
         run: |
-          cd naturinex-app/functions
+          cd functions
           npm run build
-          
-      - name: Deploy to Firebase
-        run: |
-          cd naturinex-app
-          firebase deploy --only functions,firestore:rules,storage:rules --token "$FIREBASE_TOKEN"
 
-  # Deploy Web (if applicable)
-  deploy-web:
-    runs-on: ubuntu-latest
-    needs: test
-    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && hashFiles('web-landing/package.json') != ''
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Setup Node
-        uses: actions/setup-node@v3
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          
-      - name: Check if web directory exists
-        id: check_web
-        run: |
-          if [ -d "web-landing" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
-          
-      - name: Build landing page
-        if: steps.check_web.outputs.exists == 'true'
-        run: |
-          cd web-landing
-          npm ci
-          npm run build
-          
-      - name: Deploy to Firebase Hosting
-        if: steps.check_web.outputs.exists == 'true'
-        run: |
-          cd web-landing
-          firebase deploy --only hosting --token "$FIREBASE_TOKEN"
+      - name: Deploy to Firebase
+        run: firebase deploy --only functions,firestore:rules,storage:rules --token "$FIREBASE_TOKEN"
+
+  # Deploy Web (Vercel handles this automatically via GitHub integration)
+  # This job is optional - Vercel auto-deploys on push
 
   # Notify on success
   notify-success:
@@ -190,7 +140,7 @@ jobs:
           echo "✅ Deployment successful!"
           echo "- Backend deployed to Firebase"
           echo "- Mobile builds queued on EAS"
-          
+
   # Notify on failure
   notify-failure:
     runs-on: ubuntu-latest
