@@ -8,22 +8,28 @@ import ErrorService from './ErrorService';
 const RATE_LIMITS = {
   anonymous: {
     scansPerDay: 3,
-    scansPerMonth: 10,
+    scansPerMonth: 3,
     windowMs: 24 * 60 * 60 * 1000, // 24 hours
   },
   free: {
-    scansPerMonth: 5,
+    scansPerMonth: 3,
     scansPerDay: 3,
     apiRequestsPerMinute: 10,
   },
-  plus: {
-    scansPerMonth: 50,
-    scansPerDay: 10,
-    apiRequestsPerMinute: 30,
-  },
-  pro: {
+  premium: {
     scansPerMonth: -1, // unlimited
     scansPerDay: -1, // unlimited
+    apiRequestsPerMinute: 100,
+  },
+  // Backward compatibility aliases
+  plus: {
+    scansPerMonth: -1,
+    scansPerDay: -1,
+    apiRequestsPerMinute: 100,
+  },
+  pro: {
+    scansPerMonth: -1,
+    scansPerDay: -1,
     apiRequestsPerMinute: 100,
   },
 };

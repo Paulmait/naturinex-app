@@ -31,14 +31,14 @@ export const PRICING_TIERS = {
     name: 'Free Account',
     price: 0,
     features: {
-      scansPerMonth: 5,
+      scansPerMonth: 3,
       scansPerDay: null,
       saveHistory: false,
       dataRetention: 'Not saved',
       dataRetentionDays: 0,
       basicAnalysis: true,
       aiInsights: false,
-      naturalAlternatives: 3,
+      naturalAlternatives: 2,
       exportReports: false,
       consultations: 0,
       familySharing: false,
@@ -46,15 +46,16 @@ export const PRICING_TIERS = {
       affiliateAccess: false,
     },
     limits: {
-      monthlyScans: 5,
+      monthlyScans: 3,
       dailyScans: null,
-      message: '5 scans per month, no data saving'
+      message: '3 scans per month, no data saving'
     },
     description: 'Perfect for trying out the service',
     benefits: [
-      '5 scans per month',
-      'Basic natural alternatives',
-      'No account data storage',
+      '3 scans per month',
+      '2 basic alternatives per scan',
+      'No scan history saved',
+      'No PDF export',
     ],
   },
 
