@@ -40,9 +40,9 @@ CREATE TABLE IF NOT EXISTS user_account_status (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-CREATE INDEX idx_user_status_user ON user_account_status(user_id);
-CREATE INDEX idx_user_status_status ON user_account_status(status);
-CREATE INDEX idx_user_status_email ON user_account_status(email);
+CREATE INDEX IF NOT EXISTS idx_user_status_user ON user_account_status(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_status_status ON user_account_status(status);
+CREATE INDEX IF NOT EXISTS idx_user_status_email ON user_account_status(email);
 
 -- ============================================
 -- 2. Admin Action Audit Log (Comprehensive)
@@ -105,12 +105,12 @@ CREATE TABLE IF NOT EXISTS admin_audit_log (
     notes TEXT
 );
 
-CREATE INDEX idx_audit_admin ON admin_audit_log(admin_id, started_at DESC);
-CREATE INDEX idx_audit_target ON admin_audit_log(target_id, target_type);
-CREATE INDEX idx_audit_action ON admin_audit_log(action_type, action_category);
-CREATE INDEX idx_audit_severity ON admin_audit_log(action_severity);
-CREATE INDEX idx_audit_ip ON admin_audit_log(ip_address);
-CREATE INDEX idx_audit_timestamp ON admin_audit_log(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_admin ON admin_audit_log(admin_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_target ON admin_audit_log(target_id, target_type);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON admin_audit_log(action_type, action_category);
+CREATE INDEX IF NOT EXISTS idx_audit_severity ON admin_audit_log(action_severity);
+CREATE INDEX IF NOT EXISTS idx_audit_ip ON admin_audit_log(ip_address);
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON admin_audit_log(started_at DESC);
 
 -- ============================================
 -- 3. Admin Password Policy Configuration
@@ -196,9 +196,9 @@ CREATE TABLE IF NOT EXISTS admin_password_reset_requests (
     notes TEXT
 );
 
-CREATE INDEX idx_password_reset_user ON admin_password_reset_requests(user_id);
-CREATE INDEX idx_password_reset_admin ON admin_password_reset_requests(requested_by_admin_id);
-CREATE INDEX idx_password_reset_status ON admin_password_reset_requests(status);
+CREATE INDEX IF NOT EXISTS idx_password_reset_user ON admin_password_reset_requests(user_id);
+CREATE INDEX IF NOT EXISTS idx_password_reset_admin ON admin_password_reset_requests(requested_by_admin_id);
+CREATE INDEX IF NOT EXISTS idx_password_reset_status ON admin_password_reset_requests(status);
 
 -- ============================================
 -- 5. User Data Access Log (GDPR/Privacy Compliance)
@@ -234,9 +234,9 @@ CREATE TABLE IF NOT EXISTS user_data_access_log (
     export_file_path TEXT
 );
 
-CREATE INDEX idx_data_access_admin ON user_data_access_log(admin_id, accessed_at DESC);
-CREATE INDEX idx_data_access_user ON user_data_access_log(user_id);
-CREATE INDEX idx_data_access_type ON user_data_access_log(data_type);
+CREATE INDEX IF NOT EXISTS idx_data_access_admin ON user_data_access_log(admin_id, accessed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_data_access_user ON user_data_access_log(user_id);
+CREATE INDEX IF NOT EXISTS idx_data_access_type ON user_data_access_log(data_type);
 
 -- ============================================
 -- 6. Analytics Access Permissions
@@ -281,21 +281,27 @@ ALTER TABLE user_data_access_log ENABLE ROW LEVEL SECURITY;
 ALTER TABLE admin_analytics_access ENABLE ROW LEVEL SECURITY;
 
 -- Service role has full access
+DROP POLICY IF EXISTS "Service role full access" ON user_account_status;
 CREATE POLICY "Service role full access" ON user_account_status
     FOR ALL TO service_role USING (true);
 
+DROP POLICY IF EXISTS "Service role full access" ON admin_audit_log;
 CREATE POLICY "Service role full access" ON admin_audit_log
     FOR ALL TO service_role USING (true);
 
+DROP POLICY IF EXISTS "Service role full access" ON admin_password_policy;
 CREATE POLICY "Service role full access" ON admin_password_policy
     FOR ALL TO service_role USING (true);
 
+DROP POLICY IF EXISTS "Service role full access" ON admin_password_reset_requests;
 CREATE POLICY "Service role full access" ON admin_password_reset_requests
     FOR ALL TO service_role USING (true);
 
+DROP POLICY IF EXISTS "Service role full access" ON user_data_access_log;
 CREATE POLICY "Service role full access" ON user_data_access_log
     FOR ALL TO service_role USING (true);
 
+DROP POLICY IF EXISTS "Service role full access" ON admin_analytics_access;
 CREATE POLICY "Service role full access" ON admin_analytics_access
     FOR ALL TO service_role USING (true);
 

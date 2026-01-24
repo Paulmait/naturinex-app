@@ -20,8 +20,8 @@ CREATE TABLE IF NOT EXISTS training_data_consent (
 );
 
 -- Index for quick user lookups
-CREATE INDEX idx_training_consent_user ON training_data_consent(user_id);
-CREATE INDEX idx_training_consent_status ON training_data_consent(consent_given, revoked_at);
+CREATE INDEX IF NOT EXISTS idx_training_consent_user ON training_data_consent(user_id);
+CREATE INDEX IF NOT EXISTS idx_training_consent_status ON training_data_consent(consent_given, revoked_at);
 
 -- ============================================
 -- Anonymized Scan Data for Training
@@ -63,10 +63,10 @@ CREATE TABLE IF NOT EXISTS training_scan_data (
 );
 
 -- Indexes for training queries
-CREATE INDEX idx_training_scan_category ON training_scan_data(product_category);
-CREATE INDEX idx_training_scan_valid ON training_scan_data(is_valid_for_training);
-CREATE INDEX idx_training_scan_date ON training_scan_data(scan_date);
-CREATE INDEX idx_training_scan_type ON training_scan_data(scan_type);
+CREATE INDEX IF NOT EXISTS idx_training_scan_category ON training_scan_data(product_category);
+CREATE INDEX IF NOT EXISTS idx_training_scan_valid ON training_scan_data(is_valid_for_training);
+CREATE INDEX IF NOT EXISTS idx_training_scan_date ON training_scan_data(scan_date);
+CREATE INDEX IF NOT EXISTS idx_training_scan_type ON training_scan_data(scan_type);
 
 -- ============================================
 -- Training Data Statistics (Aggregated)
@@ -94,20 +94,25 @@ ALTER TABLE training_scan_data ENABLE ROW LEVEL SECURITY;
 ALTER TABLE training_data_stats ENABLE ROW LEVEL SECURITY;
 
 -- Consent table: Users can only see/modify their own consent
+DROP POLICY IF EXISTS "Users can view own consent" ON training_data_consent;
 CREATE POLICY "Users can view own consent" ON training_data_consent
     FOR SELECT USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can insert own consent" ON training_data_consent;
 CREATE POLICY "Users can insert own consent" ON training_data_consent
     FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own consent" ON training_data_consent;
 CREATE POLICY "Users can update own consent" ON training_data_consent
     FOR UPDATE USING (auth.uid() = user_id);
 
 -- Training data: Only service role can access (no user access)
+DROP POLICY IF EXISTS "Service role only for training data" ON training_scan_data;
 CREATE POLICY "Service role only for training data" ON training_scan_data
     FOR ALL USING (auth.role() = 'service_role');
 
 -- Stats: Read-only for authenticated users
+DROP POLICY IF EXISTS "Authenticated can view stats" ON training_data_stats;
 CREATE POLICY "Authenticated can view stats" ON training_data_stats
     FOR SELECT USING (auth.role() = 'authenticated');
 

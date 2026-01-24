@@ -335,12 +335,12 @@ export default function AppleIAPPaywallScreen({ navigation }) {
             • Length: Monthly subscription renews every 30 days; Yearly subscription renews every 365 days
           </Text>
           <Text style={styles.disclosureText}>
-            • Content: Unlimited medication scans, full scan history, advanced AI analysis, PDF report exports, share discoveries, priority support, and ad-free experience
+            • Content: 25 medication scans per month, full scan history (1 year), advanced AI analysis with 5+ alternatives, PDF report exports, share discoveries, use on up to 3 devices, and ad-free experience
           </Text>
 
           {/* Pricing */}
           <Text style={styles.disclosureText}>
-            • Price: Monthly $9.99/month; Yearly $99.99/year (~17% savings)
+            • Price: Monthly $9.99/month; Yearly $99.99/year (Save $19.89 - 2 months free!)
           </Text>
 
           {/* Payment Terms */}

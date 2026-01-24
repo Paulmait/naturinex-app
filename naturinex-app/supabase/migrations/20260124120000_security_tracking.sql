@@ -46,16 +46,20 @@ ALTER TABLE password_reset_tracking ENABLE ROW LEVEL SECURITY;
 ALTER TABLE failed_login_tracking ENABLE ROW LEVEL SECURITY;
 
 -- Policy: Allow anonymous inserts (for tracking from client)
+DROP POLICY IF EXISTS "Allow anonymous insert password reset tracking" ON password_reset_tracking;
 CREATE POLICY "Allow anonymous insert password reset tracking" ON password_reset_tracking
   FOR INSERT TO anon WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Allow anonymous insert failed login tracking" ON failed_login_tracking;
 CREATE POLICY "Allow anonymous insert failed login tracking" ON failed_login_tracking
   FOR INSERT TO anon WITH CHECK (true);
 
 -- Policy: Only service role can read (admin access)
+DROP POLICY IF EXISTS "Service role can read password reset tracking" ON password_reset_tracking;
 CREATE POLICY "Service role can read password reset tracking" ON password_reset_tracking
   FOR SELECT TO service_role USING (true);
 
+DROP POLICY IF EXISTS "Service role can read failed login tracking" ON failed_login_tracking;
 CREATE POLICY "Service role can read failed login tracking" ON failed_login_tracking
   FOR SELECT TO service_role USING (true);
 

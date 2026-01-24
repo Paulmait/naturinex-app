@@ -12,7 +12,7 @@
 - Screenshots blocked (upgrade CTA shown)
 - Sharing blocked (upgrade CTA shown)
 
-### Premium ($9.99/month or $99.99/year)
+### Premium ($9.99/month or $99.99/year - Save $19.89, 2 months free!)
 - **25 scans per month** (10 per day max)
 - Full scan history (1 year retention)
 - Use on up to **3 devices**
@@ -36,7 +36,7 @@
 - Enforced via `src/services/rateLimiter.js`
 - Tracked in Supabase `scans` table
 - Free users: 3 scans/month
-- Premium users: Unlimited (-1)
+- Premium users: 25 scans/month (10 per day max)
 
 ### Scan History
 - **Mobile**: `src/components/ScanHistory.js`

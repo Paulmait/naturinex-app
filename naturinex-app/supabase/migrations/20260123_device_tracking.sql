@@ -3,7 +3,7 @@
 
 -- User Devices Table
 CREATE TABLE IF NOT EXISTS user_devices (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   device_id TEXT NOT NULL,
   device_name TEXT,
@@ -29,21 +29,24 @@ CREATE INDEX IF NOT EXISTS idx_user_devices_active ON user_devices(is_active) WH
 ALTER TABLE user_devices ENABLE ROW LEVEL SECURITY;
 
 -- Policies: Users can only see their own devices
+DROP POLICY IF EXISTS "Users can view own devices" ON user_devices;
 CREATE POLICY "Users can view own devices"
   ON user_devices FOR SELECT
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can insert own devices" ON user_devices;
 CREATE POLICY "Users can insert own devices"
   ON user_devices FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can update own devices" ON user_devices;
 CREATE POLICY "Users can update own devices"
   ON user_devices FOR UPDATE
   USING (auth.uid() = user_id);
 
 -- Security Events Table (audit trail)
 CREATE TABLE IF NOT EXISTS security_events (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   event_type TEXT NOT NULL,
   metadata JSONB DEFAULT '{}',
@@ -61,10 +64,12 @@ CREATE INDEX IF NOT EXISTS idx_security_events_created ON security_events(create
 ALTER TABLE security_events ENABLE ROW LEVEL SECURITY;
 
 -- Users can insert their own events, but only admins can read
+DROP POLICY IF EXISTS "Users can insert own security events" ON security_events;
 CREATE POLICY "Users can insert own security events"
   ON security_events FOR INSERT
   WITH CHECK (auth.uid() = user_id OR user_id IS NULL);
 
+DROP POLICY IF EXISTS "Admins can view all security events" ON security_events;
 CREATE POLICY "Admins can view all security events"
   ON security_events FOR SELECT
   USING (auth.jwt() ->> 'role' = 'admin');
