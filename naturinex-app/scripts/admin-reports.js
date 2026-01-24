@@ -262,7 +262,9 @@ async function tableCheckReport() {
     'training_data_consent',
     'training_scan_data',
     'user_push_tokens',
-    'notification_log'
+    'notification_log',
+    'password_reset_tracking',
+    'failed_login_tracking'
   ];
 
   for (const table of tables) {
@@ -284,6 +286,146 @@ async function tableCheckReport() {
   }
 }
 
+async function passwordResetTrackingReport() {
+  console.log('\n=== PASSWORD RESET TRACKING (Security) ===\n');
+
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+  const { data, error } = await supabase
+    .from('password_reset_tracking')
+    .select('*')
+    .gte('requested_at', thirtyDaysAgo.toISOString())
+    .order('requested_at', { ascending: false })
+    .limit(100);
+
+  if (error) {
+    if (error.code === '42P01') {
+      console.log('Table not found - run the migration first.');
+      return;
+    }
+    console.log('Note:', error.message);
+    return;
+  }
+
+  if (!data || data.length === 0) {
+    console.log('No password reset requests in the last 30 days.');
+    return;
+  }
+
+  // Summary statistics
+  const successCount = data.filter(r => r.success).length;
+  const failCount = data.filter(r => !r.success).length;
+  const uniqueEmails = [...new Set(data.map(r => r.email))].length;
+
+  console.log('Summary:');
+  console.log(`  Total Requests: ${data.length}`);
+  console.log(`  Successful: ${successCount}`);
+  console.log(`  Failed: ${failCount}`);
+  console.log(`  Unique Users: ${uniqueEmails}`);
+
+  // Check for suspicious activity (more than 5 requests from same email)
+  const emailCounts = {};
+  data.forEach(r => {
+    emailCounts[r.email] = (emailCounts[r.email] || 0) + 1;
+  });
+
+  const suspiciousEmails = Object.entries(emailCounts)
+    .filter(([email, count]) => count > 5)
+    .sort((a, b) => b[1] - a[1]);
+
+  if (suspiciousEmails.length > 0) {
+    console.log('\n*** SUSPICIOUS ACTIVITY DETECTED ***');
+    suspiciousEmails.forEach(([email, count]) => {
+      const severity = count > 10 ? 'HIGH' : 'MEDIUM';
+      console.log(`  [${severity}] ${email}: ${count} requests`);
+    });
+  }
+
+  console.log('\nRecent Requests:');
+  data.slice(0, 10).forEach(r => {
+    const time = new Date(r.requested_at).toLocaleString();
+    const status = r.success ? '✓' : '✗';
+    console.log(`  ${status} ${r.email} at ${time} (${r.request_source || 'web'})`);
+    if (!r.success && r.error_message) {
+      console.log(`      Error: ${r.error_message}`);
+    }
+  });
+}
+
+async function failedLoginTrackingReport() {
+  console.log('\n=== FAILED LOGIN TRACKING (Security) ===\n');
+
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+  const { data, error } = await supabase
+    .from('failed_login_tracking')
+    .select('*')
+    .gte('attempted_at', sevenDaysAgo.toISOString())
+    .order('attempted_at', { ascending: false })
+    .limit(100);
+
+  if (error) {
+    if (error.code === '42P01') {
+      console.log('Table not found - run the migration first.');
+      return;
+    }
+    console.log('Note:', error.message);
+    return;
+  }
+
+  if (!data || data.length === 0) {
+    console.log('No failed login attempts in the last 7 days.');
+    return;
+  }
+
+  // Summary
+  const uniqueEmails = [...new Set(data.map(r => r.email))].length;
+  console.log('Summary (Last 7 Days):');
+  console.log(`  Total Failed Attempts: ${data.length}`);
+  console.log(`  Unique Accounts Targeted: ${uniqueEmails}`);
+
+  // Error code breakdown
+  const errorCodes = {};
+  data.forEach(r => {
+    const code = r.error_code || 'unknown';
+    errorCodes[code] = (errorCodes[code] || 0) + 1;
+  });
+
+  console.log('\nError Codes:');
+  Object.entries(errorCodes)
+    .sort((a, b) => b[1] - a[1])
+    .forEach(([code, count]) => {
+      console.log(`  ${code}: ${count}`);
+    });
+
+  // Check for brute force attempts (more than 5 failed attempts per email)
+  const emailCounts = {};
+  data.forEach(r => {
+    emailCounts[r.email] = (emailCounts[r.email] || 0) + 1;
+  });
+
+  const bruteForceAttempts = Object.entries(emailCounts)
+    .filter(([email, count]) => count > 5)
+    .sort((a, b) => b[1] - a[1]);
+
+  if (bruteForceAttempts.length > 0) {
+    console.log('\n*** POSSIBLE BRUTE FORCE ATTACKS ***');
+    bruteForceAttempts.forEach(([email, count]) => {
+      const severity = count > 10 ? 'CRITICAL' : 'HIGH';
+      console.log(`  [${severity}] ${email}: ${count} failed attempts`);
+    });
+  }
+
+  console.log('\nRecent Failed Attempts:');
+  data.slice(0, 10).forEach(r => {
+    const time = new Date(r.attempted_at).toLocaleString();
+    console.log(`  ✗ ${r.email} at ${time}`);
+    console.log(`      Error: ${r.error_code || 'unknown'}`);
+  });
+}
+
 // Main execution
 async function runAllReports() {
   console.log('╔════════════════════════════════════════════════════════════╗');
@@ -297,6 +439,8 @@ async function runAllReports() {
   await suspendedUsersReport();
   await auditLogReport();
   await dataAccessReport();
+  await passwordResetTrackingReport();
+  await failedLoginTrackingReport();
 
   console.log('\n════════════════════════════════════════════════════════════');
   console.log('Report generation complete.');
@@ -327,7 +471,16 @@ switch (reportType.toLowerCase()) {
   case 'tables':
     tableCheckReport();
     break;
+  case 'security':
+    passwordResetTrackingReport().then(() => failedLoginTrackingReport());
+    break;
+  case 'resets':
+    passwordResetTrackingReport();
+    break;
+  case 'logins':
+    failedLoginTrackingReport();
+    break;
   default:
     console.log(`Unknown report type: ${reportType}`);
-    console.log('Available: all, users, audit, suspended, access, policy, tables');
+    console.log('Available: all, users, audit, suspended, access, policy, tables, security, resets, logins');
 }

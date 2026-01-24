@@ -22,6 +22,11 @@ import {
 } from 'firebase/auth';
 import { doc, setDoc, getDoc } from 'firebase/firestore';
 import { auth, db } from '../../firebase.web';
+import {
+  trackPasswordResetRequest,
+  trackFailedLogin,
+  checkResetRateLimit
+} from '../../services/SecurityTrackingService';
 function WebLogin() {
   const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
@@ -75,6 +80,11 @@ function WebLogin() {
         console.error('Auth error:', err);
       }
       setError(err.message);
+
+      // Track failed login attempts (only for sign-in, not sign-up)
+      if (!isSignUp && err.code) {
+        await trackFailedLogin(email, err.code);
+      }
     } finally {
       setLoading(false);
     }
@@ -136,13 +146,28 @@ function WebLogin() {
       setError('Please enter your email address');
       return;
     }
+
+    // Check rate limit before proceeding
+    const rateLimit = await checkResetRateLimit(email);
+    if (!rateLimit.allowed) {
+      setError(rateLimit.message);
+      await trackPasswordResetRequest(email, false, 'Rate limit exceeded');
+      return;
+    }
+
     setLoading(true);
     try {
       await sendPasswordResetEmail(auth, email);
       setResetEmailSent(true);
       setError('');
+
+      // Track successful password reset request
+      await trackPasswordResetRequest(email, true);
     } catch (err) {
       setError(err.message);
+
+      // Track failed password reset request
+      await trackPasswordResetRequest(email, false, err.code || err.message);
     } finally {
       setLoading(false);
     }
