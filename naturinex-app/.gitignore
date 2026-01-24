@@ -146,3 +146,8 @@ ADMIN_SOP.md
 # Internal admin guides
 ADMIN_CREDENTIALS.md
 ADMIN_ACCESS.md
+
+# Admin setup config files
+admin-config.json
+admin-emails.txt
+.admin-setup
