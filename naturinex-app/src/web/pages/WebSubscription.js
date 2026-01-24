@@ -194,6 +194,7 @@ function WebSubscription() {
               border: '2px solid',
               borderColor: 'primary.main',
               position: 'relative',
+              overflow: 'visible',
             }}
           >
             <Box
