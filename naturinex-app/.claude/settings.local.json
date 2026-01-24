@@ -36,7 +36,11 @@
       "Bash(nvm --version:*)",
       "Bash(nvm install:*)",
       "Bash(nvm use:*)",
-      "Bash(supabase --version:*)"
+      "Bash(supabase --version:*)",
+      "Bash(where:*)",
+      "Bash(scoop bucket:*)",
+      "Bash(SUPABASE_SERVICE_ROLE_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh4aGJzeHpremFycXdrc2JqcGNlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODAyNTc1MywiZXhwIjoyMDczNjAxNzUzfQ.E32Iape4swTVxUJgR0em53ZMDCq0pguNEDsUFF4njiE\" node:*)",
+      "Bash(SUPABASE_SERVICE_ROLE_KEY=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh4aGJzeHpremFycXdrc2JqcGNlIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODAyNTc1MywiZXhwIjoyMDczNjAxNzUzfQ.E32Iape4swTVxUJgR0em53ZMDCq0pguNEDsUFF4njiE\" npx supabase db execute:*)"
     ],
     "deny": []
   }

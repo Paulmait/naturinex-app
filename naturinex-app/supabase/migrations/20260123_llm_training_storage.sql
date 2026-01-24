@@ -2,14 +2,11 @@
 -- Purpose: Store anonymized scan data for future AI model training
 -- Date: 2026-01-23
 
--- Enable UUID extension if not exists
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-
 -- ============================================
 -- Training Data Consent Tracking
 -- ============================================
 CREATE TABLE IF NOT EXISTS training_data_consent (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL,
     consent_given BOOLEAN NOT NULL DEFAULT false,
     consent_date TIMESTAMPTZ,
@@ -30,7 +27,7 @@ CREATE INDEX idx_training_consent_status ON training_data_consent(consent_given,
 -- Anonymized Scan Data for Training
 -- ============================================
 CREATE TABLE IF NOT EXISTS training_scan_data (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     -- Anonymized reference (not linked to user)
     anonymous_id VARCHAR(64) NOT NULL, -- SHA256 hash
 
@@ -75,7 +72,7 @@ CREATE INDEX idx_training_scan_type ON training_scan_data(scan_type);
 -- Training Data Statistics (Aggregated)
 -- ============================================
 CREATE TABLE IF NOT EXISTS training_data_stats (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     stat_date DATE NOT NULL UNIQUE,
     total_scans INTEGER DEFAULT 0,
     image_scans INTEGER DEFAULT 0,

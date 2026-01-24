@@ -6,7 +6,7 @@
 -- User Push Tokens
 -- ============================================
 CREATE TABLE IF NOT EXISTS user_push_tokens (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL,
     push_token TEXT NOT NULL,
     platform VARCHAR(20) NOT NULL, -- 'ios', 'android', 'web'
@@ -27,7 +27,7 @@ CREATE INDEX idx_push_tokens_platform ON user_push_tokens(platform);
 -- User Notification Settings
 -- ============================================
 CREATE TABLE IF NOT EXISTS user_notification_settings (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID NOT NULL UNIQUE,
     settings JSONB NOT NULL DEFAULT '{
         "enabled": true,
@@ -49,7 +49,7 @@ CREATE INDEX idx_notification_settings_user ON user_notification_settings(user_i
 -- Notification Log (for analytics)
 -- ============================================
 CREATE TABLE IF NOT EXISTS notification_log (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id UUID,
     notification_type VARCHAR(50) NOT NULL,
     title TEXT,
@@ -70,7 +70,7 @@ CREATE INDEX idx_notification_log_sent ON notification_log(sent_at);
 -- Scheduled Notifications (for campaigns)
 -- ============================================
 CREATE TABLE IF NOT EXISTS scheduled_notifications (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
     notification_type VARCHAR(50) NOT NULL,
     title TEXT NOT NULL,
