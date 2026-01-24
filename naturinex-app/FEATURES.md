@@ -158,3 +158,46 @@ CREATE TABLE profiles (
 ### Database Tables
 - `user_devices` - Registered devices per user
 - `security_events` - Audit trail for security events
+
+---
+
+## Production Readiness Status
+
+**Last Audit:** January 23, 2026
+**Status:** ⚠️ NOT READY (4.3/10)
+
+### Critical Issues to Fix
+
+1. **API Key Rotation Required**
+   - Firebase keys were exposed in git history - rotate in Firebase Console
+   - Stripe keys were exposed - rotate in Stripe Dashboard
+   - Generate new JWT_SECRET, SESSION_SECRET, ENCRYPTION_KEY
+
+2. **Environment Variables**
+   - All required variables must be set in production
+   - See `.env.template` for complete list
+   - Add startup validation to fail fast if missing
+
+3. **Rate Limiting**
+   - Currently client-side (can be bypassed)
+   - Move to backend/Supabase Edge Functions
+
+4. **Logging**
+   - Remove console.log statements or use proper logging service
+   - Implement structured logging for production
+
+### What Works
+
+- ✅ Firebase authentication
+- ✅ Supabase database with RLS
+- ✅ Device tracking and management
+- ✅ Screenshot protection (mobile)
+- ✅ PDF export (mobile + web)
+- ✅ Subscription tiers and pricing
+- ✅ pg_cron scheduled jobs
+- ✅ Apple IAP integration
+- ✅ Stripe integration
+
+### See Also
+- `PRODUCTION_READINESS.md` - Detailed audit report
+- `CLAUDE.md` - Claude continuation guide
