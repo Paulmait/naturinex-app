@@ -97,6 +97,9 @@ web-build/
 # Metro bundler
 .metro-health-check*
 
+# Claude Code local settings (may contain secrets in permissions)
+.claude/
+
 # IDE
 .idea/
 .vscode/

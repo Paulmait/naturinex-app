@@ -1,11 +1,9 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-device-id',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS'
-}
+import { getCorsHeaders } from '../_shared/cors.ts'
+
+// CORS headers will be set per-request based on origin
 
 // API cost tracking
 const API_COST_CENTS = 0.2 // $0.002 per request
@@ -13,13 +11,13 @@ const API_COST_CENTS = 0.2 // $0.002 per request
 serve(async (req) => {
   // Handle CORS
   if (req.method === 'OPTIONS') {
-    return new Response(null, { status: 200, headers: corsHeaders })
+    return new Response(null, { status: 200, headers: getCorsHeaders(req) })
   }
 
   if (req.method !== 'POST') {
     return new Response(
       JSON.stringify({ error: 'Method not allowed' }),
-      { status: 405, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      { status: 405, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
     )
   }
 
@@ -49,7 +47,7 @@ serve(async (req) => {
     if (!medication) {
       return new Response(
         JSON.stringify({ error: 'Medication name is required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
       )
     }
 
@@ -57,7 +55,7 @@ serve(async (req) => {
     if (medication.length > 100 || !/^[a-zA-Z0-9\s\-]+$/.test(medication)) {
       return new Response(
         JSON.stringify({ error: 'Invalid medication name' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' } }
       )
     }
 
@@ -192,7 +190,7 @@ serve(async (req) => {
         {
           status: 429,
           headers: {
-            ...corsHeaders,
+            ...getCorsHeaders(req),
             'Content-Type': 'application/json',
             'X-RateLimit-Tier': userTier,
             'X-RateLimit-Remaining': String(remainingScans || 0),
@@ -360,7 +358,7 @@ serve(async (req) => {
       {
         status: 200,
         headers: {
-          ...corsHeaders,
+          ...getCorsHeaders(req),
           'Content-Type': 'application/json',
           'X-RateLimit-Tier': userTier,
           'X-RateLimit-Remaining': String(remainingScans ?? 'unlimited'),
@@ -398,7 +396,7 @@ serve(async (req) => {
       }),
       {
         status: 500,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' }
+        headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' }
       }
     )
   }

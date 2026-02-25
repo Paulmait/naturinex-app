@@ -65,18 +65,15 @@ async function rateLimit(userId: string, endpoint: string, limit: number = 100) 
   }
 }
 
-// CORS headers
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-};
+import { getCorsHeaders } from '../_shared/cors.ts'
+
+// CORS headers will be set per-request based on origin
 
 // Main handler
 serve(async (req) => {
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders });
+    return new Response('ok', { headers: getCorsHeaders(req) });
   }
 
   try {
@@ -99,13 +96,13 @@ serve(async (req) => {
       // Health check
       case path === '/health':
         return new Response(JSON.stringify({ status: 'healthy', timestamp: new Date() }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
         });
 
       // Analyze medication
       case path === '/api/analyze' && req.method === 'POST':
         if (!userId) {
-          return new Response('Unauthorized', { status: 401, headers: corsHeaders });
+          return new Response('Unauthorized', { status: 401, headers: getCorsHeaders(req) });
         }
 
         await rateLimit(userId, 'analyze', 50); // 50 requests per hour
@@ -118,7 +115,7 @@ serve(async (req) => {
 
         if (cached) {
           return new Response(JSON.stringify(cached), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
           });
         }
 
@@ -139,13 +136,13 @@ serve(async (req) => {
         await supabase.rpc('increment_scan_count', { p_user_id: userId });
 
         return new Response(JSON.stringify(analysis), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
         });
 
       // Create checkout session
       case path === '/api/create-checkout-session' && req.method === 'POST':
         if (!userId) {
-          return new Response('Unauthorized', { status: 401, headers: corsHeaders });
+          return new Response('Unauthorized', { status: 401, headers: getCorsHeaders(req) });
         }
 
         const { priceId, successUrl, cancelUrl } = await req.json();
@@ -183,7 +180,7 @@ serve(async (req) => {
         });
 
         return new Response(JSON.stringify({ sessionId: session.id, url: session.url }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
         });
 
       // Webhook handler
@@ -199,7 +196,7 @@ serve(async (req) => {
             Deno.env.get('STRIPE_WEBHOOK_SECRET')!
           );
         } catch (err) {
-          return new Response('Webhook Error', { status: 400, headers: corsHeaders });
+          return new Response('Webhook Error', { status: 400, headers: getCorsHeaders(req) });
         }
 
         // Handle the event
@@ -217,13 +214,13 @@ serve(async (req) => {
         }
 
         return new Response(JSON.stringify({ received: true }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
         });
 
       // Get user stats
       case path === '/api/stats' && req.method === 'GET':
         if (!userId) {
-          return new Response('Unauthorized', { status: 401, headers: corsHeaders });
+          return new Response('Unauthorized', { status: 401, headers: getCorsHeaders(req) });
         }
 
         // Try cache first
@@ -232,7 +229,7 @@ serve(async (req) => {
 
         if (cachedStats) {
           return new Response(JSON.stringify(cachedStats), {
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
           });
         }
 
@@ -247,17 +244,17 @@ serve(async (req) => {
         await redis.set(statsCacheKey, stats, 300);
 
         return new Response(JSON.stringify(stats), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
         });
 
       default:
-        return new Response('Not Found', { status: 404, headers: corsHeaders });
+        return new Response('Not Found', { status: 404, headers: getCorsHeaders(req) });
     }
   } catch (error) {
     console.error('Error:', error);
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...getCorsHeaders(req), 'Content-Type': 'application/json' },
     });
   }
 });
