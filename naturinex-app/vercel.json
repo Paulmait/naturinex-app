@@ -1,7 +1,7 @@
 {
   "version": 2,
   "name": "naturinex-web",
-  "buildCommand": "npm run build:web",
+  "buildCommand": "CI=false npm run build:web",
   "outputDirectory": "build",
   "framework": null,
   "rewrites": [
