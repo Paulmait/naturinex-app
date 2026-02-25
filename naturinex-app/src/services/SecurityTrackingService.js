@@ -8,10 +8,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
-
-// Supabase configuration
-const SUPABASE_URL = 'https://hxhbsxzkzarqwksbjpce.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh4aGJzeHpremFycXdrc2JqcGNlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzM2NjcyNjEsImV4cCI6MjA0OTI0MzI2MX0.D3_dM0VdmqPTN9qEhtuzEMwFXe6rjSsqHOvMcPOqf_o';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '../config/env';
 
 let supabase = null;
 

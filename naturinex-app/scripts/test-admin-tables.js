@@ -4,9 +4,14 @@
 
 const { createClient } = require('@supabase/supabase-js');
 
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY && !process.env.SUPABASE_ANON_KEY) {
+  console.error('Error: Set SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANON_KEY environment variable');
+  process.exit(1);
+}
+
 const supabase = createClient(
-  'https://hxhbsxzkzarqwksbjpce.supabase.co',
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh4aGJzeHpremFycXdrc2JqcGNlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzM2NjcyNjEsImV4cCI6MjA0OTI0MzI2MX0.D3_dM0VdmqPTN9qEhtuzEMwFXe6rjSsqHOvMcPOqf_o'
+  process.env.SUPABASE_URL || 'https://hxhbsxzkzarqwksbjpce.supabase.co',
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY
 );
 
 async function checkTables() {

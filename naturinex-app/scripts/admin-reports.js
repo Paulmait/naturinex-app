@@ -17,10 +17,15 @@
 
 const { createClient } = require('@supabase/supabase-js');
 
-// Supabase configuration
-const SUPABASE_URL = 'https://hxhbsxzkzarqwksbjpce.supabase.co';
+// Supabase configuration - requires environment variables
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://hxhbsxzkzarqwksbjpce.supabase.co';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh4aGJzeHpremFycXdrc2JqcGNlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzM2NjcyNjEsImV4cCI6MjA0OTI0MzI2MX0.D3_dM0VdmqPTN9qEhtuzEMwFXe6rjSsqHOvMcPOqf_o';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+
+if (!SUPABASE_SERVICE_KEY && !SUPABASE_ANON_KEY) {
+  console.error('Error: Set SUPABASE_SERVICE_ROLE_KEY or SUPABASE_ANON_KEY environment variable');
+  process.exit(1);
+}
 
 // Use service key if available, otherwise anon key
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY || SUPABASE_ANON_KEY);
