@@ -32,7 +32,7 @@ FROM public.security_events
 WHERE EXISTS (
     SELECT 1 FROM public.profiles
     WHERE profiles.user_id = auth.uid()
-    AND profiles.role IN ('admin', 'system_admin')
+    AND profiles.role = 'admin'
 );
 
 COMMENT ON VIEW public.security_monitoring_summary IS
@@ -54,17 +54,13 @@ DECLARE
     tbl RECORD;
 BEGIN
     FOR tbl IN
-        SELECT schemaname, tablename
-        FROM pg_tables
-        WHERE schemaname = 'public'
-        AND tablename NOT IN ('schema_migrations', 'spatial_ref_sys')
-        AND NOT EXISTS (
-            SELECT 1 FROM pg_class c
-            JOIN pg_namespace n ON c.relnamespace = n.oid
-            WHERE n.nspname = 'public'
-            AND c.relname = tbl.tablename
-            AND c.relrowsecurity = true
-        )
+        SELECT t.schemaname, t.tablename
+        FROM pg_tables t
+        LEFT JOIN pg_class c ON c.relname = t.tablename
+        LEFT JOIN pg_namespace n ON c.relnamespace = n.oid AND n.nspname = t.schemaname
+        WHERE t.schemaname = 'public'
+        AND t.tablename NOT IN ('schema_migrations', 'spatial_ref_sys')
+        AND (c.relrowsecurity IS NULL OR c.relrowsecurity = false)
     LOOP
         EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', tbl.tablename);
         RAISE NOTICE 'Enabled RLS on public.%', tbl.tablename;
@@ -77,47 +73,11 @@ END $$;
 -- These 23 functions were flagged by the advisor as still having mutable
 -- search_path. Using IF EXISTS to handle functions that may not exist.
 
--- Device & scan functions
-ALTER FUNCTION IF EXISTS public.get_active_device_count(UUID) SET search_path = '';
-ALTER FUNCTION IF EXISTS public.validate_admin_password(TEXT) SET search_path = '';
-ALTER FUNCTION IF EXISTS public.increment_device_scan(TEXT) SET search_path = '';
-ALTER FUNCTION IF EXISTS public.check_device_scan_limit(TEXT) SET search_path = '';
-ALTER FUNCTION IF EXISTS public.register_device(UUID, TEXT, JSONB) SET search_path = '';
-ALTER FUNCTION IF EXISTS public.deregister_device(UUID, TEXT) SET search_path = '';
-
--- Rate limiting functions (different signatures than previously fixed)
-ALTER FUNCTION IF EXISTS public.check_rate_limit(TEXT, INTEGER, NUMERIC) SET search_path = '';
-ALTER FUNCTION IF EXISTS public.check_anonymous_rate_limit(TEXT, TEXT) SET search_path = '';
-ALTER FUNCTION IF EXISTS public.check_user_rate_limit(UUID) SET search_path = '';
-ALTER FUNCTION IF EXISTS public.save_scan_with_retention(UUID, TEXT, JSONB, TEXT, TEXT, TEXT, TEXT) SET search_path = '';
-
--- User engagement & analytics
-ALTER FUNCTION IF EXISTS public.update_user_engagement() SET search_path = '';
-ALTER FUNCTION IF EXISTS public.track_user_activity(UUID, TEXT, JSONB) SET search_path = '';
-ALTER FUNCTION IF EXISTS public.get_user_stats(UUID) SET search_path = '';
-
--- Failed login & password reset
-ALTER FUNCTION IF EXISTS public.track_failed_login(TEXT, TEXT, TEXT) SET search_path = '';
-ALTER FUNCTION IF EXISTS public.track_password_reset(TEXT, BOOLEAN, TEXT) SET search_path = '';
-ALTER FUNCTION IF EXISTS public.cleanup_expired_resets() SET search_path = '';
-
--- Training data functions
-ALTER FUNCTION IF EXISTS public.save_training_data(UUID, TEXT, JSONB, TEXT) SET search_path = '';
-ALTER FUNCTION IF EXISTS public.update_training_stats() SET search_path = '';
-
--- Subscription & billing
-ALTER FUNCTION IF EXISTS public.check_subscription_status(UUID) SET search_path = '';
-ALTER FUNCTION IF EXISTS public.update_subscription_tier(UUID, TEXT) SET search_path = '';
-
--- Security functions
-ALTER FUNCTION IF EXISTS public.log_security_event(UUID, TEXT, TEXT, JSONB) SET search_path = '';
-ALTER FUNCTION IF EXISTS public.check_suspicious_activity(TEXT) SET search_path = '';
-ALTER FUNCTION IF EXISTS public.block_device(TEXT, TEXT) SET search_path = '';
-
--- Catch any remaining functions with mutable search_path
+-- Fix all functions with mutable search_path dynamically
 DO $$
 DECLARE
     func RECORD;
+    fixed_count INTEGER := 0;
 BEGIN
     FOR func IN
         SELECT p.proname, pg_get_function_identity_arguments(p.oid) as args
@@ -134,11 +94,13 @@ BEGIN
                 'ALTER FUNCTION public.%I(%s) SET search_path = %L',
                 func.proname, func.args, ''
             );
-            RAISE NOTICE 'Fixed search_path for function: public.%(%) ', func.proname, func.args;
+            fixed_count := fixed_count + 1;
+            RAISE NOTICE 'Fixed search_path for: public.%(%)', func.proname, func.args;
         EXCEPTION WHEN OTHERS THEN
             RAISE NOTICE 'Could not fix search_path for public.%(%): %', func.proname, func.args, SQLERRM;
         END;
     END LOOP;
+    RAISE NOTICE 'Total functions fixed: %', fixed_count;
 END $$;
 
 -- ============================================================================
@@ -273,7 +235,7 @@ BEGIN
                 tbl
             );
             EXECUTE format(
-                'CREATE POLICY "Admin read access" ON public.%I FOR SELECT TO authenticated USING (EXISTS (SELECT 1 FROM public.profiles WHERE profiles.user_id = auth.uid() AND profiles.role IN (''admin'', ''system_admin'')))',
+                'CREATE POLICY "Admin read access" ON public.%I FOR SELECT TO authenticated USING (EXISTS (SELECT 1 FROM public.profiles WHERE profiles.user_id = auth.uid() AND profiles.role = ''admin''))',
                 tbl
             );
             RAISE NOTICE 'Added policies to public.%', tbl;
@@ -325,7 +287,7 @@ BEGIN
             EXCEPTION WHEN OTHERS THEN
                 -- Table may not have organization_id column - use admin-only policy instead
                 EXECUTE format(
-                    'CREATE POLICY "Org members read access" ON public.%I FOR SELECT TO authenticated USING (EXISTS (SELECT 1 FROM public.profiles WHERE profiles.user_id = auth.uid() AND profiles.role IN (''admin'', ''system_admin'')))',
+                    'CREATE POLICY "Org members read access" ON public.%I FOR SELECT TO authenticated USING (EXISTS (SELECT 1 FROM public.profiles WHERE profiles.user_id = auth.uid() AND profiles.role = ''admin''))',
                     tbl
                 );
             END;
@@ -377,7 +339,7 @@ BEGIN
                     tbl
                 );
                 EXECUTE format(
-                    'CREATE POLICY "Admin read access" ON public.%I FOR SELECT TO authenticated USING (EXISTS (SELECT 1 FROM public.profiles WHERE profiles.user_id = auth.uid() AND profiles.role IN (''admin'', ''system_admin'')))',
+                    'CREATE POLICY "Admin read access" ON public.%I FOR SELECT TO authenticated USING (EXISTS (SELECT 1 FROM public.profiles WHERE profiles.user_id = auth.uid() AND profiles.role = ''admin''))',
                     tbl
                 );
             END IF;
@@ -404,29 +366,21 @@ BEGIN
     -- Check tables without RLS
     SELECT COUNT(*) INTO missing_rls
     FROM pg_tables t
+    LEFT JOIN pg_class c ON c.relname = t.tablename
+    LEFT JOIN pg_namespace n ON c.relnamespace = n.oid AND n.nspname = t.schemaname
     WHERE t.schemaname = 'public'
     AND t.tablename NOT IN ('schema_migrations', 'spatial_ref_sys')
-    AND NOT EXISTS (
-        SELECT 1 FROM pg_class c
-        JOIN pg_namespace n ON c.relnamespace = n.oid
-        WHERE n.nspname = 'public'
-        AND c.relname = t.tablename
-        AND c.relrowsecurity = true
-    );
+    AND (c.relrowsecurity IS NULL OR c.relrowsecurity = false);
     RAISE NOTICE 'Tables without RLS: % (should be 0)', missing_rls;
 
     -- Check tables with RLS but no policies
     SELECT COUNT(*) INTO missing_policies
     FROM pg_tables t
+    JOIN pg_class c ON c.relname = t.tablename
+    JOIN pg_namespace n ON c.relnamespace = n.oid AND n.nspname = t.schemaname
     WHERE t.schemaname = 'public'
     AND t.tablename NOT IN ('schema_migrations', 'spatial_ref_sys')
-    AND EXISTS (
-        SELECT 1 FROM pg_class c
-        JOIN pg_namespace n ON c.relnamespace = n.oid
-        WHERE n.nspname = 'public'
-        AND c.relname = t.tablename
-        AND c.relrowsecurity = true
-    )
+    AND c.relrowsecurity = true
     AND NOT EXISTS (
         SELECT 1 FROM pg_policies p
         WHERE p.schemaname = 'public'
