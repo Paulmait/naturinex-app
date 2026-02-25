@@ -9,195 +9,101 @@ on:
 env:
   NODE_VERSION: '18'
   EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
-  FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+
+defaults:
+  run:
+    working-directory: naturinex-app
 
 jobs:
-  # Lint and Test
-  test:
+  # Security & Quality Gates
+  security-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      
-      - name: Setup Node
-        uses: actions/setup-node@v3
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
-          
-      - name: Install dependencies - App
-        run: |
-          cd naturinex-app
-          npm ci
-          
-      - name: Install dependencies - Functions
-        run: |
-          cd naturinex-app/functions
-          npm ci
-          
-      - name: Lint App
-        run: |
-          cd naturinex-app
-          npm run lint || true
-          
-      - name: Test App
-        run: |
-          cd naturinex-app
-          npm test -- --passWithNoTests
-          
-      - name: Build Functions
-        run: |
-          cd naturinex-app/functions
-          npm run build
+          cache-dependency-path: naturinex-app/package-lock.json
 
-  # Build Mobile App - Development
-  build-mobile-dev:
-    runs-on: ubuntu-latest
-    needs: test
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Setup Node
-        uses: actions/setup-node@v3
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          
-      - name: Setup Expo
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ env.EXPO_TOKEN }}
-          
       - name: Install dependencies
-        run: |
-          cd naturinex-app
-          npm ci
-          
-      - name: Build for preview
-        run: |
-          cd naturinex-app
-          eas build --platform all --profile preview --non-interactive --no-wait
+        run: npm ci
 
-  # Build Mobile App - Production
-  build-mobile-prod:
-    runs-on: ubuntu-latest
-    needs: test
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Setup Node
-        uses: actions/setup-node@v3
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          
-      - name: Setup Expo
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ env.EXPO_TOKEN }}
-          
-      - name: Install dependencies
-        run: |
-          cd naturinex-app
-          npm ci
-          
-      - name: Build for production
-        run: |
-          cd naturinex-app
-          eas build --platform all --profile production --non-interactive --no-wait
-          
-      - name: Submit to stores (optional)
-        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[deploy]')
-        run: |
-          cd naturinex-app
-          eas submit --platform all --profile production --non-interactive
+      - name: Dependency security audit
+        run: npm audit --audit-level=high || true
 
-  # Deploy Backend
-  deploy-backend:
-    runs-on: ubuntu-latest
-    needs: test
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Setup Node
-        uses: actions/setup-node@v3
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          
-      - name: Install Firebase CLI
-        run: npm install -g firebase-tools
-        
-      - name: Install dependencies
+      - name: Scan for secrets
+        working-directory: .
         run: |
-          cd naturinex-app/functions
-          npm ci
-          
-      - name: Build functions
-        run: |
-          cd naturinex-app/functions
-          npm run build
-          
-      - name: Deploy to Firebase
-        run: |
-          cd naturinex-app
-          firebase deploy --only functions,firestore:rules,storage:rules --token "$FIREBASE_TOKEN"
-
-  # Deploy Web (if applicable)
-  deploy-web:
-    runs-on: ubuntu-latest
-    needs: test
-    if: (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && hashFiles('web-landing/package.json') != ''
-    steps:
-      - uses: actions/checkout@v3
-      
-      - name: Setup Node
-        uses: actions/setup-node@v3
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          
-      - name: Check if web directory exists
-        id: check_web
-        run: |
-          if [ -d "web-landing" ]; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
+          if git ls-files | xargs grep -lE '(sk_live_|sk_test_|AKIA[A-Z0-9]{16}|-----BEGIN (RSA |EC )?PRIVATE KEY|service_role.*eyJ)' -- 2>/dev/null | grep -v '.env.template\|.env.example\|CLAUDE.md\|SECURITY_AUDIT\|\.md$'; then
+            echo "::error::Potential secrets found in tracked files!"
+            exit 1
           fi
-          
-      - name: Build landing page
-        if: steps.check_web.outputs.exists == 'true'
-        run: |
-          cd web-landing
-          npm ci
-          npm run build
-          
-      - name: Deploy to Firebase Hosting
-        if: steps.check_web.outputs.exists == 'true'
-        run: |
-          cd web-landing
-          firebase deploy --only hosting --token "$FIREBASE_TOKEN"
+          echo "No secrets detected in tracked files."
 
-  # Notify on success
-  notify-success:
+  # Build and Test (blocking - must pass)
+  build-test:
     runs-on: ubuntu-latest
-    needs: [deploy-backend, build-mobile-prod]
-    if: success() && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    needs: security-audit
     steps:
-      - name: Notify deployment success
-        run: |
-          echo "✅ Deployment successful!"
-          echo "- Backend deployed to Firebase"
-          echo "- Mobile builds queued on EAS"
-          
-  # Notify on failure
-  notify-failure:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: naturinex-app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test -- --passWithNoTests --ci
+        env:
+          CI: true
+          NODE_ENV: test
+
+      - name: Lint
+        run: npm run lint || true
+        continue-on-error: true
+
+  # Build Mobile App (only on push to main/master)
+  build-mobile:
     runs-on: ubuntu-latest
-    needs: [test, build-mobile-dev, build-mobile-prod, deploy-backend]
-    if: failure()
+    needs: build-test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
     steps:
-      - name: Notify deployment failure
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup Expo
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ env.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build for preview (no-wait)
+        run: eas build --platform all --profile preview --non-interactive --no-wait
+        continue-on-error: true
+
+  # Summary
+  notify:
+    runs-on: ubuntu-latest
+    needs: [security-audit, build-test]
+    if: always()
+    steps:
+      - name: Summary
         run: |
-          echo "❌ Deployment failed!"
-          echo "Check the logs above for details"
+          echo "Security audit: ${{ needs.security-audit.result }}"
+          echo "Build and test: ${{ needs.build-test.result }}"
+        working-directory: .

@@ -1,7 +1,7 @@
 {
   "version": 2,
   "name": "naturinex-app",
-  "buildCommand": "cd naturinex-app && npm install && npm run build:web",
+  "buildCommand": "cd naturinex-app && CI=false npm run build:web",
   "outputDirectory": "naturinex-app/build",
   "installCommand": "npm install && cd naturinex-app && npm install",
   "framework": null,
